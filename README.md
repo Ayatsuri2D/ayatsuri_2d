@@ -87,6 +87,23 @@ These badges always show the newest version.
 > warn: choose **More info**, then **Run anyway**. Every release lists SHA-256
 > checksums in `SHA256SUMS.txt`.
 
+### Verify a download
+
+`SHA256SUMS.txt` and the `.rpm` are signed with the Ayatsuri2D release key,
+[`packaging/linux/ayatsuri2d-signing-key.asc`](packaging/linux/ayatsuri2d-signing-key.asc).
+To check a download, put it next to `SHA256SUMS.txt` and `SHA256SUMS.txt.asc`
+from the same release, then:
+
+```sh
+gpg --import ayatsuri2d-signing-key.asc
+gpg --verify SHA256SUMS.txt.asc SHA256SUMS.txt
+sha256sum --check --ignore-missing SHA256SUMS.txt
+```
+
+The first command should say *Good signature*, the last *OK* for your file.
+For the `.rpm` on its own: `sudo rpm --import ayatsuri2d-signing-key.asc`,
+then `rpm --checksig` on the file.
+
 ### System requirements
 
 | | Minimum | Recommended |
