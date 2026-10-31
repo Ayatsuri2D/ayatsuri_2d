@@ -8,6 +8,8 @@
 #
 # Usage: packaging/linux/package.sh [--skip-build] [--formats "tar deb rpm appimage"]
 # Formats whose tool is missing are skipped with a note, so a plain dev box still gets the tar.
+# With RPM_SIGNING_KEY set (a file holding the release key's private half) the .rpm is signed;
+# nfpm reads the passphrase from NFPM_RPM_PASSPHRASE.
 # Build on an old distro (CI: Ubuntu 22.04, glibc 2.35) so the binaries run on newer ones.
 set -euo pipefail
 . "$(dirname "${BASH_SOURCE[0]}")/../env.sh"
@@ -76,6 +78,10 @@ for fmt in deb rpm; do
     continue
   fi
   sed "s|\${STAGE}|$STAGE|g" "$HERE/nfpm.yaml" >"$WORK/nfpm.yaml"
+  if [ "$fmt" = rpm ] && [ -n "${RPM_SIGNING_KEY:-}" ]; then
+    printf 'rpm:\n  signature:\n    key_file: %s\n' "$RPM_SIGNING_KEY" >>"$WORK/nfpm.yaml"
+    echo "signing the .rpm with the release key"
+  fi
   nfpm package -f "$WORK/nfpm.yaml" -p "$fmt" -t "$DIST/$BASENAME.$fmt"
   echo "wrote $DIST/$BASENAME.$fmt"
 done

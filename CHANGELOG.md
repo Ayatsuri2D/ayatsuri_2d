@@ -74,6 +74,11 @@
   as Ctrl+R for Auto connect edges no longer fires by accident. Reset
   brings the default back.
 
+- **Signed Linux releases**: `SHA256SUMS.txt` comes with a signature,
+  `SHA256SUMS.txt.asc`, and the `.rpm` is signed, both with the Ayatsuri2D
+  release key in `packaging/linux/ayatsuri2d-signing-key.asc`. The README
+  shows how to check a download.
+
 ### Fixed
 
 - **Select children picks everything under the deformer**: it only picked

@@ -3,6 +3,14 @@ name: Release
 # Push a tag like v0.5.1 (or run by hand) to build every platform and put
 # the packages on a DRAFT pre-release. Nothing is public until someone
 # opens the draft on GitHub and presses Publish.
+#
+# Signing: the .rpm and SHA256SUMS.txt are signed with the release key,
+# whose public half is packaging/linux/ayatsuri2d-signing-key.asc. Its
+# private half and passphrase are secrets of the release-signing
+# environment (RELEASE_GPG_KEY, RELEASE_GPG_PASSPHRASE), so only the jobs
+# naming it can read them. The key in the secret must match the committed
+# public key, or the run fails. Without the secrets the files go out
+# unsigned, with a warning.
 on:
   push:
     tags: ["v*"]
@@ -19,10 +27,15 @@ jobs:
     name: Linux x86_64 (tar.gz, deb, rpm, AppImage)
     # oldest supported runner, so the binaries run on newer glibc too
     runs-on: ubuntu-22.04
+    environment: release-signing
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
+      - name: Release key
+        env:
+          RELEASE_GPG_KEY: ${{ secrets.RELEASE_GPG_KEY }}
+        run: .github/scripts/release-key.sh
       - name: Packaging tools
         run: |
           sudo apt-get update
@@ -33,7 +46,11 @@ jobs:
         env:
           APPIMAGETOOL_URL: https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-x86_64.AppImage
           APPIMAGE_EXTRACT_AND_RUN: "1"
-        run: packaging/linux/package.sh
+          NFPM_RPM_PASSPHRASE: ${{ secrets.RELEASE_GPG_PASSPHRASE }}
+        run: |
+          [ -f "$RUNNER_TEMP/release-key.asc" ] && export RPM_SIGNING_KEY="$RUNNER_TEMP/release-key.asc"
+          packaging/linux/package.sh
+          rm -f "$RUNNER_TEMP/release-key.asc"
       - uses: actions/upload-artifact@v4
         with:
           name: linux
@@ -120,6 +137,7 @@ jobs:
     name: Draft pre-release
     needs: [linux, windows, macos, sdk]
     runs-on: ubuntu-latest
+    environment: release-signing
     steps:
       - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
@@ -128,6 +146,27 @@ jobs:
           merge-multiple: true
       - name: Checksums
         run: cd dist && sha256sum * > SHA256SUMS.txt && cat SHA256SUMS.txt
+      - name: Release key
+        env:
+          RELEASE_GPG_KEY: ${{ secrets.RELEASE_GPG_KEY }}
+        run: .github/scripts/release-key.sh
+      - name: Sign the checksums
+        env:
+          RELEASE_GPG_PASSPHRASE: ${{ secrets.RELEASE_GPG_PASSPHRASE }}
+        run: |
+          KEY="$RUNNER_TEMP/release-key.asc"
+          [ -f "$KEY" ] || { echo "::warning::no release key, SHA256SUMS.txt goes out unsigned"; exit 0; }
+          export GNUPGHOME="$RUNNER_TEMP/gnupg"
+          mkdir -m700 -p "$GNUPGHOME"
+          gpg --batch --import "$KEY"
+          printf '%s' "$RELEASE_GPG_PASSPHRASE" | gpg --batch --pinentry-mode loopback --passphrase-fd 0 \
+            --armor --detach-sign -o dist/SHA256SUMS.txt.asc dist/SHA256SUMS.txt
+          rm -rf "$GNUPGHOME" "$KEY"
+          # checked against the committed public key alone, as a user would
+          export GNUPGHOME="$RUNNER_TEMP/verify"
+          mkdir -m700 -p "$GNUPGHOME"
+          gpg --batch --import packaging/linux/ayatsuri2d-signing-key.asc
+          gpg --batch --verify dist/SHA256SUMS.txt.asc dist/SHA256SUMS.txt
       - name: Create or update the draft
         env:
           GH_TOKEN: ${{ github.token }}
