@@ -126,6 +126,12 @@
   not a dialog in this sense, so S (Solo) and the tool keys work in Mesh
   Edit, and Solo there shows every mesh being edited.
 
+### Thanks
+
+- **[@seoriboi](https://github.com/seoriboi)** and
+  **[RikaYamano](https://www.twitch.tv/rikayamanovt)** suggested features
+  and reported bugs for this version. Thank you!
+
 ## 0.6.0 (2026-10-29)
 
 Blend shapes, the feature promised for the end of October: on every kind
