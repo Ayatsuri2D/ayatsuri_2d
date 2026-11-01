@@ -1,6 +1,12 @@
 # Changelog
 
-## Unreleased
+## 0.6.1 (2026-11-01)
+
+Requests from Discord testing: texture atlas pieces that scale and turn,
+copy and paste for deformers, Edit Mesh on several meshes, Breath, wire
+colours, deleting edges by dragging, and a run of fixes, among them
+rotation deformers that now turn one keyform at a time. Linux downloads
+are now signed.
 
 ### Added
 
