@@ -2011,6 +2011,46 @@ mod tests {
         assert!((at(&p, 0).unwrap().0[0] - 2.0).abs() < 1e-4);
     }
 
+    /// The handle turns the keyform the parameters sit on, as in Cubism:
+    /// keyed to ParamX at 0 and 1, a turn at 1 leaves the key at 0 alone.
+    #[test]
+    fn a_rotation_turns_in_one_keyform() {
+        use ayatsuri_format::model::{Deformer, RotationData};
+        use edit::Target;
+        let mut model = one_param_model();
+        model.deformers.push(Deformer {
+            id: "R".into(),
+            parent_part: None,
+            parent_deformer: None,
+            visible: true,
+            enabled: true,
+            binding: Default::default(),
+            kind: DeformerKind::Rotation(RotationData {
+                base_angle: 0.0,
+                opacities: vec![1.0],
+                angles: vec![0.0],
+                origins_x: vec![0.0],
+                origins_y: vec![0.0],
+                scales: vec![1.0],
+                reflect_x: vec![false],
+                reflect_y: vec![false],
+            }),
+            multiply: Vec::new(),
+            screen: Vec::new(),
+            blend_shapes: Vec::new(),
+        });
+        let r = Target::Deformer(0);
+        assert!(edit::add_keys(&mut model, r, 0, &[0.0, 1.0]));
+        let k = keyform::keyform_at(&model, r, &[1.0]).unwrap();
+        assert!(edit::rotate_rotation_at(&mut model, 0, k, 30.0));
+        let DeformerKind::Rotation(rd) = &model.deformers[0].kind else { unreachable!() };
+        let at0 = keyform::keyform_at(&model, r, &[0.0]).unwrap();
+        assert_eq!(rd.angles[k], 30.0);
+        assert_eq!(rd.angles[at0], 0.0);
+        // between the keys there is no keyform to turn
+        assert_eq!(keyform::keyform_at(&model, r, &[0.5]), None);
+    }
+
     #[test]
     fn deformer_blend_shapes_are_keyed_and_edited_like_meshes() {
         use ayatsuri_format::model::{Deformer, RotationData, WarpData};
@@ -2062,7 +2102,7 @@ mod tests {
         assert!(edit::move_warp_points(&mut model, 0, Some(k), &[(0, 1.0, 0.0)]));
         assert!(edit::set_opacity(&mut model, w, k, 0.5));
         let kr = keyform::keyform_at(&model, r, &values).unwrap();
-        assert!(edit::rotate_rotation_at(&mut model, 1, Some(kr), 30.0));
+        assert!(edit::rotate_rotation_at(&mut model, 1, kr, 30.0));
         // the normal keyforms are untouched
         let DeformerKind::Warp(wd) = &model.deformers[0].kind else { unreachable!() };
         assert_eq!(wd.positions[0], 0.0);

@@ -130,6 +130,12 @@
   without Ctrl or Alt (the tool picks) stay quiet. The Edit Mesh panel is
   not a dialog in this sense, so S (Solo) and the tool keys work in Mesh
   Edit, and Solo there shows every mesh being edited.
+- **A rotation deformer turns in one keyform**: dragging its handle turned
+  every keyform at once, so a key set at one parameter value showed the
+  same angle at all the others and the parameter rotated nothing. The
+  turn now goes into the keyform the parameters sit on, as in Cubism,
+  and between keys it says to move onto one first. Ctrl+drag still turns
+  the deformer on every keyform while what it holds stays put.
 
 ### Thanks
 
