@@ -3482,23 +3482,30 @@ pub fn move_rotation_pivot(
     true
 }
 
-/// Turn a rotation deformer by `degrees`: on every keyform, or with a
-/// shape keyform given (a blend shape parameter on one of its keys), on
-/// that one only.
+/// Turn a rotation deformer by `degrees` in one keyform, as Cubism's
+/// handle does: the keyform the parameters sit on, or a blend shape
+/// keyform (a blend shape parameter on one of its keys).
 pub fn rotate_rotation_at(
     model: &mut Model,
     deformer: usize,
-    keyform: Option<usize>,
+    keyform: usize,
     degrees: f32,
 ) -> bool {
     let target = Target::Deformer(deformer);
-    match keyform.filter(|&k| k >= crate::shapes::normal_count(model, target)) {
-        Some(k) => crate::shapes::channel_mut(model, target, k, crate::blendshape::Channel::Angle)
-            .and_then(|a| a.first_mut())
-            .map(|a| *a += degrees)
-            .is_some(),
-        None => rotate_rotation(model, deformer, degrees),
+    if keyform >= crate::shapes::normal_count(model, target) {
+        return crate::shapes::channel_mut(
+            model,
+            target,
+            keyform,
+            crate::blendshape::Channel::Angle,
+        )
+        .and_then(|a| a.first_mut())
+        .map(|a| *a += degrees)
+        .is_some();
     }
+    let Some(d) = model.deformers.get_mut(deformer) else { return false };
+    let DeformerKind::Rotation(r) = &mut d.kind else { return false };
+    r.angles.get_mut(keyform).map(|a| *a += degrees).is_some()
 }
 
 /// Cubism's Ctrl+drag on a rotation deformer's handle: the deformer turns

@@ -13759,12 +13759,21 @@ impl EditorUi {
                                 {
                                     self.rot_live = Some((di, a.to_vec()));
                                 }
+                                let values: Vec<f32> = (0..s.puppet.model().parameters.len())
+                                    .map(|i| s.puppet.value(i))
+                                    .collect();
+                                let at = ayatsuri_core::keyform::keyform_at(
+                                    s.puppet.model(),
+                                    ayatsuri_core::edit::Target::Deformer(di),
+                                    &values,
+                                );
+                                let turn = d.turn(shift_now);
                                 if let Some((_, base)) = &self.rot_live
                                     && let Some(a) = s.puppet.rotation_angles_mut(di)
                                     && a.len() == base.len()
                                 {
-                                    for (x, b) in a.iter_mut().zip(base) {
-                                        *x = b + d.turn(shift_now);
+                                    for (k, (x, b)) in a.iter_mut().zip(base).enumerate() {
+                                        *x = if at == Some(k) { b + turn } else { *b };
                                     }
                                     s.dirty = true;
                                 }
@@ -13956,28 +13965,28 @@ impl EditorUi {
                                 }
                             } else if d.turning && deg.abs() > 1e-3 {
                                 let dfm = d.deformer;
-                                // with a blend shape parameter on a key, only
-                                // that shape keyform turns
+                                // only the keyform the parameters sit on turns
+                                // (a blend shape's, with its parameter on a key)
                                 let values: Vec<f32> = (0..s.puppet.model().parameters.len())
                                     .map(|i| s.puppet.value(i))
                                     .collect();
-                                let target = ayatsuri_core::edit::Target::Deformer(dfm);
-                                let shaped = ayatsuri_core::keyform::editing_blend_shape(
+                                match ayatsuri_core::keyform::keyform_at(
                                     s.puppet.model(),
-                                    target,
+                                    ayatsuri_core::edit::Target::Deformer(dfm),
                                     &values,
-                                )
-                                .and_then(|_| {
-                                    ayatsuri_core::keyform::keyform_at(
-                                        s.puppet.model(),
-                                        target,
-                                        &values,
-                                    )
-                                });
-                                if s.edit(|m| {
-                                    ayatsuri_core::edit::rotate_rotation_at(m, dfm, shaped, deg)
-                                }) {
-                                    log::debug!("rotation {dfm} turned {deg:.2} deg");
+                                ) {
+                                    Some(k) => {
+                                        if s.edit(|m| {
+                                            ayatsuri_core::edit::rotate_rotation_at(m, dfm, k, deg)
+                                        }) {
+                                            log::debug!(
+                                                "rotation {dfm} turned {deg:.2} deg in keyform {k}"
+                                            );
+                                        }
+                                    }
+                                    None => log::warn!(
+                                        "the parameters are between keys: move them onto a key to turn this rotation deformer"
+                                    ),
                                 }
                             } else if !d.turning && !d.keep && (d.dx != 0.0 || d.dy != 0.0) {
                                 log::warn!(
