@@ -22,6 +22,7 @@ pub mod deform;
 pub mod draworder;
 pub mod edit;
 pub mod keyform;
+pub mod original;
 pub mod overlap;
 pub mod palette;
 pub mod physics;
@@ -1803,6 +1804,7 @@ mod tests {
             art_paths: Vec::new(),
             art_path_colors: Vec::new(),
             art_path_page: None,
+            original_shapes: Vec::new(),
             clip_groups: Vec::new(),
         }
     }

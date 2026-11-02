@@ -598,6 +598,42 @@ pub struct Model {
     pub art_path_colors: Vec<[u8; 4]>,
     #[serde(default)]
     pub art_path_page: Option<u32>,
+    /// What Revert to Original puts objects back to (Cubism 5.2), at most
+    /// one per art mesh or deformer.
+    #[serde(default)]
+    pub original_shapes: Vec<OriginalShape>,
+}
+
+/// How an original shape was taken.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub enum OriginalHow {
+    /// When the deformer was made.
+    #[default]
+    Created,
+    /// When a key was added to it.
+    KeyAdded,
+    /// By Update Original Shape.
+    Manual,
+}
+
+/// An object's shape on the canvas as it was drawn when taken: a mesh's
+/// vertices, a warp's grid, or a rotation's origin x, origin y, angle and
+/// scale. Kept by id, like [`ArtPath`]; one whose point count no longer
+/// matches its object is ignored.
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+#[serde(default)]
+pub struct OriginalShape {
+    /// The art mesh's or deformer's id.
+    pub id: String,
+    /// A deformer's (ids of meshes and deformers may be the same).
+    pub deformer: bool,
+    #[serde(with = "f32_bin")]
+    pub points: Vec<f32>,
+    pub how: OriginalHow,
+    /// Seconds since 1970.
+    pub time: u64,
+    /// Taken again each time a key is added (deformers only).
+    pub auto: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

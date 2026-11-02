@@ -14,6 +14,7 @@ use crate::point_edit;
 
 mod api_bar;
 mod deformer_dialog;
+mod original;
 mod param_menu;
 mod physics_page;
 mod skin_dialog;
@@ -3857,6 +3858,41 @@ impl EditorUi {
                             ui.close();
                             self.run_param_cmd(ParamCmd::FourCorners);
                         }
+                        ui.separator();
+                        let has = self.has_original_targets();
+                        for (label, id, hint, on) in [
+                            (
+                                "Revert to Original",
+                                "revert-original",
+                                "Put the selected objects back to their original shape, in the keyform the parameters sit on",
+                                has,
+                            ),
+                            (
+                                "Update Original Shape",
+                                "update-original",
+                                "Take the selected objects' shapes as they are drawn now as their original shape",
+                                has,
+                            ),
+                            (
+                                "Delete Original Shape of All Deformers",
+                                "clear-originals",
+                                "Forget every deformer's original shape: they revert to the default pose",
+                                self.session.is_some(),
+                            ),
+                        ] {
+                            if ui
+                                .add_enabled(
+                                    on,
+                                    egui::Button::new(crate::i18n::tr(label))
+                                        .shortcut_text(self.sc(id)),
+                                )
+                                .on_hover_text(crate::i18n::tr(hint))
+                                .clicked()
+                            {
+                                ui.close();
+                                self.original_cmd(id);
+                            }
+                        }
                     });
                     let can_temp = self.can_temp_deform();
                     ui.menu_button(crate::i18n::tr("Temporary Deform Tool"), |ui| {
@@ -6037,10 +6073,23 @@ impl EditorUi {
         if let Some(s) = &mut self.session {
             let pid =
                 s.puppet.model().parameters.get(param).map(|p| p.id.clone()).unwrap_or_default();
+            // the shapes before the keys, for objects that take an original
+            // shape when a key is added
+            let shapes = original::shapes_to_take(
+                s,
+                &targets,
+                ayatsuri_format::model::OriginalHow::KeyAdded,
+            );
+            let time = original::now();
             let mut n = 0;
             s.edit(|m| {
                 for &t in &targets {
-                    n += ayatsuri_core::edit::add_keys(m, t, param, &values) as usize;
+                    let added = ayatsuri_core::edit::add_keys(m, t, param, &values);
+                    if added && let Some((_, p)) = shapes.iter().find(|(st, _)| *st == t) {
+                        let how = ayatsuri_format::model::OriginalHow::KeyAdded;
+                        ayatsuri_core::original::record(m, t, p.clone(), how, time);
+                    }
+                    n += added as usize;
                 }
                 n > 0
             });
@@ -7539,6 +7588,9 @@ impl EditorUi {
             }
             "copy-form" => self.copy_form(),
             "paste-form" => self.paste_form(),
+            "revert-original" | "update-original" | "clear-originals" if have => {
+                self.original_cmd(id);
+            }
             "new-animation" if have => self.open_new_anim(false),
             "new-composition" if have => self.open_new_anim(true),
             "export-animation" if have => {
@@ -11067,6 +11119,8 @@ impl EditorUi {
                         log::debug!("mesh {i} properties changed");
                     }
                 }
+                ui.separator();
+                original::inspector_rows(ui, s, ayatsuri_core::edit::Target::ArtMesh(i));
             }
             Some(Sel::Deformer(i)) => {
                 let name = s.deformer_names.get(i).cloned().unwrap_or_default();
@@ -11139,6 +11193,8 @@ impl EditorUi {
                     &mut self.color_pick,
                     &mut self.color_picked,
                 );
+                ui.separator();
+                original::inspector_rows(ui, s, ayatsuri_core::edit::Target::Deformer(i));
             }
             Some(Sel::Part(i)) => {
                 let Some(p) = s.puppet.model().parts.get(i) else { return };
@@ -17129,6 +17185,9 @@ pub(crate) const KEY_ACTIONS: &[(&str, &str, &str, egui::Modifiers, egui::Key)] 
         ("Edit", "search", "Search", C, K::F),
         ("Edit", "copy-form", "Copy form", CS, K::C),
         ("Edit", "paste-form", "Paste form", CS, K::V),
+        ("Modeling", "revert-original", "Revert to Original", N, K::F35),
+        ("Modeling", "update-original", "Update Original Shape", N, K::F35),
+        ("Modeling", "clear-originals", "Delete Original Shape of All Deformers", N, K::F35),
         ("Modeling", "select-children", "Select deformer child elements", CA, K::D),
         ("Modeling", "delete-deformer-content", "Delete deformer and its content", C, K::Delete),
         ("Modeling", "lock-unselected", "Lock unselected", CS, K::Num2),

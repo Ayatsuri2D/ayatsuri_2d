@@ -2000,6 +2000,7 @@ pub fn rename_deformer(model: &mut Model, deformer: usize, id: &str) -> bool {
     }
     match model.deformers.get_mut(deformer) {
         Some(d) => {
+            crate::original::rename(&mut model.original_shapes, true, &d.id, id);
             d.id = id.to_string();
             true
         }
@@ -2015,6 +2016,7 @@ pub fn rename_art_mesh(model: &mut Model, mesh: usize, id: &str) -> bool {
     }
     match model.art_meshes.get_mut(mesh) {
         Some(m) => {
+            crate::original::rename(&mut model.original_shapes, false, &m.id, id);
             m.id = id.to_string();
             true
         }
@@ -4397,6 +4399,7 @@ mod tests {
             art_paths: Vec::new(),
             art_path_colors: Vec::new(),
             art_path_page: None,
+            original_shapes: Vec::new(),
             clip_groups: Vec::new(),
         }
     }

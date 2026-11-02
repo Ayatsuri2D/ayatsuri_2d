@@ -884,6 +884,8 @@ mod tests {
                 }
             }
         }
+        // no field added since 0.6.0 (`original_shapes`, the 13th) either
+        model.truncate(12);
         model.remove(7);
         let mut out = Vec::new();
         rmpv::encode::write_value(&mut out, &v).unwrap();
