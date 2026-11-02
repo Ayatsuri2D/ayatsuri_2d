@@ -403,6 +403,13 @@ impl EditorUi {
         });
         match made {
             Some(di) => {
+                // its original shape, folded into the undo step that made it
+                let t = ayatsuri_core::edit::Target::Deformer(di);
+                if let Some(p) = ayatsuri_core::original::shape_now(&s.puppet, t) {
+                    let time = super::original::now();
+                    let how = ayatsuri_format::model::OriginalHow::Created;
+                    s.amend(|m| ayatsuri_core::original::record(m, t, p, how, time));
+                }
                 // what it holds now, against what was asked
                 let model = s.puppet.model();
                 let d32 = Some(di as u32);

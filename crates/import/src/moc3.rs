@@ -708,6 +708,7 @@ pub fn from_moc3(bytes: &[u8]) -> Result<Model, ImportError> {
         art_paths: Vec::new(),
         art_path_colors: Vec::new(),
         art_path_page: None,
+        original_shapes: Vec::new(),
         clip_groups: Vec::new(),
     };
     read_blend_shapes(&moc, &mut model, &coords, &m_pos_begin);

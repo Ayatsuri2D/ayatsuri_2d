@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+### Added
+
+- **Revert to Original** (Modeling > Edit Form), as in Cubism 5.2: the
+  selected meshes and deformers go back to their original shape in the
+  keyform the parameters sit on, wherever their parents have moved since.
+  A deformer's original shape is taken when it is made and each time a key
+  is added (untick Auto update in the Inspector to keep it); a mesh's when
+  its first key is added, which is the art as imported. Update Original
+  Shape takes it by hand, Delete Original Shape of All Deformers forgets
+  them, and an object with none goes back to its default pose. The
+  Inspector shows when each was taken.
+
 ### Changed
 
 - The project moved to a private repository,
