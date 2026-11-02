@@ -7,7 +7,7 @@ the [code of conduct](CODE_OF_CONDUCT.md).
 
 ## Reporting a bug
 
-[Open an issue](https://github.com/Yoru-KenomoVT/ayatsuri_2d/issues), or
+[Open an issue](https://github.com/unnamed-yokai0-0/ayatsuri_2d/issues), or
 email [support@ayatsuri-2d.org](mailto:support@ayatsuri-2d.org), with:
 
 - what you did, what you expected, and what happened instead;

@@ -341,6 +341,27 @@ impl EditorUi {
                 }
             },
         );
+        // the releases are private: the key from the Discord server opens them
+        let id = ui.make_persistent_id("github-key");
+        let mut key = ui
+            .data_mut(|d| d.get_temp::<String>(id))
+            .unwrap_or_else(|| ayatsuri_update::key().unwrap_or_default());
+        row(
+            ui,
+            crate::i18n::tr("GitHub key"),
+            crate::i18n::tr("From the Discord server; lets Ayatsuri2D find and download updates"),
+            |ui| {
+                let saved = ayatsuri_update::key().unwrap_or_default() == key.trim();
+                if ui.add_enabled(!saved, egui::Button::new(crate::i18n::tr("Save"))).clicked() {
+                    match ayatsuri_update::set_key(&key) {
+                        Ok(()) => log::info!("update: GitHub key saved"),
+                        Err(e) => log::warn!("update: the GitHub key was not saved: {e}"),
+                    }
+                }
+                ui.add(egui::TextEdit::singleline(&mut key).password(true).desired_width(220.0));
+            },
+        );
+        ui.data_mut(|d| d.insert_temp(id, key));
         let mut ask = !self.prefs.ffmpeg_prompt_off;
         row(
             ui,

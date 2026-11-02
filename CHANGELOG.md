@@ -1,5 +1,17 @@
 # Changelog
 
+## Unreleased
+
+### Changed
+
+- The project moved to a private repository,
+  github.com/unnamed-yokai0-0/ayatsuri_2d, and every link in the app,
+  README and packages points there.
+- Updates need the GitHub key from the Discord server: paste it into
+  Settings > Updates > GitHub key. The update check and downloads send it
+  to GitHub's API only, and it is kept in the preferences folder (readable
+  only by you on Linux). Without a key, the check says where to get one.
+
 ## 0.6.1 (2026-11-01)
 
 Requests from Discord testing: texture atlas pieces that scale and turn,

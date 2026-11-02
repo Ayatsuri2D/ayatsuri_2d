@@ -130,6 +130,21 @@ fn wanted_suffix(install: &Install) -> Option<String> {
 pub struct Asset {
     pub name: String,
     pub browser_download_url: String,
+    /// The API address of the file: the only one a private release can be
+    /// downloaded from with a key.
+    #[serde(default)]
+    pub url: String,
+}
+
+/// A request for `asset`: through the API with the saved key when there is
+/// one, else the plain download link.
+fn asset_request(asset: &Asset) -> ureq::RequestBuilder<ureq::typestate::WithoutBody> {
+    let req = if crate::key().is_some() && !asset.url.is_empty() {
+        crate::with_key(ureq::get(&asset.url).header("Accept", "application/octet-stream"))
+    } else {
+        ureq::get(&asset.browser_download_url)
+    };
+    req.header("User-Agent", &format!("Ayatsuri2D/{}", env!("CARGO_PKG_VERSION")))
 }
 
 /// What an update did.
@@ -145,9 +160,9 @@ pub enum Installed {
 const MAX_ARTEFACT: u64 = 256 * 1024 * 1024;
 const MAX_MANIFEST: u64 = 256 * 1024;
 
-fn get(url: &str, limit: u64) -> Result<Vec<u8>, String> {
-    ureq::get(url)
-        .header("User-Agent", &format!("Ayatsuri2D/{}", env!("CARGO_PKG_VERSION")))
+fn get(asset: &Asset, limit: u64) -> Result<Vec<u8>, String> {
+    let url = &asset.browser_download_url;
+    asset_request(asset)
         .call()
         .map_err(|e| format!("could not download {url}: {e}"))?
         .body_mut()
@@ -198,15 +213,13 @@ pub fn install_counted(
         .iter()
         .find(|a| a.name.ends_with(&suffix))
         .ok_or("the release has no build for this system yet")?;
-    let sums = String::from_utf8(get(&sums.browser_download_url, MAX_MANIFEST)?)
-        .map_err(|_| "SHA256SUMS.txt is not text")?;
+    let sums =
+        String::from_utf8(get(sums, MAX_MANIFEST)?).map_err(|_| "SHA256SUMS.txt is not text")?;
     let want = digest_for(&sums, &artefact.name)
         .ok_or_else(|| format!("SHA256SUMS.txt has no line for {}", artefact.name))?;
     let url = &artefact.browser_download_url;
-    let mut resp = ureq::get(url)
-        .header("User-Agent", &format!("Ayatsuri2D/{}", env!("CARGO_PKG_VERSION")))
-        .call()
-        .map_err(|e| format!("could not download {url}: {e}"))?;
+    let mut resp =
+        asset_request(artefact).call().map_err(|e| format!("could not download {url}: {e}"))?;
     let bytes = crate::read_counted(&mut resp, MAX_ARTEFACT, progress)?;
     verify(&bytes, &want)?;
 
