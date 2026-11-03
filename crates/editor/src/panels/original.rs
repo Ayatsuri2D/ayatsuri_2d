@@ -62,7 +62,8 @@ pub(super) fn inspector_rows(ui: &mut Ui, s: &mut Session, t: Target) {
             };
             format!("{} ({how})", date(o.time))
         }
-        _ => crate::i18n::tr("Default pose").to_string(),
+        _ if matches!(t, Target::Deformer(_)) => crate::i18n::tr("Uncreated").to_string(),
+        _ => crate::i18n::tr("Uncreated (default pose)").to_string(),
     };
     ui.horizontal(|ui| {
         ui.add_sized(
@@ -74,7 +75,7 @@ pub(super) fn inspector_rows(ui: &mut Ui, s: &mut Session, t: Target) {
             ),
         );
         ui.label(egui::RichText::new(text).size(11.0)).on_hover_text(crate::i18n::tr(
-            "What Revert to Original puts it back to. With nothing taken, its shape at every parameter's default",
+            "What Revert to Original puts it back to. Taken when it is made and when its first key is added; a mesh with none goes back to its shape at every parameter's default",
         ));
     });
     if matches!(t, Target::Deformer(_)) {

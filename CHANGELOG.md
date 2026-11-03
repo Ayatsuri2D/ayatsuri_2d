@@ -37,6 +37,10 @@
 - Exported textures no longer draw a dark line along every mesh's edge in
   VTube Studio. The clear pixels around the art were black, and runtimes
   blend them into the edge; they now take the colour of the nearest art.
+- Revert to Original follows Cubism's rules for when a shape is taken: a
+  key added takes it only on an object with no keys yet, so a deformer
+  keyed while bent no longer takes the bend as its original. A deformer
+  with nothing recorded shows Uncreated and Revert leaves it alone.
 - The texture atlas no longer darkens the soft edge of art it scales, which
   drew a thin dark line wherever one part lies over another, in the editor
   and in VTube Studio. A scaled piece mixed the clear black around its art

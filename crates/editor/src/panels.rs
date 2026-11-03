@@ -6089,12 +6089,12 @@ impl EditorUi {
             let mut n = 0;
             s.edit(|m| {
                 for &t in &targets {
-                    let added = ayatsuri_core::edit::add_keys(m, t, param, &values);
-                    if added && let Some((_, p)) = shapes.iter().find(|(st, _)| *st == t) {
+                    // taken while it has no keys yet, its first key's shape
+                    if let Some((_, p)) = shapes.iter().find(|(st, _)| *st == t) {
                         let how = ayatsuri_format::model::OriginalHow::KeyAdded;
                         ayatsuri_core::original::record(m, t, p.clone(), how, time);
                     }
-                    n += added as usize;
+                    n += ayatsuri_core::edit::add_keys(m, t, param, &values) as usize;
                 }
                 n > 0
             });
