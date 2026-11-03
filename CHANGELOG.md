@@ -14,6 +14,13 @@
   them, and an object with none goes back to its default pose. The
   Inspector shows when each was taken.
 
+### Fixed
+
+- Meshes pasted from another project (or copied before saving and pasted
+  after) no longer vanish when the texture atlas is made. The copy took
+  the clip box of the mesh after it, so the atlas cut its art away, and
+  the meshes after it showed the wrong names and visibility.
+
 ### Changed
 
 - The project moved to a private repository,

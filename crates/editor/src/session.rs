@@ -858,18 +858,14 @@ impl Session {
         model: Model,
         pngs: Vec<Vec<u8>>,
     ) -> Result<(), String> {
+        // pasted meshes are not all at the end (each copy draws just over
+        // its original): names, eyes and art boxes follow the meshes by id
+        self.follow_mesh_ids(&model);
         self.swap_in(ctx, model, pngs)?;
         let m = self.puppet.model();
         let (meshes, params) = (m.art_meshes.len(), m.parameters.len());
-        let originals: Vec<(Vec<f32>, Vec<u16>)> = m
-            .art_meshes
-            .iter()
-            .skip(self.original_meshes.len())
-            .map(|a| (a.uvs.clone(), a.indices.clone()))
-            .collect();
         self.mesh_names.resize(meshes, String::new());
         self.mesh_shown.resize(meshes, true);
-        self.original_meshes.extend(originals);
         self.param_colors.resize(params, None);
         self.param_names.resize(params, String::new());
         Ok(())
@@ -2869,6 +2865,54 @@ mod import_paint_tests {
         assert_eq!(back.texture_pngs.len(), 2);
         assert!(back.atlas_pending(), "still waiting for the atlas after reopening");
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_copy_pasted_from_elsewhere_keeps_its_own_art_through_the_atlas() {
+        let ctx = Context::default();
+        let mut s = Session::create(&ctx, "t".into(), String::new(), Model::new()).unwrap();
+        let art = ayatsuri_import::from_layers(&doc(
+            400,
+            300,
+            &[("HairL", "Hair", 10, 10, 30), ("Body", "Torso", 100, 40, 20)],
+        ))
+        .unwrap();
+        s.add_imported(&ctx, art, Path::new("a.psd")).unwrap();
+        let clip = crate::mesh_clip::copy(&s, &[0]);
+        // saved in between: the paste comes from another project, so the
+        // copy brings its art on a page of its own and draws just over the
+        // original, ahead of Body
+        s.aom_path = Some(PathBuf::from("saved.aom"));
+        let ci = crate::mesh_clip::paste(&mut s, &ctx, &clip).unwrap().meshes[0].0;
+        assert_eq!(ci, 1);
+        let box_of = |s: &Session, i: usize| {
+            let uvs = &s.puppet.model().art_meshes[i].uvs;
+            let (mut b, e) = ([f32::MAX, f32::MAX, f32::MIN, f32::MIN], 1e-3);
+            for uv in uvs.as_chunks::<2>().0 {
+                b = [b[0].min(uv[0]), b[1].min(uv[1]), b[2].max(uv[0]), b[3].max(uv[1])];
+            }
+            let a = s.art_boxes()[i];
+            a[0] <= b[0] + e && a[1] <= b[1] + e && a[2] >= b[2] - e && a[3] >= b[3] - e
+        };
+        // every mesh's art box still covers its own art, Body's included
+        for i in 0..3 {
+            assert!(box_of(&s, i), "mesh {i}: {:?}", s.art_boxes());
+        }
+        let sizes = s.page_sizes();
+        let pieces = crate::atlas::pieces(s.puppet.model(), &sizes, &s.art_boxes());
+        let layout = crate::atlas::auto_layout(&pieces, 256, false).unwrap();
+        s.apply_atlas(&ctx, &pieces, &layout).unwrap();
+        // the copy's middle is still opaque on the new page
+        let m = s.puppet.model();
+        let page = image::load_from_memory(&s.texture_pngs[m.art_meshes[ci].texture as usize])
+            .unwrap()
+            .into_rgba8();
+        let uvs = &m.art_meshes[ci].uvs;
+        let n = uvs.len() as f32 / 2.0;
+        let (u, v) =
+            uvs.as_chunks::<2>().0.iter().fold((0.0, 0.0), |(a, b), [x, y]| (a + x / n, b + y / n));
+        let (w, h) = page.dimensions();
+        assert_eq!(page.get_pixel((u * w as f32) as u32, (v * h as f32) as u32)[3], 255);
     }
 
     #[test]
