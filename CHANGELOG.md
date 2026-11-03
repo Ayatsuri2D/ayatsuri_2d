@@ -37,6 +37,10 @@
 - Exported textures no longer draw a dark line along every mesh's edge in
   VTube Studio. The clear pixels around the art were black, and runtimes
   blend them into the edge; they now take the colour of the nearest art.
+- The texture atlas no longer darkens the soft edge of art it scales, which
+  drew a thin dark line wherever one part lies over another, in the editor
+  and in VTube Studio. A scaled piece mixed the clear black around its art
+  into the edge; that space now takes the art's colour first.
 - Export no longer freezes the editor: the texture pages are worked out
   and written on their own threads while a card shows the export running.
 - The stroke mesh tool draws single-vertex lines (1 across) onto a mesh
