@@ -37,7 +37,7 @@ pub const MAX_EXPORT_TEXTURE: u32 = 49152;
 /// into a line. UVs are fractions of the page, so they need no change.
 fn page_out(png: &[u8], side: Option<u32>) -> Result<Vec<u8>, String> {
     let mut img = image::load_from_memory(png).map_err(|e| e.to_string())?.into_rgba8();
-    bleed(&mut img);
+    crate::atlas::bleed(&mut img);
     let (w, h) = (img.width().max(1), img.height().max(1));
     if let Some(side) = side.map(|s| s.clamp(16, MAX_EXPORT_TEXTURE))
         && w.max(h) != side
@@ -47,60 +47,12 @@ fn page_out(png: &[u8], side: Option<u32>) -> Result<Vec<u8>, String> {
             (((w as f64 * k).round() as u32).max(1), ((h as f64 * k).round() as u32).max(1));
         img = image::imageops::resize(&img, nw, nh, image::imageops::FilterType::CatmullRom);
         // resampling leaves new clear pixels at the edges, black again
-        bleed(&mut img);
+        crate::atlas::bleed(&mut img);
     }
     let mut bytes = Vec::new();
     img.write_to(&mut std::io::Cursor::new(&mut bytes), image::ImageFormat::Png)
         .map_err(|e| e.to_string())?;
     Ok(bytes)
-}
-
-/// Give every fully clear pixel the colour of the nearest pixel with any
-/// alpha, spreading out a ring at a time; alpha is left as it is.
-fn bleed(img: &mut image::RgbaImage) {
-    let (w, h) = (img.width() as usize, img.height() as usize);
-    let mut done: Vec<bool> = img.pixels().map(|p| p[3] > 0).collect();
-    let mut ring: Vec<usize> = (0..w * h)
-        .filter(|&i| {
-            done.get(i).copied().unwrap_or(false) && {
-                let (x, y) = (i % w, i / w);
-                [
-                    (x > 0, i.wrapping_sub(1)),
-                    (x + 1 < w, i + 1),
-                    (y > 0, i.wrapping_sub(w)),
-                    (y + 1 < h, i + w),
-                ]
-                .iter()
-                .any(|&(ok, j)| ok && !done.get(j).copied().unwrap_or(true))
-            }
-        })
-        .collect();
-    while !ring.is_empty() {
-        let mut next = Vec::new();
-        for i in ring {
-            let (x, y) = (i % w, i / w);
-            let c = img.get_pixel(x as u32, y as u32).0;
-            for (ok, j) in [
-                (x > 0, i.wrapping_sub(1)),
-                (x + 1 < w, i + 1),
-                (y > 0, i.wrapping_sub(w)),
-                (y + 1 < h, i + w),
-            ] {
-                if ok && done.get(j) == Some(&false) {
-                    if let Some(d) = done.get_mut(j) {
-                        *d = true;
-                    }
-                    img.put_pixel(
-                        (j % w) as u32,
-                        (j / w) as u32,
-                        image::Rgba([c[0], c[1], c[2], 0]),
-                    );
-                    next.push(j);
-                }
-            }
-        }
-        ring = next;
-    }
 }
 
 /// File names keep to what every filesystem accepts.
@@ -599,14 +551,14 @@ mod overwrite_tests {
         let mut img = image::RgbaImage::new(8, 1);
         img.put_pixel(0, 0, image::Rgba([255, 0, 0, 255]));
         img.put_pixel(7, 0, image::Rgba([0, 0, 255, 128]));
-        bleed(&mut img);
+        crate::atlas::bleed(&mut img);
         assert_eq!(img.get_pixel(0, 0), &image::Rgba([255, 0, 0, 255]), "art untouched");
         assert_eq!(img.get_pixel(7, 0), &image::Rgba([0, 0, 255, 128]));
         assert_eq!(img.get_pixel(2, 0), &image::Rgba([255, 0, 0, 0]), "still clear");
         assert_eq!(img.get_pixel(5, 0), &image::Rgba([0, 0, 255, 0]));
         // a page with no art at all stays as it is
         let mut empty = image::RgbaImage::new(4, 4);
-        bleed(&mut empty);
+        crate::atlas::bleed(&mut empty);
         assert!(empty.pixels().all(|p| p.0 == [0, 0, 0, 0]));
     }
 }

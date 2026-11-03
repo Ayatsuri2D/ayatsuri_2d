@@ -340,6 +340,9 @@ pub fn build_pages(
                     }
                 }
             }
+            // the clear pixels take the art's colour first, or resizing
+            // darkens its soft edge into a line
+            bleed(&mut view);
             // scaled, then turned, as the uvs are
             let sw = ((p.w as f32 * pl.scale).round() as u32).max(1);
             let sh = ((p.h as f32 * pl.scale).round() as u32).max(1);
@@ -355,9 +358,61 @@ pub fn build_pages(
             };
             image::imageops::replace(&mut img, &view, pl.x as i64, pl.y as i64);
         }
+        // and the page's gaps too, for the filtering at draw time
+        bleed(&mut img);
         out.push(img);
     }
     out
+}
+
+/// Give every fully clear pixel the colour of the nearest pixel with any
+/// alpha, spreading out a ring at a time; alpha is left as it is. Pixels
+/// are straight alpha, so a resize or a filter mixes a clear pixel's colour
+/// into the art's soft edge: left black, that edge comes out darker.
+pub fn bleed(img: &mut image::RgbaImage) {
+    let (w, h) = (img.width() as usize, img.height() as usize);
+    let mut done: Vec<bool> = img.pixels().map(|p| p[3] > 0).collect();
+    let mut ring: Vec<usize> = (0..w * h)
+        .filter(|&i| {
+            done.get(i).copied().unwrap_or(false) && {
+                let (x, y) = (i % w, i / w);
+                [
+                    (x > 0, i.wrapping_sub(1)),
+                    (x + 1 < w, i + 1),
+                    (y > 0, i.wrapping_sub(w)),
+                    (y + 1 < h, i + w),
+                ]
+                .iter()
+                .any(|&(ok, j)| ok && !done.get(j).copied().unwrap_or(true))
+            }
+        })
+        .collect();
+    while !ring.is_empty() {
+        let mut next = Vec::new();
+        for i in ring {
+            let (x, y) = (i % w, i / w);
+            let c = img.get_pixel(x as u32, y as u32).0;
+            for (ok, j) in [
+                (x > 0, i.wrapping_sub(1)),
+                (x + 1 < w, i + 1),
+                (y > 0, i.wrapping_sub(w)),
+                (y + 1 < h, i + w),
+            ] {
+                if ok && done.get(j) == Some(&false) {
+                    if let Some(d) = done.get_mut(j) {
+                        *d = true;
+                    }
+                    img.put_pixel(
+                        (j % w) as u32,
+                        (j / w) as u32,
+                        image::Rgba([c[0], c[1], c[2], 0]),
+                    );
+                    next.push(j);
+                }
+            }
+        }
+        ring = next;
+    }
 }
 
 #[cfg(test)]
@@ -512,7 +567,7 @@ mod tests {
         let layout = Layout { page_size: 16, pages: 1, places: vec![Place::at(0, 0, 0)] };
         let out = build_pages(&ps, &layout, |_| Some(src.clone()));
         assert_eq!(out[0].get_pixel(2, 2), &image::Rgba([255, 0, 0, 255]));
-        assert_eq!(out[0].get_pixel(6, 2), &image::Rgba([0, 0, 0, 0]));
+        assert_eq!(out[0].get_pixel(6, 2)[3], 0);
         // and pieces work the box out from uvs
         let mut m = Model::new();
         m.art_meshes.push(mesh(0, &[0.0, 0.0, 1.0, 0.0, 1.0, 1.0]));
@@ -534,8 +589,26 @@ mod tests {
         let out = build_pages(&ps, &layout, |_| Some(src.clone()));
         assert_eq!(out.len(), 1);
         assert_eq!(out[0].get_pixel(8, 8), &image::Rgba([255, 0, 0, 255]));
-        assert_eq!(out[0].get_pixel(12, 12), &image::Rgba([0, 0, 0, 0]));
+        assert_eq!(out[0].get_pixel(12, 12)[3], 0);
         assert_eq!(out[0].get_pixel(11, 11), &image::Rgba([255, 0, 0, 255]));
+    }
+
+    #[test]
+    fn a_scaled_piece_keeps_the_colour_of_its_soft_edge() {
+        // a red disc with a soft rim on clear black, packed at half size
+        let src = image::RgbaImage::from_fn(32, 32, |x, y| {
+            let d = ((x as f32 - 15.5).powi(2) + (y as f32 - 15.5).powi(2)).sqrt();
+            let a = ((12.0 - d) * 128.0).clamp(0.0, 255.0) as u8;
+            if a == 0 { image::Rgba([0, 0, 0, 0]) } else { image::Rgba([200, 40, 40, a]) }
+        });
+        let ps = vec![Piece { mesh: 0, page: 0, x: 0, y: 0, w: 32, h: 32, art: None }];
+        let mut place = Place::at(0, 0, 0);
+        place.scale = 0.5;
+        let layout = Layout { page_size: 32, pages: 1, places: vec![place] };
+        let out = build_pages(&ps, &layout, |_| Some(src.clone()));
+        for p in out[0].pixels().filter(|p| p[3] > 0) {
+            assert!(p[0] >= 190, "a darkened edge pixel: {p:?}");
+        }
     }
 
     #[test]
