@@ -527,6 +527,8 @@ pub struct EditorUi {
     /// Any other native file dialog in flight, and what it is for.
     dialog_pick: Option<(PickFor, std::sync::mpsc::Receiver<Option<PathBuf>>)>,
     loading: Option<(PathBuf, std::sync::mpsc::Receiver<BgJob>)>,
+    /// A moc3 export writing its files on its own thread.
+    pub(crate) exporting: Option<crate::windows::export_moc3::Exporting>,
 
     /// Discord Rich Presence while enabled, and the app id it runs as.
     rpc: Option<crate::discord::Presence>,
@@ -1746,6 +1748,7 @@ impl Default for EditorUi {
             picking: None,
             dialog_pick: None,
             loading: None,
+            exporting: None,
 
             rpc: None,
             rpc_id: String::new(),
@@ -2222,6 +2225,7 @@ impl EditorUi {
     /// Collect finished background work: a picked file starts loading, a
     /// loaded model becomes the session.
     fn poll_background(&mut self, ctx: &egui::Context) {
+        self.poll_export(ctx);
         let answered = match &self.dialog_pick {
             Some((_, rx)) => match rx.try_recv() {
                 Ok(path) => Some(path),
@@ -2750,6 +2754,7 @@ impl EditorUi {
         self.update_presence();
         self.poll_background(&ui.ctx().clone());
         self.loading_overlay(ui);
+        self.export_overlay(ui);
         // apps driving parameters through the API go first, so what they
         // hold is kept off physics below
         self.api_frame();
