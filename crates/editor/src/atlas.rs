@@ -317,9 +317,13 @@ pub fn build_pages(
             .collect();
         by_src.sort_by_key(|(src, _, _)| *src);
         let mut cache: Option<(usize, image::RgbaImage)> = None;
-        let mut done: std::collections::HashSet<PieceKey> = std::collections::HashSet::new();
+        // copies of a mesh share their pixels: each is drawn once per place,
+        // and a copy moved to a place of its own is drawn there too
+        let mut done: std::collections::HashSet<(PieceKey, u32, u32, u32, u8)> =
+            std::collections::HashSet::new();
         for (src, p, pl) in by_src {
-            if !done.insert((p.page, p.x, p.y, p.w, p.h, p.art)) {
+            let key = (p.page, p.x, p.y, p.w, p.h, p.art);
+            if !done.insert((key, pl.x, pl.y, pl.scale.to_bits(), pl.turns)) {
                 continue;
             }
             if cache.as_ref().is_none_or(|(s, _)| *s != src) {
@@ -532,5 +536,22 @@ mod tests {
         assert_eq!(out[0].get_pixel(8, 8), &image::Rgba([255, 0, 0, 255]));
         assert_eq!(out[0].get_pixel(12, 12), &image::Rgba([0, 0, 0, 0]));
         assert_eq!(out[0].get_pixel(11, 11), &image::Rgba([255, 0, 0, 255]));
+    }
+
+    #[test]
+    fn a_copy_moved_off_its_twin_keeps_its_pixels() {
+        // a mesh and its copy cut from one rectangle; the copy was dragged
+        // to a place of its own
+        let p = Piece { mesh: 0, page: 0, x: 0, y: 0, w: 4, h: 4, art: None };
+        let ps = vec![p.clone(), Piece { mesh: 1, ..p }];
+        let layout = Layout {
+            page_size: 16,
+            pages: 1,
+            places: vec![Place::at(0, 0, 0), Place::at(0, 8, 8)],
+        };
+        let src = image::RgbaImage::from_pixel(4, 4, image::Rgba([255, 0, 0, 255]));
+        let out = build_pages(&ps, &layout, |_| Some(src.clone()));
+        assert_eq!(out[0].get_pixel(1, 1), &image::Rgba([255, 0, 0, 255]));
+        assert_eq!(out[0].get_pixel(9, 9), &image::Rgba([255, 0, 0, 255]));
     }
 }
