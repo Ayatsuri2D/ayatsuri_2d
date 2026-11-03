@@ -33,7 +33,10 @@
   triangles face away once mirrored, and Cubism's runtimes cull meshes
   that are not double-sided. Flip now turns Double-sided on for what it
   mirrors, new meshes start double-sided as in Cubism Editor, and the
-  moc3 export names any flipped mesh still left single-sided.
+  moc3 export writes any mesh flipped by an older build double-sided.
+- Exported textures no longer draw a dark line along every mesh's edge in
+  VTube Studio. The clear pixels around the art were black, and runtimes
+  blend them into the edge; they now take the colour of the nearest art.
 - The stroke mesh tool draws single-vertex lines (1 across) onto a mesh
   with no triangles. It refused before ("the mesh could not be rebuilt"),
   and new points placed on such a mesh no longer pile onto its old ones.

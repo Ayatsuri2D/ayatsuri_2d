@@ -30,22 +30,75 @@ pub struct Options {
 /// The largest texture side the export writes.
 pub const MAX_EXPORT_TEXTURE: u32 = 49152;
 
-/// A page resized for export: its longer side `side` pixels, its shape
-/// kept. UVs are fractions of the page, so they need no change.
-fn resize_page(png: &[u8], side: u32) -> Result<Vec<u8>, String> {
-    let img = image::load_from_memory(png).map_err(|e| e.to_string())?;
+/// A page as export writes it: the clear pixels take the colour of the
+/// nearest art (alpha stays 0), then, with `side`, its longer side `side`
+/// pixels, its shape kept. Runtimes filter the texture without
+/// premultiplying, so clear pixels left black darken every mesh's edge
+/// into a line. UVs are fractions of the page, so they need no change.
+fn page_out(png: &[u8], side: Option<u32>) -> Result<Vec<u8>, String> {
+    let mut img = image::load_from_memory(png).map_err(|e| e.to_string())?.into_rgba8();
+    bleed(&mut img);
     let (w, h) = (img.width().max(1), img.height().max(1));
-    let side = side.clamp(16, MAX_EXPORT_TEXTURE);
-    if w.max(h) == side {
-        return Ok(png.to_vec());
+    if let Some(side) = side.map(|s| s.clamp(16, MAX_EXPORT_TEXTURE))
+        && w.max(h) != side
+    {
+        let k = side as f64 / w.max(h) as f64;
+        let (nw, nh) =
+            (((w as f64 * k).round() as u32).max(1), ((h as f64 * k).round() as u32).max(1));
+        img = image::imageops::resize(&img, nw, nh, image::imageops::FilterType::CatmullRom);
     }
-    let k = side as f64 / w.max(h) as f64;
-    let (nw, nh) = (((w as f64 * k).round() as u32).max(1), ((h as f64 * k).round() as u32).max(1));
-    let out = img.resize_exact(nw, nh, image::imageops::FilterType::CatmullRom);
     let mut bytes = Vec::new();
-    out.write_to(&mut std::io::Cursor::new(&mut bytes), image::ImageFormat::Png)
+    img.write_to(&mut std::io::Cursor::new(&mut bytes), image::ImageFormat::Png)
         .map_err(|e| e.to_string())?;
     Ok(bytes)
+}
+
+/// Give every fully clear pixel the colour of the nearest pixel with any
+/// alpha, spreading out a ring at a time; alpha is left as it is.
+fn bleed(img: &mut image::RgbaImage) {
+    let (w, h) = (img.width() as usize, img.height() as usize);
+    let mut done: Vec<bool> = img.pixels().map(|p| p[3] > 0).collect();
+    let mut ring: Vec<usize> = (0..w * h)
+        .filter(|&i| {
+            done.get(i).copied().unwrap_or(false) && {
+                let (x, y) = (i % w, i / w);
+                [
+                    (x > 0, i.wrapping_sub(1)),
+                    (x + 1 < w, i + 1),
+                    (y > 0, i.wrapping_sub(w)),
+                    (y + 1 < h, i + w),
+                ]
+                .iter()
+                .any(|&(ok, j)| ok && !done.get(j).copied().unwrap_or(true))
+            }
+        })
+        .collect();
+    while !ring.is_empty() {
+        let mut next = Vec::new();
+        for i in ring {
+            let (x, y) = (i % w, i / w);
+            let c = img.get_pixel(x as u32, y as u32).0;
+            for (ok, j) in [
+                (x > 0, i.wrapping_sub(1)),
+                (x + 1 < w, i + 1),
+                (y > 0, i.wrapping_sub(w)),
+                (y + 1 < h, i + w),
+            ] {
+                if ok && done.get(j) == Some(&false) {
+                    if let Some(d) = done.get_mut(j) {
+                        *d = true;
+                    }
+                    img.put_pixel(
+                        (j % w) as u32,
+                        (j / w) as u32,
+                        image::Rgba([c[0], c[1], c[2], 0]),
+                    );
+                    next.push(j);
+                }
+            }
+        }
+        ring = next;
+    }
 }
 
 /// File names keep to what every filesystem accepts.
@@ -164,6 +217,13 @@ pub fn export(s: &Session, dir: &Path, opt: &Options) -> Result<Vec<PathBuf>, St
     // pages no mesh draws from (kept for undo while the model is open)
     // stay behind
     let mut base = s.puppet.model().clone();
+    // a mesh drawn flipped would be culled by Cubism's runtimes: it goes
+    // out double-sided, as it shows in the editor
+    for i in ayatsuri_core::edit::culled_meshes(&base) {
+        if let Some(m) = base.art_meshes.get_mut(i) {
+            m.flags |= ayatsuri_format::model::flags::DOUBLE_SIDED;
+        }
+    }
     let (base_pngs, _) = crate::session::prune_pages(&mut base, s.texture_pngs.clone());
     let expanded = crate::inherit_export::expand(&base, &base_pngs)?;
     if let Some(e) = &expanded {
@@ -187,13 +247,8 @@ pub fn export(s: &Session, dir: &Path, opt: &Options) -> Result<Vec<PathBuf>, St
     let mut tex_refs = Vec::new();
     for (i, png) in pngs.iter().enumerate() {
         let file = format!("texture_{i:02}.png");
-        match opt.texture_size {
-            Some(side) => {
-                let out = resize_page(png, side)?;
-                write(&tex_dir.join(&file), &out, &mut written)?;
-            }
-            None => write(&tex_dir.join(&file), png, &mut written)?,
-        }
+        let out = page_out(png, opt.texture_size)?;
+        write(&tex_dir.join(&file), &out, &mut written)?;
         tex_refs.push(format!("{tex_dir_name}/{file}"));
     }
 
@@ -485,7 +540,24 @@ mod overwrite_tests {
         image::DynamicImage::ImageRgba8(img)
             .write_to(&mut std::io::Cursor::new(&mut png), image::ImageFormat::Png)
             .unwrap();
-        let out = image::load_from_memory(&resize_page(&png, 256).unwrap()).unwrap();
+        let out = image::load_from_memory(&page_out(&png, Some(256)).unwrap()).unwrap();
         assert_eq!((out.width(), out.height()), (256, 128));
+    }
+
+    #[test]
+    fn clear_pixels_take_the_nearest_art_colour_so_edges_stay_clean() {
+        // red art on the left, blue on the right, clear black between
+        let mut img = image::RgbaImage::new(8, 1);
+        img.put_pixel(0, 0, image::Rgba([255, 0, 0, 255]));
+        img.put_pixel(7, 0, image::Rgba([0, 0, 255, 128]));
+        bleed(&mut img);
+        assert_eq!(img.get_pixel(0, 0), &image::Rgba([255, 0, 0, 255]), "art untouched");
+        assert_eq!(img.get_pixel(7, 0), &image::Rgba([0, 0, 255, 128]));
+        assert_eq!(img.get_pixel(2, 0), &image::Rgba([255, 0, 0, 0]), "still clear");
+        assert_eq!(img.get_pixel(5, 0), &image::Rgba([0, 0, 255, 0]));
+        // a page with no art at all stays as it is
+        let mut empty = image::RgbaImage::new(4, 4);
+        bleed(&mut empty);
+        assert!(empty.pixels().all(|p| p.0 == [0, 0, 0, 0]));
     }
 }
