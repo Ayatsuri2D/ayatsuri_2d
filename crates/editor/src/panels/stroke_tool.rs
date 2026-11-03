@@ -696,6 +696,53 @@ mod tests {
     }
 
     #[test]
+    fn a_line_of_points_joins_a_mesh_with_no_faces() {
+        // the square's four corners with their faces gone
+        let mut ed = editor();
+        let s = ed.session.as_mut().unwrap();
+        assert!(s.edit(|m| {
+            m.art_meshes[0].indices.clear();
+            true
+        }));
+        let m = s.puppet.model().art_meshes[0].clone();
+        ed.mesh_art = Some(super::super::MeshArt {
+            mesh: 0,
+            positions: m.positions.clone(),
+            uvs: m.uvs.clone(),
+            indices: Vec::new(),
+            reference: m,
+        });
+        let c = ed.session.as_ref().unwrap().puppet.model().canvas;
+        let px = |x: f32, y: f32| {
+            [c.origin_x + x * c.pixels_per_unit, c.origin_y + y * c.pixels_per_unit]
+        };
+        ed.tool_opts.stroke.settings = Settings {
+            width: 0.1 * c.pixels_per_unit,
+            density: 0.2 * c.pixels_per_unit,
+            across: 1,
+            invert: false,
+        };
+        ed.stroke_edit = Some(StrokeEdit {
+            mesh: 0,
+            strokes: vec![Stroke::new(vec![px(0.1, 0.5), px(0.9, 0.5)])],
+            drag: None,
+            ask: None,
+            mirror: None,
+        });
+        ed.apply_stroke_mesh();
+        let m = &ed.session.as_ref().unwrap().puppet.model().art_meshes[0];
+        assert!(m.vertex_count > 4, "the points joined: {}", m.vertex_count);
+        assert!(m.indices.is_empty());
+        // each new point sits where it was drawn, on the art there, not
+        // piled onto a corner
+        for v in 4..m.vertex_count as usize {
+            let (x, y) = (m.positions[v * 2], m.positions[v * 2 + 1]);
+            assert!((y - 0.5).abs() < 1e-3 && x > 0.05 && x < 0.95, "point {v} at {x}, {y}");
+            assert!((m.uvs[v * 2] - x).abs() < 1e-3 && (m.uvs[v * 2 + 1] - y).abs() < 1e-3);
+        }
+    }
+
+    #[test]
     fn mirror_edit_copies_strokes_on_one_side_only() {
         let edit = StrokeEdit {
             mesh: 0,
