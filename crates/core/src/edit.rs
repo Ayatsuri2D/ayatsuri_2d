@@ -2770,17 +2770,15 @@ pub fn remesh_from(
 }
 
 /// Swap in a whole new triangulation. Every new vertex samples the old mesh
-/// in uv space: barycentric inside whichever old triangle holds it, nearest
-/// old vertex otherwise, so every keyform carries over. Glue on this mesh
-/// cannot survive a retriangulation and is cleared.
+/// in uv space: barycentric inside whichever old triangle holds it, from
+/// three old points not in a line when it has no faces, nearest old vertex
+/// otherwise, so every keyform carries over. The new mesh may be points
+/// with no faces yet (a stroke one vertex across), as Mesh Edit allows.
+/// Glue on this mesh cannot survive a retriangulation and is cleared.
 pub fn remesh(model: &mut Model, mesh: usize, uvs: &[f32], indices: &[u16]) -> bool {
     with_shapes(model, |model| {
         let new_n = uvs.len() / 2;
-        if new_n < 3
-            || new_n >= u16::MAX as usize
-            || indices.len() < 3
-            || !indices.len().is_multiple_of(3)
-        {
+        if new_n == 0 || new_n >= u16::MAX as usize || !indices.len().is_multiple_of(3) {
             return false;
         }
         if indices.iter().any(|&i| i as usize >= new_n) {
@@ -2834,7 +2832,32 @@ pub fn remesh(model: &mut Model, mesh: usize, uvs: &[f32], indices: &[u16]) -> b
                     nearest = Some(([a, b, c], [w0, w1, w2], worst));
                 }
             }
-            let found = found.or_else(|| nearest.map(|(t, w, _)| Src::Tri(t, w)));
+            let found = found
+                .or_else(|| nearest.map(|(t, w, _)| Src::Tri(t, w)))
+                // no faces: the three nearest old points not in a line,
+                // carried on past them (exact for the imported quad), so
+                // new points do not pile onto the old ones
+                .or_else(|| {
+                    let mut order: Vec<usize> = (0..old_n).collect();
+                    let d = |i: usize| {
+                        let (ou, ov) = old_uv(i);
+                        (ou - u) * (ou - u) + (ov - v) * (ov - v)
+                    };
+                    order.sort_by(|&a, &b| d(a).total_cmp(&d(b)));
+                    let (&a, &b) = (order.first()?, order.get(1)?);
+                    order.iter().skip(2).find_map(|&c| {
+                        let (x0, y0) = old_uv(a);
+                        let (x1, y1) = old_uv(b);
+                        let (x2, y2) = old_uv(c);
+                        let den = (y1 - y2) * (x0 - x2) + (x2 - x1) * (y0 - y2);
+                        if den.abs() < 1e-12 {
+                            return None;
+                        }
+                        let w0 = ((y1 - y2) * (u - x2) + (x2 - x1) * (v - y2)) / den;
+                        let w1 = ((y2 - y0) * (u - x2) + (x0 - x2) * (v - y2)) / den;
+                        Some(Src::Tri([a, b, c], [w0, w1, 1.0 - w0 - w1]))
+                    })
+                });
             let src = found.unwrap_or_else(|| {
                 let mut best = (0usize, f32::MAX);
                 for ovi in 0..old_n {
