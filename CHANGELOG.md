@@ -37,6 +37,8 @@
 - Exported textures no longer draw a dark line along every mesh's edge in
   VTube Studio. The clear pixels around the art were black, and runtimes
   blend them into the edge; they now take the colour of the nearest art.
+- Export no longer freezes the editor: the texture pages are worked out
+  and written on their own threads while a card shows the export running.
 - The stroke mesh tool draws single-vertex lines (1 across) onto a mesh
   with no triangles. It refused before ("the mesh could not be rebuilt"),
   and new points placed on such a mesh no longer pile onto its old ones.

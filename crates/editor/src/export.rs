@@ -46,6 +46,8 @@ fn page_out(png: &[u8], side: Option<u32>) -> Result<Vec<u8>, String> {
         let (nw, nh) =
             (((w as f64 * k).round() as u32).max(1), ((h as f64 * k).round() as u32).max(1));
         img = image::imageops::resize(&img, nw, nh, image::imageops::FilterType::CatmullRom);
+        // resampling leaves new clear pixels at the edges, black again
+        bleed(&mut img);
     }
     let mut bytes = Vec::new();
     img.write_to(&mut std::io::Cursor::new(&mut bytes), image::ImageFormat::Png)
@@ -205,13 +207,68 @@ pub fn clear_previous(dir: &Path) -> Result<usize, String> {
     Ok(removed)
 }
 
-fn write(path: &Path, bytes: &[u8], written: &mut Vec<PathBuf>) -> Result<(), String> {
-    std::fs::write(path, bytes).map_err(|e| format!("{}: {e}", path.display()))?;
-    written.push(path.to_path_buf());
-    Ok(())
+/// The files an export writes, worked out from the session (`prepare`) and
+/// written apart from it (`Job::run`), so the slow part, the texture pages,
+/// can run on its own thread while the editor keeps drawing.
+pub struct Job {
+    files: Vec<(PathBuf, Out)>,
 }
 
+enum Out {
+    Bytes(Vec<u8>),
+    /// A texture page as stored, and the size it goes out at.
+    Page(Vec<u8>, Option<u32>),
+}
+
+impl Job {
+    fn add(&mut self, path: PathBuf, bytes: &[u8]) {
+        self.files.push((path, Out::Bytes(bytes.to_vec())));
+    }
+
+    /// Write every file, in order (the model3.json last, so an app watching
+    /// the folder finds the rest already there). The paths written.
+    pub fn run(self) -> Result<Vec<PathBuf>, String> {
+        // the pages are the slow part: each on a thread of its own
+        let pages: Vec<Option<Result<Vec<u8>, String>>> = std::thread::scope(|sc| {
+            let running: Vec<_> = self
+                .files
+                .iter()
+                .map(|(_, out)| match out {
+                    Out::Page(png, side) => Some(sc.spawn(move || page_out(png, *side))),
+                    Out::Bytes(_) => None,
+                })
+                .collect();
+            running
+                .into_iter()
+                .map(|h| h.map(|h| h.join().unwrap_or_else(|_| Err("page failed".into()))))
+                .collect()
+        });
+        let mut written = Vec::new();
+        for ((path, out), page) in self.files.iter().zip(pages) {
+            let bytes = match (out, page) {
+                (Out::Bytes(b), _) => b.clone(),
+                (Out::Page(..), Some(p)) => p?,
+                (Out::Page(..), None) => continue,
+            };
+            if let Some(parent) = path.parent() {
+                std::fs::create_dir_all(parent)
+                    .map_err(|e| format!("{}: {e}", parent.display()))?;
+            }
+            std::fs::write(path, &bytes).map_err(|e| format!("{}: {e}", path.display()))?;
+            written.push(path.clone());
+        }
+        Ok(written)
+    }
+}
+
+/// Prepare and write in one go (the editor runs the two apart).
+#[cfg(test)]
 pub fn export(s: &Session, dir: &Path, opt: &Options) -> Result<Vec<PathBuf>, String> {
+    prepare(s, dir, opt)?.run()
+}
+
+/// Everything an export needs from the session, as files still to write.
+pub fn prepare(s: &Session, dir: &Path, opt: &Options) -> Result<Job, String> {
     let name = safe(&opt.name);
     // inherited clips go out as hidden helper masks, on copies
     // pages no mesh draws from (kept for undo while the model is open)
@@ -235,20 +292,18 @@ pub fn export(s: &Session, dir: &Path, opt: &Options) -> Result<Vec<PathBuf>, St
     }
     let model = expanded.as_ref().map_or(&base, |e| &e.model);
     let pngs = expanded.as_ref().map_or(&base_pngs, |e| &e.pngs);
-    let mut written = Vec::new();
+    let mut job = Job { files: Vec::new() };
 
     let moc = ayatsuri_import::to_moc3(model, opt.version).map_err(|e| e.to_string())?;
-    write(&dir.join(format!("{name}.moc3")), &moc, &mut written)?;
+    job.add(dir.join(format!("{name}.moc3")), &moc);
 
     // textures, in slot order
     let tex_dir_name = format!("{name}.textures");
     let tex_dir = dir.join(&tex_dir_name);
-    std::fs::create_dir_all(&tex_dir).map_err(|e| format!("{}: {e}", tex_dir.display()))?;
     let mut tex_refs = Vec::new();
     for (i, png) in pngs.iter().enumerate() {
         let file = format!("texture_{i:02}.png");
-        let out = page_out(png, opt.texture_size)?;
-        write(&tex_dir.join(&file), &out, &mut written)?;
+        job.files.push((tex_dir.join(&file), Out::Page(png.clone(), opt.texture_size)));
         tex_refs.push(format!("{tex_dir_name}/{file}"));
     }
 
@@ -260,7 +315,7 @@ pub fn export(s: &Session, dir: &Path, opt: &Options) -> Result<Vec<PathBuf>, St
         && let Some(rig) = &model.physics
     {
         let file = format!("{name}.physics3.json");
-        write(&dir.join(&file), &ayatsuri_import::to_physics3(rig), &mut written)?;
+        job.add(dir.join(&file), &ayatsuri_import::to_physics3(rig));
         refs.insert("Physics".into(), json!(file));
     }
 
@@ -296,14 +351,13 @@ pub fn export(s: &Session, dir: &Path, opt: &Options) -> Result<Vec<PathBuf>, St
         }).collect::<Vec<_>>(),
     });
     let cdi_file = format!("{name}.cdi3.json");
-    write(&dir.join(&cdi_file), &ayatsuri_import::cubism_json(&cdi), &mut written)?;
+    job.add(dir.join(&cdi_file), &ayatsuri_import::cubism_json(&cdi));
     refs.insert("DisplayInfo".into(), json!(cdi_file));
 
     // expressions go in their own folder, as published models have them, and
     // are listed before the motions in the model3.json, Cubism's order
     if opt.expressions && !s.expressions.is_empty() {
         let edir = dir.join("expressions");
-        std::fs::create_dir_all(&edir).map_err(|e| format!("{}: {e}", edir.display()))?;
         let mut list = Vec::new();
         let mut used: Vec<String> = Vec::new();
         for e in &s.expressions {
@@ -316,7 +370,7 @@ pub fn export(s: &Session, dir: &Path, opt: &Options) -> Result<Vec<PathBuf>, St
                 n += 1;
             }
             used.push(file.clone());
-            write(&edir.join(&file), &ayatsuri_import::to_exp3(e), &mut written)?;
+            job.add(edir.join(&file), &ayatsuri_import::to_exp3(e));
             list.push(json!({ "Name": e.name, "File": format!("expressions/{file}") }));
         }
         refs.insert("Expressions".into(), json!(list));
@@ -324,11 +378,10 @@ pub fn export(s: &Session, dir: &Path, opt: &Options) -> Result<Vec<PathBuf>, St
 
     if opt.motions && (!s.animations.is_empty() || !s.compositions.is_empty()) {
         let mdir = dir.join("motions");
-        std::fs::create_dir_all(&mdir).map_err(|e| format!("{}: {e}", mdir.display()))?;
         let mut group = Vec::new();
         for anim in &s.animations {
             let file = format!("{}.motion3.json", safe(&anim.name));
-            write(&mdir.join(&file), &ayatsuri_import::to_motion3(anim), &mut written)?;
+            job.add(mdir.join(&file), &ayatsuri_import::to_motion3(anim));
             group.push(json!({ "File": format!("motions/{file}") }));
         }
         // compositions go out baked: a key every frame, flat like a
@@ -336,7 +389,7 @@ pub fn export(s: &Session, dir: &Path, opt: &Options) -> Result<Vec<PathBuf>, St
         for comp in &s.compositions {
             let baked = s.bake_comp(comp);
             let file = format!("{}.motion3.json", safe(&comp.name));
-            write(&mdir.join(&file), &ayatsuri_import::to_motion3(&baked), &mut written)?;
+            job.add(mdir.join(&file), &ayatsuri_import::to_motion3(&baked));
             group.push(json!({ "File": format!("motions/{file}") }));
         }
         refs.insert("Motions".into(), json!({ "Idle": group }));
@@ -351,12 +404,8 @@ pub fn export(s: &Session, dir: &Path, opt: &Options) -> Result<Vec<PathBuf>, St
         "FileReferences": refs,
         "Groups": groups,
     });
-    write(
-        &dir.join(format!("{name}.model3.json")),
-        &ayatsuri_import::cubism_json(&model3),
-        &mut written,
-    )?;
-    Ok(written)
+    job.add(dir.join(format!("{name}.model3.json")), &ayatsuri_import::cubism_json(&model3));
+    Ok(job)
 }
 
 /// The model3.json Groups: the ones the model came with, else the two

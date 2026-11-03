@@ -411,6 +411,10 @@ impl EditorUi {
             .get(dlg.version)
             .copied()
             .unwrap_or(ayatsuri_import::ExportVersion::DEFAULT);
+        if self.exporting.is_some() {
+            log::warn!("an export is still running; try again when it is done");
+            return;
+        }
         let Some(s) = &self.session else { return };
         let opt = crate::export::Options {
             name: dlg.name.clone(),
@@ -420,23 +424,56 @@ impl EditorUi {
             expressions: dlg.expressions,
             texture_size: dlg.texture_size,
         };
-        match crate::export::export(s, dir, &opt) {
+        // what reads the session happens now; the pages and the writing go
+        // to a thread of their own, so the editor keeps drawing
+        let job = match crate::export::prepare(s, dir, &opt) {
+            Ok(job) => job,
+            Err(e) => {
+                log::error!("export failed: {e}");
+                return;
+            }
+        };
+        let (tx, rx) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            let _ = tx.send(job.run());
+        });
+        self.exporting = Some(Exporting {
+            dir: dir.to_path_buf(),
+            version: version.label(),
+            model_file: s.aom_path.as_ref().map(|p| p.display().to_string()).unwrap_or_default(),
+            started: std::time::Instant::now(),
+            rx,
+        });
+    }
+
+    /// Pick up a finished export: say so, and tell apps watching for one.
+    pub(crate) fn poll_export(&mut self, ctx: &egui::Context) {
+        let Some(job) = &self.exporting else { return };
+        let result = match job.rx.try_recv() {
+            Ok(r) => r,
+            Err(std::sync::mpsc::TryRecvError::Empty) => {
+                ctx.request_repaint_after(std::time::Duration::from_millis(100));
+                return;
+            }
+            Err(std::sync::mpsc::TryRecvError::Disconnected) => Err("the export stopped".into()),
+        };
+        let Some(job) = self.exporting.take() else { return };
+        match result {
             Ok(files) => {
                 log::info!(
-                    "exported {} files (moc3 {}) to {}",
+                    "exported {} files (moc3 {}) to {} in {:.1} s",
                     files.len(),
-                    version.label(),
-                    dir.display()
+                    job.version,
+                    job.dir.display(),
+                    job.started.elapsed().as_secs_f32()
                 );
                 // apps watching for exports (VTube Studio) pick it up
                 let moc = files.iter().find(|f| f.extension().is_some_and(|e| e == "moc3"));
-                let model_file =
-                    s.aom_path.as_ref().map(|p| p.display().to_string()).unwrap_or_default();
                 self.api_notify(
                     "NotifyMocFileExported",
                     serde_json::json!({
                         "Path": moc.map(|p| p.display().to_string()).unwrap_or_default(),
-                        "ModelFilePath": model_file,
+                        "ModelFilePath": job.model_file,
                         "Files": files.iter().map(|f| f.display().to_string()).collect::<Vec<_>>(),
                     }),
                 );
@@ -444,4 +481,37 @@ impl EditorUi {
             Err(e) => log::error!("export failed: {e}"),
         }
     }
+
+    /// While an export writes, a small card says so; the editor stays usable.
+    pub(crate) fn export_overlay(&mut self, ui: &mut Ui) {
+        let Some(job) = &self.exporting else { return };
+        let secs = job.started.elapsed().as_secs();
+        egui::Area::new(egui::Id::new("export-card"))
+            .anchor(egui::Align2::RIGHT_BOTTOM, egui::vec2(-16.0, -40.0))
+            .order(egui::Order::Foreground)
+            .interactable(false)
+            .show(ui.ctx(), |ui| {
+                egui::Frame::popup(ui.style()).inner_margin(egui::Margin::same(12)).show(
+                    ui,
+                    |ui| {
+                        ui.horizontal(|ui| {
+                            ui.add(egui::Spinner::new().size(16.0));
+                            ui.label(crate::i18n::trf(
+                                "Exporting model… {secs} s",
+                                &[("secs", &secs)],
+                            ));
+                        });
+                    },
+                );
+            });
+    }
+}
+
+/// A moc3 export running on its own thread (see `export_moc3_now`).
+pub(crate) struct Exporting {
+    dir: std::path::PathBuf,
+    version: &'static str,
+    model_file: String,
+    started: std::time::Instant,
+    rx: std::sync::mpsc::Receiver<Result<Vec<std::path::PathBuf>, String>>,
 }
