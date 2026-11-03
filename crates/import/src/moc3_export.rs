@@ -168,8 +168,7 @@ pub fn export_warnings(model: &Model, version: ExportVersion) -> Vec<String> {
         let ids: Vec<&str> =
             culled.iter().filter_map(|&i| model.art_meshes.get(i)).map(|m| m.id.as_str()).collect();
         out.push(format!(
-            "{} mesh(es) are flipped and not double-sided, so VTube Studio hides them: {}. \
-             Tick Double-sided on them",
+            "{} flipped mesh(es) export double-sided, or VTube Studio would hide them: {}",
             ids.len(),
             ids.join(", ")
         ));
