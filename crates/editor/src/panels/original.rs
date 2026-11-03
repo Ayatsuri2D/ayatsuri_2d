@@ -16,21 +16,21 @@ pub(super) fn now() -> u64 {
     std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_secs())
 }
 
-/// `2026-11-02 21:40 UTC` from seconds since 1970.
+/// `2026/11/02 21:40:05` in the computer's own time zone, as Cubism's
+/// Inspector shows it, from seconds since 1970.
 fn date(secs: u64) -> String {
-    let days = (secs / 86_400) as i64;
-    let (h, m) = ((secs / 3600) % 24, (secs / 60) % 60);
-    // days to a civil date (Howard Hinnant's algorithm)
-    let z = days + 719_468;
-    let era = z.div_euclid(146_097);
-    let doe = z - era * 146_097;
-    let yoe = (doe - doe / 1460 + doe / 36_524 - doe / 146_096) / 365;
-    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
-    let mp = (5 * doy + 2) / 153;
-    let d = doy - (153 * mp + 2) / 5 + 1;
-    let mo = if mp < 10 { mp + 3 } else { mp - 9 };
-    let y = yoe + era * 400 + i64::from(mo <= 2);
-    format!("{y:04}-{mo:02}-{d:02} {h:02}:{m:02} UTC")
+    use chrono::TimeZone;
+    match chrono::Local.timestamp_opt(secs as i64, 0) {
+        chrono::LocalResult::Single(t) | chrono::LocalResult::Ambiguous(t, _) => stamp(&t),
+        chrono::LocalResult::None => stamp(&chrono::Utc.timestamp_opt(secs as i64, 0).unwrap()),
+    }
+}
+
+fn stamp<Tz: chrono::TimeZone>(t: &chrono::DateTime<Tz>) -> String
+where
+    Tz::Offset: std::fmt::Display,
+{
+    t.format("%Y/%m/%d %H:%M:%S").to_string()
 }
 
 /// The shapes to record `how` for the objects that take one, read off the
@@ -55,10 +55,11 @@ pub(super) fn inspector_rows(ui: &mut Ui, s: &mut Session, t: Target) {
     });
     let text = match &shape {
         Some(o) if fits => {
-            let how = match o.how {
-                OriginalHow::Created => crate::i18n::tr("Creation"),
-                OriginalHow::KeyAdded => crate::i18n::tr("Key addition"),
-                OriginalHow::Manual => crate::i18n::tr("Manual update"),
+            let how = match (o.how, t) {
+                (OriginalHow::Created, Target::Deformer(_)) => crate::i18n::tr("Deformer creation"),
+                (OriginalHow::Created, _) => crate::i18n::tr("Creation"),
+                (OriginalHow::KeyAdded, _) => crate::i18n::tr("Key addition"),
+                (OriginalHow::Manual, _) => crate::i18n::tr("Manual Update"),
             };
             format!("{} ({how})", date(o.time))
         }
@@ -83,7 +84,7 @@ pub(super) fn inspector_rows(ui: &mut Ui, s: &mut Session, t: Target) {
         if ui
             .add_enabled(
                 shape.is_some(),
-                egui::Checkbox::new(&mut auto, crate::i18n::tr("Auto update original shape")),
+                egui::Checkbox::new(&mut auto, crate::i18n::tr("Auto Update")),
             )
             .on_hover_text(crate::i18n::tr(
                 "Take the original shape again each time a key is added",
@@ -294,9 +295,12 @@ mod tests {
     }
 
     #[test]
-    fn dates_read_as_utc() {
-        assert_eq!(date(0), "1970-01-01 00:00 UTC");
-        assert_eq!(date(1_793_655_600), "2026-11-02 21:40 UTC");
-        assert_eq!(date(951_782_400), "2000-02-29 00:00 UTC");
+    fn dates_read_as_cubism_writes_them() {
+        use chrono::TimeZone;
+        let at = |s: i64| stamp(&chrono::Utc.timestamp_opt(s, 0).unwrap());
+        assert_eq!(at(0), "1970/01/01 00:00:00");
+        assert_eq!(at(1_793_655_605), "2026/11/02 21:40:05");
+        assert_eq!(at(951_782_400), "2000/02/29 00:00:00");
+        assert_eq!(date(0).len(), "1970/01/01 00:00:00".len());
     }
 }

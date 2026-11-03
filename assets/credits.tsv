@@ -37,6 +37,7 @@ calloop-wayland-source	0.4.1	MIT	https://github.com/smithay/calloop-wayland-sour
 cfg-if	1.0.5	MIT OR Apache-2.0	https://github.com/rust-lang/cfg-if
 cgl	0.3.2	MIT / Apache-2.0	https://github.com/servo/cgl-rs
 chacha20	0.10.2	MIT OR Apache-2.0	https://github.com/RustCrypto/stream-ciphers
+chrono	0.4.45	MIT OR Apache-2.0	https://github.com/chronotope/chrono
 clipboard-win	5.4.1	BSL-1.0	https://github.com/DoumanAsh/clipboard-win
 codespan-reporting	0.13.1	Apache-2.0	https://github.com/brendanzab/codespan
 color	0.3.3	Apache-2.0 OR MIT	https://github.com/linebender/color
@@ -133,6 +134,8 @@ hermit-abi	0.5.3	MIT OR Apache-2.0	https://github.com/hermit-os/hermit-rs
 http	1.5.0	MIT OR Apache-2.0	https://github.com/hyperium/http
 httparse	1.10.1	MIT OR Apache-2.0	https://github.com/seanmonstar/httparse
 hybrid-array	0.4.15	MIT OR Apache-2.0	https://github.com/RustCrypto/hybrid-array
+iana-time-zone	0.1.65	MIT OR Apache-2.0	https://github.com/strawlab/iana-time-zone
+iana-time-zone-haiku	0.1.2	MIT OR Apache-2.0	https://github.com/strawlab/iana-time-zone
 icu_collections	2.3.0	Unicode-3.0	https://github.com/unicode-org/icu4x
 icu_locale_core	2.3.0	Unicode-3.0	https://github.com/unicode-org/icu4x
 icu_normalizer	2.3.0	Unicode-3.0	https://github.com/unicode-org/icu4x
