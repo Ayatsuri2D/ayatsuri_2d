@@ -11019,19 +11019,9 @@ impl EditorUi {
                     ui.add_space(78.0);
                     ui.checkbox(&mut inverted, crate::i18n::tr("Invert mask"));
                 });
-                let base_order = m.draw_orders.first().copied().unwrap_or(500.0);
-                let mut order = base_order;
-                ui.horizontal(|ui| {
-                    ui.add_sized(
-                        [74.0, 16.0],
-                        egui::Label::new(
-                            egui::RichText::new(crate::i18n::tr("Draw order"))
-                                .color(theme::pal().text_faint)
-                                .size(11.0),
-                        ),
-                    );
-                    ui.add(egui::DragValue::new(&mut order).range(0.0..=1000.0).speed(1));
-                });
+                let draw_order =
+                    DrawOrderEdit::read(s, ayatsuri_core::edit::Target::ArtMesh(i), self.sel_param);
+                let order = draw_order.row(ui, "");
 
                 let mut new_flags = m.flags
                     & !(flags::BLEND_ADDITIVE
@@ -11102,16 +11092,13 @@ impl EditorUi {
                     self.prefs.inherit_clip_on(),
                 );
 
-                if new_flags != m.flags || new_blend != blend || (order - base_order).abs() > 0.5 {
+                if new_flags != m.flags || new_blend != blend || order.is_some() {
                     let changed = s.edit(|model| {
                         let Some(am) = model.art_meshes.get_mut(i) else { return false };
                         am.flags = new_flags;
                         am.blend = new_blend;
-                        if (order - base_order).abs() > 0.5 {
-                            let delta = order - base_order;
-                            for d in &mut am.draw_orders {
-                                *d += delta;
-                            }
+                        if let Some(order) = order {
+                            draw_order.apply(model, order);
                         }
                         true
                     });
@@ -11282,13 +11269,7 @@ impl EditorUi {
         use ayatsuri_core::edit::Target;
         let sel_param = self.sel_param;
         let Some(s) = &mut self.session else { return };
-        let Some((current, base_order)) = s
-            .puppet
-            .model()
-            .parts
-            .get(part)
-            .map(|p| (p.offscreen.clone(), p.draw_orders.first().copied().unwrap_or(500.0)))
-        else {
+        let Some(current) = s.puppet.model().parts.get(part).map(|p| p.offscreen.clone()) else {
             return;
         };
         ui.separator();
@@ -11310,30 +11291,11 @@ impl EditorUi {
         let Some(o) = current else { return };
         opacity_row(ui, s, &[Target::Part(part)], sel_param);
         // the group sorts as one item at the part's own draw order
-        let mut order = base_order;
-        ui.horizontal(|ui| {
-            ui.add_sized(
-                [74.0, 16.0],
-                egui::Label::new(
-                    egui::RichText::new(crate::i18n::tr("Draw order"))
-                        .color(theme::pal().text_faint)
-                        .size(11.0),
-                ),
-            );
-            ui.add(egui::DragValue::new(&mut order).range(0.0..=1000.0).speed(1))
-                .on_hover_text(crate::i18n::tr(
-                    "Where the whole group draws among its neighbours; its contents keep their own order inside it",
-                ));
-        });
-        if (order - base_order).abs() > 0.5
-            && s.edit(|m| {
-                let Some(p) = m.parts.get_mut(part) else { return false };
-                let delta = (order - base_order).round();
-                for d in &mut p.draw_orders {
-                    *d += delta;
-                }
-                true
-            })
+        let draw_order = DrawOrderEdit::read(s, Target::Part(part), sel_param);
+        if let Some(order) = draw_order.row(
+            ui,
+            "Where the whole group draws among its neighbours; its contents keep their own order inside it",
+        ) && s.edit(|m| draw_order.apply(m, order))
         {
             log::info!("part {part}: draw order {order:.0}");
         }
@@ -17607,6 +17569,75 @@ fn keyform_sets(
     (sets, spread)
 }
 
+/// The Inspector's Draw order field for a mesh or part, keyed like Cubism's:
+/// on a key it reads and sets that keyform (every keyform at the selected
+/// parameter's key, as `keyform_sets`); between keys it shows the blended
+/// order and moves every keyform by the same amount.
+struct DrawOrderEdit {
+    target: ayatsuri_core::edit::Target,
+    keys: Option<Vec<usize>>,
+    shown: f32,
+}
+
+impl DrawOrderEdit {
+    fn read(s: &Session, target: ayatsuri_core::edit::Target, across: Option<usize>) -> Self {
+        use ayatsuri_core::edit::Target;
+        let keys = keyform_sets(s, &[target], across).0.into_iter().next().flatten();
+        let model = s.puppet.model();
+        let stored = |k: usize| match target {
+            Target::ArtMesh(i) => model.art_meshes.get(i)?.draw_orders.get(k).copied(),
+            Target::Part(i) => model.parts.get(i)?.draw_orders.get(k).copied(),
+            Target::Deformer(_) => None,
+        };
+        let live = match target {
+            Target::ArtMesh(i) => s.puppet.mesh_draw_order_value(i),
+            Target::Part(i) => s.puppet.part_draw_order_value(i),
+            Target::Deformer(_) => 500.0,
+        };
+        // a shape keyform's order is not stored per mesh: show what draws
+        let shown = keys.as_ref().and_then(|k| k.first()).and_then(|&k| stored(k)).unwrap_or(live);
+        DrawOrderEdit { target, keys, shown }
+    }
+
+    /// The field; the new order when it was changed.
+    fn row(&self, ui: &mut Ui, hover: &'static str) -> Option<f32> {
+        let mut order = self.shown;
+        ui.horizontal(|ui| {
+            ui.add_sized(
+                [74.0, 16.0],
+                egui::Label::new(
+                    egui::RichText::new(crate::i18n::tr("Draw order"))
+                        .color(theme::pal().text_faint)
+                        .size(11.0),
+                ),
+            );
+            let r = ui.add(egui::DragValue::new(&mut order).range(0.0..=1000.0).speed(1));
+            let tip = if self.keys.is_some() {
+                crate::i18n::tr("Draw order at this key; other keys keep theirs")
+            } else {
+                crate::i18n::tr(
+                    "Between keys: shows the blended order, and a change moves every key by the same amount",
+                )
+            };
+            if hover.is_empty() {
+                r.on_hover_text(tip);
+            } else {
+                r.on_hover_text(format!("{}\n\n{tip}", crate::i18n::tr(hover)));
+            }
+        });
+        ((order - self.shown).abs() > 0.5).then_some(order.round())
+    }
+
+    fn apply(&self, model: &mut ayatsuri_format::Model, order: f32) -> bool {
+        match &self.keys {
+            Some(keys) => keys.iter().fold(false, |any, &k| {
+                ayatsuri_core::edit::set_draw_order(model, self.target, k, order) | any
+            }),
+            None => ayatsuri_core::edit::shift_draw_orders(model, self.target, order - self.shown),
+        }
+    }
+}
+
 /// Properties' Multiply and Screen colour for meshes and deformers, on the
 /// keyforms an edit sets (see `keyform_sets`), as in Cubism's Inspector.
 /// The picker previews live in place; when it closes, the stored colours
@@ -19888,6 +19919,44 @@ mod mesh_delete_tests {
         assert!(!s.edit(|m| add_mask_to(m, &[0, 1], 2)));
         s.undo();
         assert!(s.puppet.model().art_meshes.iter().all(|m| m.masks.is_empty()));
+    }
+
+    #[test]
+    fn draw_order_on_a_key_sets_that_key_and_between_keys_moves_them_all() {
+        use ayatsuri_core::edit::Target;
+        let mut ed = editor();
+        let s = ed.session.as_mut().unwrap();
+        assert!(s.edit(|m| {
+            m.parameters.push(ayatsuri_format::model::Parameter {
+                id: "P".into(),
+                min: 0.0,
+                max: 1.0,
+                default: 0.0,
+                repeat: false,
+                decimals: 3,
+                blend_shape: false,
+            });
+            true
+        }));
+        ed.selected = Some(Sel::Mesh(0));
+        ed.sel_param = Some(0);
+        ed.add_keys_to_selection(vec![0.0, 1.0]);
+        let s = ed.session.as_mut().unwrap();
+        let orders = |s: &Session| s.puppet.model().art_meshes[0].draw_orders.clone();
+        assert_eq!(orders(s), [500.0, 500.0]);
+        // on the key at 1: only that key
+        s.puppet.set_value(0, 1.0);
+        s.puppet.update();
+        let at = DrawOrderEdit::read(s, Target::ArtMesh(0), None);
+        assert!(s.edit(|m| at.apply(m, 700.0)));
+        assert_eq!(orders(s), [500.0, 700.0]);
+        // halfway: shows the blend, and a change moves both keys
+        s.puppet.set_value(0, 0.5);
+        s.puppet.update();
+        let between = DrawOrderEdit::read(s, Target::ArtMesh(0), None);
+        assert_eq!((between.keys.clone(), between.shown), (None, 600.0));
+        assert!(s.edit(|m| between.apply(m, 610.0)));
+        assert_eq!(orders(s), [510.0, 710.0]);
     }
 
     fn names(ed: &EditorUi) -> Vec<String> {

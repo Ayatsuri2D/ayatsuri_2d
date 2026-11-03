@@ -13,6 +13,11 @@
   Shape takes it by hand, Delete Original Shape of All Deformers forgets
   them, and an object with none goes back to its default pose. The
   Inspector shows when each was taken.
+- **Draw order per key**: with the parameters on a key, the Inspector's
+  Draw order sets that key's order only, so a mesh or offscreen part can
+  move in front or behind as a parameter turns (a hand passing in front
+  of the body). Between keys the field shows the blended order and a
+  change moves every key by the same amount, as before.
 
 ### Fixed
 

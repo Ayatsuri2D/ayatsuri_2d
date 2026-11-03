@@ -469,6 +469,11 @@ impl Puppet {
         self.mesh_draw_order.get(mesh).copied().unwrap_or(500.0)
     }
 
+    /// The evaluated draw order of one part at the current pose.
+    pub fn part_draw_order_value(&self, part: usize) -> f32 {
+        self.part_draw_order.get(part).copied().unwrap_or(500.0)
+    }
+
     pub fn model(&self) -> &Model {
         &self.model
     }

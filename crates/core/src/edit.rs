@@ -1916,6 +1916,47 @@ pub fn set_color(
     changed
 }
 
+/// A mesh's or part's draw order in one keyform (a shape keyform's too,
+/// numbered after the normal ones), as Cubism keys draw order like a shape.
+pub fn set_draw_order(model: &mut Model, target: Target, keyform: usize, order: f32) -> bool {
+    let order = order.clamp(0.0, 1000.0);
+    let slot = if keyform >= crate::shapes::normal_count(model, target) {
+        crate::shapes::channel_mut(model, target, keyform, crate::blendshape::Channel::DrawOrder)
+            .and_then(|s| s.first_mut())
+    } else {
+        match target {
+            Target::ArtMesh(i) => {
+                model.art_meshes.get_mut(i).and_then(|m| m.draw_orders.get_mut(keyform))
+            }
+            Target::Part(i) => model.parts.get_mut(i).and_then(|p| p.draw_orders.get_mut(keyform)),
+            Target::Deformer(_) => None,
+        }
+    };
+    let Some(slot) = slot else { return false };
+    if (*slot - order).abs() < 1e-3 {
+        return false;
+    }
+    *slot = order;
+    true
+}
+
+/// Every keyform's draw order moved by `delta`, so their differences stay.
+pub fn shift_draw_orders(model: &mut Model, target: Target, delta: f32) -> bool {
+    let orders = match target {
+        Target::ArtMesh(i) => model.art_meshes.get_mut(i).map(|m| &mut m.draw_orders),
+        Target::Part(i) => model.parts.get_mut(i).map(|p| &mut p.draw_orders),
+        Target::Deformer(_) => None,
+    };
+    let Some(orders) = orders else { return false };
+    if delta.abs() < 1e-3 || orders.is_empty() {
+        return false;
+    }
+    for d in orders {
+        *d = (*d + delta).clamp(0.0, 1000.0);
+    }
+    true
+}
+
 pub fn set_opacity(model: &mut Model, target: Target, keyform: usize, opacity: f32) -> bool {
     // a shape keyform's opacity (numbered after the normal keyforms)
     if keyform >= crate::shapes::normal_count(model, target) {
@@ -5831,6 +5872,18 @@ mod tests {
         assert!(flip_object(&mut m, Target::ArtMesh(0), true));
         assert_eq!(m.art_meshes[0].positions, vec![2.0, 0.0, 0.0, 0.0]);
         assert!(!flip_object(&mut m, Target::Part(0), true));
+    }
+
+    #[test]
+    fn draw_order_sets_one_keyform_or_moves_them_all() {
+        let mut m = test_model();
+        m.art_meshes[0].draw_orders = vec![500.0, 500.0];
+        assert!(set_draw_order(&mut m, Target::ArtMesh(0), 1, 650.0));
+        assert!(!set_draw_order(&mut m, Target::ArtMesh(0), 1, 650.0));
+        assert_eq!(m.art_meshes[0].draw_orders, [500.0, 650.0]);
+        assert!(shift_draw_orders(&mut m, Target::ArtMesh(0), 400.0));
+        assert_eq!(m.art_meshes[0].draw_orders, [900.0, 1000.0], "kept in 0..=1000");
+        assert!(!set_draw_order(&mut m, Target::Deformer(0), 0, 1.0));
     }
 
     #[test]
