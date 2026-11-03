@@ -13,6 +13,7 @@ workspace = true
 [dependencies]
 pollster = "0.4"
 tungstenite = "0.30"
+chrono = { workspace = true }
 ayatsuri-core = { workspace = true }
 ayatsuri-format = { workspace = true }
 ayatsuri-render = { workspace = true }

@@ -13,6 +13,7 @@ repository = "https://github.com/unnamed-yokai0-0/ayatsuri_2d"
 homepage = "https://github.com/unnamed-yokai0-0/ayatsuri_2d"
 
 [workspace.dependencies]
+chrono = { version = "0.4", default-features = false, features = ["clock"] }
 # internal
 ayatsuri-format = { path = "crates/format" }
 ayatsuri-core = { path = "crates/core" }

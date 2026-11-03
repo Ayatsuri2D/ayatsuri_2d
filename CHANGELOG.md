@@ -41,6 +41,9 @@
   key added takes it only on an object with no keys yet, so a deformer
   keyed while bent no longer takes the bend as its original. A deformer
   with nothing recorded shows Uncreated and Revert leaves it alone.
+- The Inspector's Original shape reads as Cubism's: the time in your own
+  time zone with seconds (2026/11/04 01:10:05) and how it was taken
+  (Deformer creation, Key addition, Manual Update), with Auto Update below.
 - The texture atlas no longer darkens the soft edge of art it scales, which
   drew a thin dark line wherever one part lies over another, in the editor
   and in VTube Studio. A scaled piece mixed the clear black around its art
