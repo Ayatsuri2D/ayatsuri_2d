@@ -1604,7 +1604,7 @@ pub fn create_art_path(
         visible: true,
         enabled: true,
         texture: page,
-        flags: 0,
+        flags: ayatsuri_format::model::flags::DOUBLE_SIDED,
         blend: Default::default(),
         vertex_count: (positions.len() / 2) as u32,
         uvs,
@@ -3287,6 +3287,25 @@ pub fn flip_object(model: &mut Model, target: Target, horizontal: bool) -> bool 
     if !mirrored {
         return false;
     }
+    // a mirrored mesh shows its back: with culling on (Cubism's runtimes
+    // cull meshes that are not double-sided) it would vanish
+    let under = |m: &ayatsuri_format::model::ArtMesh| match target {
+        Target::Deformer(d) => {
+            m.parent_deformer.is_some_and(|p| deformer_under(model, p as usize, d))
+        }
+        _ => false,
+    };
+    let flipped: Vec<usize> = match target {
+        Target::ArtMesh(i) => vec![i],
+        _ => {
+            model.art_meshes.iter().enumerate().filter(|(_, m)| under(m)).map(|(i, _)| i).collect()
+        }
+    };
+    for i in flipped {
+        if let Some(m) = model.art_meshes.get_mut(i) {
+            m.flags |= ayatsuri_format::model::flags::DOUBLE_SIDED;
+        }
+    }
     for &r in &rotations {
         if let Some(DeformerKind::Rotation(rot)) = model.deformers.get_mut(r).map(|d| &mut d.kind) {
             rot.base_angle = -rot.base_angle;
@@ -3303,6 +3322,45 @@ pub fn flip_object(model: &mut Model, target: Target, horizontal: bool) -> bool 
     let want: Vec<(usize, f32)> = before.into_iter().map(|(r, a)| (r, -a)).collect();
     settle_rotations(model, &want);
     true
+}
+
+/// The meshes drawn mirrored at rest (their points wound the other way
+/// round from their art) that are not double-sided: Cubism's runtimes cull
+/// them, so they vanish in VTube Studio while the editor still shows them.
+pub fn culled_meshes(model: &Model) -> Vec<usize> {
+    fn area(pts: &[f32], indices: &[u16]) -> f32 {
+        let pt = |i: u16| {
+            let i = i as usize * 2;
+            (pts.get(i).copied().unwrap_or(0.0), pts.get(i + 1).copied().unwrap_or(0.0))
+        };
+        indices
+            .as_chunks::<3>()
+            .0
+            .iter()
+            .map(|&[a, b, c]| {
+                let (a, b, c) = (pt(a), pt(b), pt(c));
+                (b.0 - a.0) * (c.1 - a.1) - (b.1 - a.1) * (c.0 - a.0)
+            })
+            .sum()
+    }
+    let single = |m: &ayatsuri_format::model::ArtMesh| {
+        m.flags & ayatsuri_format::model::flags::DOUBLE_SIDED == 0
+    };
+    if !model.art_meshes.iter().any(single) {
+        return Vec::new();
+    }
+    let p = rest_puppet(model);
+    model
+        .art_meshes
+        .iter()
+        .enumerate()
+        .filter(|(_, m)| single(m))
+        .filter(|&(i, m)| {
+            p.mesh_drawn_positions(i)
+                .is_some_and(|d| area(&d, &m.indices) * area(&m.uvs, &m.indices) < 0.0)
+        })
+        .map(|(i, _)| i)
+        .collect()
 }
 
 /// Flip a warp's grid across its centre, every keyform, while everything
@@ -5773,6 +5831,28 @@ mod tests {
         assert!(flip_object(&mut m, Target::ArtMesh(0), true));
         assert_eq!(m.art_meshes[0].positions, vec![2.0, 0.0, 0.0, 0.0]);
         assert!(!flip_object(&mut m, Target::Part(0), true));
+    }
+
+    #[test]
+    fn a_flipped_mesh_turns_double_sided_and_one_left_single_is_named() {
+        let (mut m, warp, _) = nested_rig();
+        m.art_meshes[0].flags = 0;
+        assert!(culled_meshes(&m).is_empty(), "drawn the way its art is wound");
+        // flipped by hand-set positions, as an older build left it
+        let mut old = m.clone();
+        let pos = &mut old.art_meshes[0].positions;
+        for x in pos.iter_mut().step_by(2) {
+            *x = -*x;
+        }
+        assert_eq!(culled_meshes(&old), vec![0]);
+        // a flip of the mesh, or of a deformer holding it, makes it double-sided
+        let mut a = m.clone();
+        assert!(flip_object(&mut a, Target::ArtMesh(0), true));
+        assert_ne!(a.art_meshes[0].flags & ayatsuri_format::model::flags::DOUBLE_SIDED, 0);
+        assert!(culled_meshes(&a).is_empty());
+        let mut b = m.clone();
+        assert!(flip_object(&mut b, Target::Deformer(warp), true));
+        assert_ne!(b.art_meshes[0].flags & ayatsuri_format::model::flags::DOUBLE_SIDED, 0);
     }
 
     /// A warp holding a rotation deformer holding a mesh, everything off

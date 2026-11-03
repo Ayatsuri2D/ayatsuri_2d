@@ -23,6 +23,12 @@
 - A copied mesh moved off its original in the texture atlas editor keeps
   its art. Copies share one place in the atlas; one dragged to a place of
   its own came out blank when the atlas was applied.
+- A flipped mesh (a copied side of hair flipped to the other side, or a
+  mesh under a flipped deformer) no longer vanishes in VTube Studio. Its
+  triangles face away once mirrored, and Cubism's runtimes cull meshes
+  that are not double-sided. Flip now turns Double-sided on for what it
+  mirrors, new meshes start double-sided as in Cubism Editor, and the
+  moc3 export names any flipped mesh still left single-sided.
 - The stroke mesh tool draws single-vertex lines (1 across) onto a mesh
   with no triangles. It refused before ("the mesh could not be rebuilt"),
   and new points placed on such a mesh no longer pile onto its old ones.

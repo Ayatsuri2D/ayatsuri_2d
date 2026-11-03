@@ -350,7 +350,8 @@ fn build_with(doc: &Document, atlas: bool) -> Result<Imported, ImportError> {
             visible: true,
             enabled: true,
             texture: *page as u32,
-            flags: layer.blend.legacy_bits().0,
+            // both sides drawn, Cubism's default, so a flipped copy still shows
+            flags: layer.blend.legacy_bits().0 | ayatsuri_format::model::flags::DOUBLE_SIDED,
             blend: layer.blend,
             vertex_count: 4,
             uvs: vec![u0, v0, u1, v0, u1, v1, u0, v1],
