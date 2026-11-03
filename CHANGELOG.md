@@ -20,6 +20,9 @@
   after) no longer vanish when the texture atlas is made. The copy took
   the clip box of the mesh after it, so the atlas cut its art away, and
   the meshes after it showed the wrong names and visibility.
+- A copied mesh moved off its original in the texture atlas editor keeps
+  its art. Copies share one place in the atlas; one dragged to a place of
+  its own came out blank when the atlas was applied.
 - The stroke mesh tool draws single-vertex lines (1 across) onto a mesh
   with no triangles. It refused before ("the mesh could not be rebuilt"),
   and new points placed on such a mesh no longer pile onto its old ones.
