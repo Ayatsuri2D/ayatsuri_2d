@@ -42,11 +42,15 @@ pub fn find(model: &Model, target: Target) -> Option<&OriginalShape> {
     model.original_shapes.iter().find(|o| o.deformer == deformer && o.id == id)
 }
 
-/// Whether taking a shape `how` would record anything: a key added leaves
-/// a deformer with Auto Update off alone, and a mesh that already has one.
+/// Whether taking a shape `how` would record anything. As in Cubism, a key
+/// added takes it only on an object with no keys yet (its first key), and
+/// leaves alone a deformer with Auto Update off and a mesh that has one.
 pub fn takes(model: &Model, target: Target, how: OriginalHow) -> bool {
     if how != OriginalHow::KeyAdded {
         return key(model, target).is_some();
+    }
+    if crate::shapes::normal_count(model, target) > 1 {
+        return false;
     }
     match (target, find(model, target)) {
         (Target::ArtMesh(_), Some(_)) => false,
@@ -177,6 +181,10 @@ pub fn goal(puppet: &Puppet, target: Target) -> Option<Vec<f32>> {
     if let Some(o) = find(puppet.model(), target).filter(|o| o.points.len() == len) {
         return Some(o.points.clone());
     }
+    // a deformer with none recorded is Uncreated in Cubism: nothing to go to
+    if matches!(target, Target::Deformer(_)) {
+        return None;
+    }
     let mut rest = Puppet::new(puppet.model().clone());
     rest.update();
     shape_now(&rest, target).filter(|p| p.len() == len)
@@ -303,6 +311,73 @@ mod tests {
         (m, warp, rot)
     }
 
+    /// The mesh points as drawn, after reverting `mesh` on `m`.
+    fn reverted(m: &mut Model, mesh: usize) -> Vec<f32> {
+        let mut p = Puppet::new(m.clone());
+        p.update();
+        let rv = revert(&p, Target::ArtMesh(mesh)).unwrap();
+        apply(m, Target::ArtMesh(mesh), 0, &rv);
+        let mut p = Puppet::new(m.clone());
+        p.update();
+        p.mesh_drawn_positions(mesh).unwrap()
+    }
+
+    #[test]
+    fn a_point_the_parent_cannot_carry_back_stays_put_instead_of_flying_off() {
+        let (mut m, w, _) = puppet_with_warp_and_rotation();
+        // a 5 x 5 mesh in the warp
+        let n = 5;
+        let mut uvs = Vec::new();
+        for j in 0..n {
+            for i in 0..n {
+                uvs.extend([0.1 + 0.8 * i as f32 / 4.0, 0.1 + 0.8 * j as f32 / 4.0]);
+            }
+        }
+        let mut indices = Vec::new();
+        for j in 0..n - 1 {
+            for i in 0..n - 1 {
+                let a = (j * n + i) as u16;
+                indices.extend([a, a + 1, a + n as u16, a + 1, a + n as u16 + 1, a + n as u16]);
+            }
+        }
+        m.art_meshes.push(ayatsuri_format::model::ArtMesh {
+            id: "M".into(),
+            parent_part: None,
+            parent_deformer: None,
+            visible: true,
+            enabled: true,
+            texture: 0,
+            flags: 0,
+            blend: Default::default(),
+            vertex_count: (n * n) as u32,
+            positions: uvs.clone(),
+            uvs,
+            indices,
+            masks: Vec::new(),
+            binding: Default::default(),
+            opacities: vec![1.0],
+            draw_orders: vec![500.0],
+            blend_shapes: Vec::new(),
+            clip_group: None,
+            clip_inherit: false,
+            multiply: Vec::new(),
+            screen: Vec::new(),
+        });
+        let mi = m.art_meshes.len() - 1;
+        assert!(edit::set_parent(&mut m, edit::Child::Mesh(mi), Some(w)).is_some());
+        let mut p = Puppet::new(m.clone());
+        p.update();
+        let want = p.mesh_drawn_positions(mi).unwrap();
+        assert!(record(&mut m, Target::ArtMesh(mi), want.clone(), OriginalHow::Created, 1));
+        // the warp folded over itself: its middle pulled past a corner
+        assert!(edit::move_warp_points(&mut m, w, Some(0), &[(4, 0.9, 0.8), (8, -0.6, -0.7)]));
+        let got = reverted(&mut m, mi);
+        for (g, w) in got.as_chunks::<2>().0.iter().zip(want.as_chunks::<2>().0) {
+            let off = ((g[0] - w[0]).powi(2) + (g[1] - w[1]).powi(2)).sqrt();
+            assert!(off < 1.5, "a point flew off: {g:?}, its original {w:?}");
+        }
+    }
+
     #[test]
     fn a_reverted_warp_and_rotation_land_on_their_recorded_shapes() {
         let (mut m, w, r) = puppet_with_warp_and_rotation();
@@ -359,16 +434,26 @@ mod tests {
     }
 
     #[test]
-    fn with_nothing_recorded_it_goes_back_to_the_default_pose() {
+    fn a_deformer_with_nothing_recorded_is_left_alone() {
         let (mut m, w, _) = puppet_with_warp_and_rotation();
-        let mut p = Puppet::new(m.clone());
-        p.update();
-        let rest = shape_now(&p, Target::Deformer(w)).unwrap();
         assert!(edit::move_warp_points(&mut m, w, Some(0), &[(4, 0.3, 0.3)]));
         let mut p = Puppet::new(m.clone());
         p.update();
-        // the default pose is the edited one here, so nothing to do
-        assert_ne!(shape_now(&p, Target::Deformer(w)).unwrap(), rest);
-        assert_eq!(revert(&p, Target::Deformer(w)), Some(Revert::Warp(Vec::new())));
+        // Uncreated, as Cubism calls it: nothing to go back to
+        assert_eq!(revert(&p, Target::Deformer(w)), None);
+    }
+
+    #[test]
+    fn only_the_first_key_takes_the_shape() {
+        let (mut m, w, _) = puppet_with_warp_and_rotation();
+        let t = Target::Deformer(w);
+        assert!(record(&mut m, t, vec![0.0; 18], OriginalHow::KeyAdded, 1));
+        assert!(edit::add_keys(&mut m, t, 0, &[-1.0, 0.0, 1.0]));
+        // keyed now: a further key leaves the shape, Auto Update or not
+        assert!(find(&m, t).unwrap().auto);
+        assert!(!record(&mut m, t, vec![5.0; 18], OriginalHow::KeyAdded, 2));
+        assert_eq!(find(&m, t).unwrap().points[0], 0.0);
+        // taking it by hand still works
+        assert!(record(&mut m, t, vec![5.0; 18], OriginalHow::Manual, 3));
     }
 }
