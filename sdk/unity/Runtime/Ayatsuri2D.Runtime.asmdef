@@ -1,0 +1,14 @@
+{
+    "name": "Ayatsuri2D.Runtime",
+    "rootNamespace": "Ayatsuri2D",
+    "references": [],
+    "includePlatforms": [],
+    "excludePlatforms": [],
+    "allowUnsafeCode": true,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": false
+}

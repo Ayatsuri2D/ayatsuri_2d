@@ -105,14 +105,26 @@ jobs:
           - { label: linux-arm64, os: ubuntu-22.04-arm, args: "" }
           # MSVC, what Unity, Unreal and Visual Studio projects link against
           - { label: windows-x64, os: windows-latest, args: "" }
-          - { label: macos-universal, os: macos-latest, args: "--target aarch64-apple-darwin --target x86_64-apple-darwin" }
+          - { label: macos-universal, os: macos-latest, args: "--target aarch64-apple-darwin --target x86_64-apple-darwin", targets: "aarch64-apple-darwin, x86_64-apple-darwin" }
+          # for the Unity package: Android phones and iOS, built with each
+          # platform's own toolchain
+          - { label: android-arm64, os: ubuntu-22.04, args: "--target aarch64-linux-android", targets: aarch64-linux-android }
+          - { label: ios-arm64, os: macos-latest, args: "--target aarch64-apple-ios", targets: aarch64-apple-ios }
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
         with:
-          targets: ${{ matrix.label == 'macos-universal' && 'aarch64-apple-darwin, x86_64-apple-darwin' || '' }}
+          targets: ${{ matrix.targets || '' }}
       - uses: Swatinem/rust-cache@v2
+      - name: Android linker
+        if: matrix.label == 'android-arm64'
+        shell: bash
+        run: |
+          BIN="$ANDROID_NDK_LATEST_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin"
+          echo "CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER=$BIN/aarch64-linux-android24-clang" >> "$GITHUB_ENV"
+          echo "CC_aarch64_linux_android=$BIN/aarch64-linux-android24-clang" >> "$GITHUB_ENV"
+          echo "AR_aarch64_linux_android=$BIN/llvm-ar" >> "$GITHUB_ENV"
       - name: Build and pack
         shell: bash
         run: cargo xtask sdk ${{ matrix.args }} --label ${{ matrix.label }}
@@ -133,9 +145,37 @@ jobs:
           path: dist/release/*
           if-no-files-found: error
 
+  unity:
+    name: Unity package
+    # the SDK libraries for Windows, Linux, macOS, Android and iOS in one
+    # tarball for Unity's Package Manager
+    needs: [sdk]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: sdk-*
+          path: sdk-downloads
+          merge-multiple: true
+      - name: Pack
+        shell: bash
+        run: |
+          mkdir -p sdk-unpacked
+          for f in sdk-downloads/*.tar.gz; do tar -xzf "$f" -C sdk-unpacked; done
+          for f in sdk-downloads/*.zip; do unzip -q "$f" -d sdk-unpacked; done
+          cargo xtask unity --pack sdk-unpacked/*
+      - uses: actions/upload-artifact@v4
+        with:
+          name: unity
+          path: dist/release/*.tgz
+          if-no-files-found: error
+
   release:
     name: Draft pre-release
-    needs: [linux, windows, macos, sdk]
+    needs: [linux, windows, macos, sdk, unity]
     runs-on: ubuntu-latest
     environment: release-signing
     steps:

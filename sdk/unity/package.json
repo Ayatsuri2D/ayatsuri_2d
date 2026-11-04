@@ -1,0 +1,21 @@
+{
+  "name": "org.ayatsuri-2d.runtime",
+  "displayName": "Ayatsuri2D",
+  "version": "0.6.1",
+  "unity": "2022.3",
+  "description": "Load and play Ayatsuri2D (.aom) and Cubism (.moc3) models in Unity: parameters, motions, expressions and physics, drawn with masks and blend modes. Works with the Built-in Render Pipeline and URP.",
+  "keywords": ["vtuber", "moc3", "2d", "rigging", "puppet"],
+  "license": "Apache-2.0",
+  "documentationUrl": "https://dev.ayatsuri-2d.org/",
+  "author": {
+    "name": "Ayatsuri2D",
+    "url": "https://github.com/Ayatsuri2D"
+  },
+  "samples": [
+    {
+      "displayName": "Basic",
+      "description": "A script that turns the model's head and eyes toward the mouse and plays a motion on click.",
+      "path": "Samples~/Basic"
+    }
+  ]
+}

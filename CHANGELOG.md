@@ -3,6 +3,14 @@
 ## Unreleased
 
 ### Added
+- **Unity package** (`sdk/unity`, Unity 2022.3 or newer, Built-in and
+  URP): drop an `.aom`, or a `.moc3` bundle with its model3.json, into a
+  project and drag the model into a scene. Scripts set parameters and
+  part opacities, play motions and expressions, and turn physics and wind
+  on; the model draws as one mesh with stencil masks and Normal, Additive
+  and Multiply blending. Releases carry `ayatsuri2d-unity-<version>.tgz`
+  with the library for Windows, macOS, Linux, Android (ARM64) and iOS,
+  installed with Package Manager > Add package from tarball.
 
 - **Revert to Original** (Modeling > Edit Form), as in Cubism 5.2: the
   selected meshes and deformers go back to their original shape in the
