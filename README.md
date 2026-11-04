@@ -403,5 +403,5 @@ own findings more than once.
 
 ---
 
-<sub>Made by **Yoru_KenomoVT** and contributors. Ayatsuri2D is built and run by its own community, separately from Live2D Inc. (once Cybernoids Co., Ltd.). Live2D Inc. and its group companies have no part in it: they did not approve it, back it or pay for it. Live2D and Cubism are Live2D Inc. trademarks, and other names belong to their owners. We name them only to say which files Ayatsuri2D reads and writes. Please do not
+<sub>Maintained by the **Ayatsuri2D** organization and contributors. Ayatsuri2D is built and run by its own community, separately from Live2D Inc. (once Cybernoids Co., Ltd.). Live2D Inc. and its group companies have no part in it: they did not approve it, back it or pay for it. Live2D and Cubism are Live2D Inc. trademarks, and other names belong to their owners. We name them only to say which files Ayatsuri2D reads and writes. Please do not
 contact Live2D about it.</sub>
