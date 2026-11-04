@@ -12,7 +12,7 @@ use discord_rich_presence::activity::{
 use discord_rich_presence::{DiscordIpc, DiscordIpcClient};
 
 /// Where the presence's buttons send people.
-pub(crate) const GITHUB: &str = "https://github.com/unnamed-yokai0-0/ayatsuri_2d";
+pub(crate) const GITHUB: &str = "https://github.com/Ayatsuri2D/ayatsuri_2d";
 pub(crate) const SITE: &str = "https://ayatsuri-2d.org";
 
 /// Ayatsuri2D's own Discord application, so presence works with no setup.

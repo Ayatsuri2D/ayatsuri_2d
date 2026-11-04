@@ -66,9 +66,9 @@ pub(crate) fn read_counted(
 
 /// The releases list: newest first, pre-releases included.
 pub const RELEASES_API: &str =
-    "https://api.github.com/repos/unnamed-yokai0-0/ayatsuri_2d/releases?per_page=20";
+    "https://api.github.com/repos/Ayatsuri2D/ayatsuri_2d/releases?per_page=20";
 /// Where people download from.
-pub const RELEASES_PAGE: &str = "https://github.com/unnamed-yokai0-0/ayatsuri_2d/releases";
+pub const RELEASES_PAGE: &str = "https://github.com/Ayatsuri2D/ayatsuri_2d/releases";
 
 /// The releases are private: a GitHub key, shared with members of the
 /// Discord server, unlocks them. It is kept in this file in the preferences

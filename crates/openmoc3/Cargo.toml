@@ -7,7 +7,7 @@ edition = "2021"
 # PurismCore, which is MIT. See NOTICE.
 license = "MIT"
 description = "A safe, allocation-free reader for Live2D .moc3 model files"
-repository = "https://github.com/unnamed-yokai0-0/ayatsuri_2d"
+repository = "https://github.com/Ayatsuri2D/ayatsuri_2d"
 keywords = ["live2d", "moc3", "vtuber", "parser"]
 categories = ["parser-implementations", "no-std"]
 
