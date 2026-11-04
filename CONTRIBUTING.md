@@ -105,14 +105,22 @@ Use `Fixes #N` when the commit closes an issue and `Refs #N` when it is
 part of one. Add a line to [`CHANGELOG.md`](CHANGELOG.md) under the
 coming release for anything a user would notice.
 
-### No AI-generated contributions
+### AI tools
 
-Pull requests, issues and comments must be your own work. Code written by
-AI tools (ChatGPT, Claude, Copilot and the like) is not accepted: if you
-could not have made the fix without one, please do not submit it, and open
-an issue describing the problem instead. Bug reports and feature requests
-go in your own words too, about something you saw yourself; reports that
-read like generated text are closed without a review.
+AI tools (ChatGPT, Claude, Copilot and the like) may be used for
+housekeeping: writing commit messages, pull request descriptions and
+similar chores. You stay responsible for everything you submit:
+
+- **No unchecked AI output.** Read, test and understand every line before
+  you open a pull request. Code pasted straight from a tool is not
+  accepted.
+- **Know your change.** A reviewer may ask how your code works or why you
+  made a choice. If your answers show no technical understanding of the
+  code, the pull request is rejected.
+
+Bug reports and feature requests go in your own words, about something you
+saw yourself; reports that read like generated text are closed without a
+review.
 
 Translation tools are fine for writing in English when it is not your
 first language. Short and real beats long and polished.
