@@ -465,7 +465,7 @@ fn about_page(
             ui,
             crate::i18n::tr("Clean-room: built from published specifications and permissively licensed work only."),
         );
-        faint(ui, crate::i18n::tr("Made by Yoru_KenomoVT."));
+        faint(ui, crate::i18n::tr("Maintained by the Ayatsuri2D organization."));
     });
 }
 

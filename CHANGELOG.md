@@ -59,6 +59,8 @@
 - The project moved to a private repository,
   github.com/Ayatsuri2D/ayatsuri_2d, and every link in the app,
   README and packages points there.
+- The About window and README now credit the Ayatsuri2D organization,
+  which maintains the project.
 - Updates need the GitHub key from the Discord server: paste it into
   Settings > Updates > GitHub key. The update check and downloads send it
   to GitHub's API only, and it is kept in the preferences folder (readable
