@@ -11,8 +11,8 @@
 Bring in your layered artwork, rig it, give it physics, and export a model that
 runs in VTube Studio. On Windows, macOS and Linux.
 
-[![Latest release](https://img.shields.io/github/v/release/unnamed-yokai0-0/ayatsuri_2d?include_prereleases&label=download&color=e85d8a)](https://github.com/unnamed-yokai0-0/ayatsuri_2d/releases)
-[![CI](https://github.com/unnamed-yokai0-0/ayatsuri_2d/actions/workflows/ci.yml/badge.svg)](https://github.com/unnamed-yokai0-0/ayatsuri_2d/actions/workflows/ci.yml)
+[![Latest release](https://img.shields.io/github/v/release/Ayatsuri2D/ayatsuri_2d?include_prereleases&label=download&color=e85d8a)](https://github.com/Ayatsuri2D/ayatsuri_2d/releases)
+[![CI](https://github.com/Ayatsuri2D/ayatsuri_2d/actions/workflows/ci.yml/badge.svg)](https://github.com/Ayatsuri2D/ayatsuri_2d/actions/workflows/ci.yml)
 [![License: GPL-3.0](https://img.shields.io/badge/license-GPL--3.0-blue)](LICENSING.md)
 [![Platforms](https://img.shields.io/badge/Windows%20·%20macOS%20·%20Linux-555)](https://ayatsuri-2d.org/download/)
 ![moc3](https://img.shields.io/badge/moc3-3.0%20to%205.3-brightgreen)
@@ -63,11 +63,11 @@ Live2D Inc. See [Provenance](#provenance).
 
 ## Download
 
-[![Latest version](https://img.shields.io/github/v/release/unnamed-yokai0-0/ayatsuri_2d?include_prereleases&label=latest&style=for-the-badge&color=e85d8a)](https://github.com/unnamed-yokai0-0/ayatsuri_2d/releases)
-[![Release date](https://img.shields.io/github/release-date-pre/unnamed-yokai0-0/ayatsuri_2d?label=released&style=for-the-badge)](https://github.com/unnamed-yokai0-0/ayatsuri_2d/releases)
+[![Latest version](https://img.shields.io/github/v/release/Ayatsuri2D/ayatsuri_2d?include_prereleases&label=latest&style=for-the-badge&color=e85d8a)](https://github.com/Ayatsuri2D/ayatsuri_2d/releases)
+[![Release date](https://img.shields.io/github/release-date-pre/Ayatsuri2D/ayatsuri_2d?label=released&style=for-the-badge)](https://github.com/Ayatsuri2D/ayatsuri_2d/releases)
 
 Grab the latest build from the
-[**releases page**](https://github.com/unnamed-yokai0-0/ayatsuri_2d/releases),
+[**releases page**](https://github.com/Ayatsuri2D/ayatsuri_2d/releases),
 or pick your system on [**ayatsuri-2d.org/download**](https://ayatsuri-2d.org/download/),
 which has first-launch notes for each one.
 These badges always show the newest version.
@@ -212,7 +212,7 @@ integrated graphics** opens in 1.6 seconds, uses 486 MB of memory and about
 
 **Ready for real rigging.** Ayatsuri2D is used on real models today, and it is moving fast.
 Save often, keep backups of models you care about, and please
-[report what breaks](https://github.com/unnamed-yokai0-0/ayatsuri_2d/issues).
+[report what breaks](https://github.com/Ayatsuri2D/ayatsuri_2d/issues).
 
 Not built yet:
 
@@ -296,7 +296,7 @@ The crate is Apache-2.0 so a closed game can embed it; the editor stays GPL.
 You need a recent stable [Rust](https://rustup.rs) toolchain.
 
 ```sh
-git clone https://github.com/unnamed-yokai0-0/ayatsuri_2d.git
+git clone https://github.com/Ayatsuri2D/ayatsuri_2d.git
 cd ayatsuri_2d
 cargo run --release -p ayatsuri-launcher   # the launcher, which starts the editor
 cargo run --release -p ayatsuri            # or the editor on its own
@@ -355,7 +355,7 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for how, and the
 
 For ideas, questions and showing off what you rig, come talk on
 [Discord](https://discord.gg/WyzDsXzdnh). Bugs still go to
-[Issues](https://github.com/unnamed-yokai0-0/ayatsuri_2d/issues), with your log attached.
+[Issues](https://github.com/Ayatsuri2D/ayatsuri_2d/issues), with your log attached.
 
 Bug reports, security problems and anything else can also be emailed to
 [support@ayatsuri-2d.org](mailto:support@ayatsuri-2d.org). If you are

@@ -17,8 +17,8 @@
     </p>
   </description>
   <launchable type="desktop-id">io.github.Yoru_KenomoVT.Ayatsuri2D.desktop</launchable>
-  <url type="homepage">https://github.com/unnamed-yokai0-0/ayatsuri_2d</url>
-  <url type="bugtracker">https://github.com/unnamed-yokai0-0/ayatsuri_2d/issues</url>
+  <url type="homepage">https://github.com/Ayatsuri2D/ayatsuri_2d</url>
+  <url type="bugtracker">https://github.com/Ayatsuri2D/ayatsuri_2d/issues</url>
   <content_rating type="oars-1.1"/>
   <releases>
     <release version="@VERSION@" date="@DATE@" type="development"/>

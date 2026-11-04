@@ -14,7 +14,7 @@ ManifestDPIAware true
 
 !define APP      "Ayatsuri2D"
 !define PUBLISHER "Yoru_KenomoVT"
-!define URL      "https://github.com/unnamed-yokai0-0/ayatsuri_2d"
+!define URL      "https://github.com/Ayatsuri2D/ayatsuri_2d"
 !define UNINST   "Software\Microsoft\Windows\CurrentVersion\Uninstall\${APP}"
 
 Name "${APP} ${VERSION}"

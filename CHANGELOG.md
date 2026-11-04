@@ -57,7 +57,7 @@
 ### Changed
 
 - The project moved to a private repository,
-  github.com/unnamed-yokai0-0/ayatsuri_2d, and every link in the app,
+  github.com/Ayatsuri2D/ayatsuri_2d, and every link in the app,
   README and packages points there.
 - Updates need the GitHub key from the Discord server: paste it into
   Settings > Updates > GitHub key. The update check and downloads send it
