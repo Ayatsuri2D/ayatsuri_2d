@@ -163,16 +163,6 @@ pub fn export_warnings(model: &Model, version: ExportVersion) -> Vec<String> {
              draws their contents directly, without the layer's opacity, clipping or blend mode"
         ));
     }
-    let culled = ayatsuri_core::edit::culled_meshes(model);
-    if !culled.is_empty() {
-        let ids: Vec<&str> =
-            culled.iter().filter_map(|&i| model.art_meshes.get(i)).map(|m| m.id.as_str()).collect();
-        out.push(format!(
-            "{} flipped mesh(es) export double-sided, or VTube Studio would hide them: {}",
-            ids.len(),
-            ids.join(", ")
-        ));
-    }
     // inherited clips go out as hidden helper masks (the editor's export
     // adds them); the ones that cannot say so
     let stuck = (0..model.art_meshes.len())

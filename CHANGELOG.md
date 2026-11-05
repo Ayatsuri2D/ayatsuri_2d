@@ -41,7 +41,8 @@
   triangles face away once mirrored, and Cubism's runtimes cull meshes
   that are not double-sided. Flip now turns Double-sided on for what it
   mirrors, new meshes start double-sided as in Cubism Editor, and the
-  moc3 export writes any mesh flipped by an older build double-sided.
+  moc3 export writes any mesh flipped by an older build double-sided,
+  without a warning.
 - Exported textures no longer draw a dark line along every mesh's edge in
   VTube Studio. The clear pixels around the art were black, and runtimes
   blend them into the edge; they now take the colour of the nearest art.
