@@ -71,7 +71,7 @@
   mesh's weights and IK on the right bones; a deleted bone's weight goes
   to the other bones of each point.
 - **Packaging recipes for Linux distributions**: build recipes for Arch
-  Linux, Debian and Ubuntu, Fedora and Flathub, all building from source,
+  Linux, Debian and Ubuntu, and Fedora, all building from source,
   are ready for when the source is public, so Ayatsuri2D can be offered
   through each system's own package manager. The app's store listing now
   shows screenshots and the notes of every release.
