@@ -4,7 +4,7 @@
 // form. Every function leaves the model untouched when it returns false or
 // None.
 
-use ayatsuri_format::model::{ArtMesh, Binding, BlendShape, DeformerKind, Model};
+use ayatsuri_format::model::{ArtMesh, Binding, BlendShape, BoneData, DeformerKind, Model};
 
 use crate::edit::{KeySrc, Target, axis_lens, product, remap, with_object};
 
@@ -92,13 +92,15 @@ fn channels(model: &mut Model, target: Target) -> Option<(Binding, Vec<Chan<'_>>
                         Chan { data: &mut w.opacities, elems: 1, kind: Kind::Plain },
                     ]
                 }
-                DeformerKind::Rotation(r) => vec![
-                    Chan { data: &mut r.angles, elems: 1, kind: Kind::Angle },
-                    Chan { data: &mut r.origins_x, elems: 1, kind: Kind::OriginX },
-                    Chan { data: &mut r.origins_y, elems: 1, kind: Kind::OriginY },
-                    Chan { data: &mut r.scales, elems: 1, kind: Kind::Plain },
-                    Chan { data: &mut r.opacities, elems: 1, kind: Kind::Plain },
-                ],
+                DeformerKind::Rotation(r) | DeformerKind::Bone(BoneData { rotation: r, .. }) => {
+                    vec![
+                        Chan { data: &mut r.angles, elems: 1, kind: Kind::Angle },
+                        Chan { data: &mut r.origins_x, elems: 1, kind: Kind::OriginX },
+                        Chan { data: &mut r.origins_y, elems: 1, kind: Kind::OriginY },
+                        Chan { data: &mut r.scales, elems: 1, kind: Kind::Plain },
+                        Chan { data: &mut r.opacities, elems: 1, kind: Kind::Plain },
+                    ]
+                }
             };
             colour_chans(&mut chans, multiply, screen);
             Some((binding, chans))
@@ -663,6 +665,7 @@ mod tests {
                 clip_inherit: false,
                 multiply: Vec::new(),
                 screen: Vec::new(),
+                skin: None,
             }],
             ..Model::new()
         }

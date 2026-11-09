@@ -367,6 +367,7 @@ fn build_with(doc: &Document, atlas: bool) -> Result<Imported, ImportError> {
             clip_inherit: false,
             multiply: Vec::new(),
             screen: Vec::new(),
+            skin: None,
         });
     }
 

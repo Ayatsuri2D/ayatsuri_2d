@@ -18,6 +18,7 @@ fn main() -> Result<(), String> {
                     format!("W{di}({}x{}{})", w.rows, w.cols, if w.quad { ",quad" } else { "" })
                 }
                 DeformerKind::Rotation(_) => format!("R{di}"),
+                DeformerKind::Bone(_) => format!("B{di}"),
             });
             d = def.parent_deformer;
         }

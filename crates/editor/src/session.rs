@@ -360,7 +360,10 @@ fn model_bytes(m: &Model) -> usize {
         .iter()
         .map(|d| match &d.kind {
             DeformerKind::Warp(w) => (w.positions.len() + w.opacities.len()) * f,
-            DeformerKind::Rotation(r) => (r.angles.len() * 6) * f,
+            DeformerKind::Rotation(r)
+            | DeformerKind::Bone(ayatsuri_format::model::BoneData { rotation: r, .. }) => {
+                (r.angles.len() * 6) * f
+            }
         })
         .sum();
     let glues: usize = m.glues.iter().map(|g| g.weights.len() * f + g.indices.len() * 2).sum();
@@ -2767,6 +2770,7 @@ mod import_paint_tests {
                 clip_inherit: false,
                 multiply: Vec::new(),
                 screen: Vec::new(),
+                skin: None,
             });
             m
         };
@@ -2806,6 +2810,7 @@ mod import_paint_tests {
             clip_inherit: false,
             multiply: Vec::new(),
             screen: Vec::new(),
+            skin: None,
         };
         let mut m = Model::new();
         m.art_meshes = vec![mesh("A", 0), mesh("B", 2), mesh("C", 2)];

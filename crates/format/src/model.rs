@@ -35,6 +35,29 @@ pub mod f32_bin {
     }
 }
 
+/// Same for 32-bit index arrays.
+pub mod u32_bin {
+    use alloc::vec::Vec;
+    use serde::{Deserialize, Deserializer, Serializer};
+
+    pub fn serialize<S: Serializer>(v: &[u32], s: S) -> Result<S::Ok, S::Error> {
+        let mut bytes = Vec::with_capacity(v.len() * 4);
+        for x in v {
+            bytes.extend_from_slice(&x.to_le_bytes());
+        }
+        s.serialize_bytes(&bytes)
+    }
+
+    pub fn deserialize<'de, D: Deserializer<'de>>(d: D) -> Result<Vec<u32>, D::Error> {
+        let bytes = serde_bytes::ByteBuf::deserialize(d)?;
+        if bytes.len() % 4 != 0 {
+            return Err(serde::de::Error::custom("u32 blob length not a multiple of 4"));
+        }
+        let (chunks, _) = bytes.as_chunks::<4>();
+        Ok(chunks.iter().map(|c| u32::from_le_bytes(*c)).collect())
+    }
+}
+
 /// Same for 16-bit index arrays.
 pub mod u16_bin {
     use alloc::vec::Vec;
@@ -223,10 +246,47 @@ pub struct RotationData {
     pub reflect_y: Vec<bool>,
 }
 
+/// A bone: a rotation deformer that meshes can also be weighted to. Its
+/// keyforms are a rotation deformer's and evaluate the same way, so an
+/// unweighted child follows it rigidly, as under a rotation deformer;
+/// meshes with a [`Skin`] blend between the bones they are weighted to.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BoneData {
+    /// Origin (the joint), angle, scale and reflection, per keyform, in
+    /// the parent's space.
+    pub rotation: RotationData,
+    /// Rest length from the joint along the bone's local y axis, in the
+    /// bone's own units. Only drawing and weight painting read it.
+    #[serde(default)]
+    pub length: f32,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum DeformerKind {
     Warp(WarpData),
     Rotation(RotationData),
+    Bone(BoneData),
+}
+
+impl DeformerKind {
+    /// The rotation keyforms of a rotation deformer or a bone.
+    pub fn rotation(&self) -> Option<&RotationData> {
+        match self {
+            DeformerKind::Rotation(r) | DeformerKind::Bone(BoneData { rotation: r, .. }) => Some(r),
+            DeformerKind::Warp(_) => None,
+        }
+    }
+
+    pub fn rotation_mut(&mut self) -> Option<&mut RotationData> {
+        match self {
+            DeformerKind::Rotation(r) | DeformerKind::Bone(BoneData { rotation: r, .. }) => Some(r),
+            DeformerKind::Warp(_) => None,
+        }
+    }
+
+    pub fn is_bone(&self) -> bool {
+        matches!(self, DeformerKind::Bone(_))
+    }
 }
 
 /// A node in the deformation hierarchy. Deformers are stored in topological
@@ -464,6 +524,33 @@ pub struct ArtMesh {
     /// as it is.
     #[serde(default, with = "f32_bin")]
     pub screen: Vec<f32>,
+    /// Bone weights; none follows the parent deformer alone, as before.
+    #[serde(default)]
+    pub skin: Option<Skin>,
+}
+
+/// How many bones one vertex can be weighted to.
+pub const SKIN_SLOTS: usize = 4;
+
+/// A mesh's bone weights: [`SKIN_SLOTS`] (bone, weight) pairs per vertex,
+/// vertex-major. A vertex's weights sum to 1; slots it does not use hold
+/// weight 0. Bones are deformer indices, each a [`DeformerKind::Bone`]
+/// under the mesh's parent deformer (any bone when the mesh has none),
+/// with only rotation deformers and bones between.
+///
+/// A weighted mesh's keyforms and blend shapes are made first, in its
+/// parent's space; then each vertex moves by its bones' change from their
+/// rest pose (every parameter at its default), blended by weight; then the
+/// parent deformer applies as usual.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct Skin {
+    /// `vertex_count * SKIN_SLOTS` deformer indices.
+    #[serde(with = "u32_bin")]
+    pub bones: Vec<u32>,
+    /// `vertex_count * SKIN_SLOTS` weights, parallel to `bones`.
+    #[serde(with = "f32_bin")]
+    pub weights: Vec<f32>,
 }
 
 /// Keyforms added on top of an object's normal blend instead of multiplied

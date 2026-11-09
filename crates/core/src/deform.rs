@@ -1,4 +1,5 @@
-//! Deformer transforms: the free-form warp lattice and the rotation deformer.
+//! Deformer transforms: the free-form warp lattice, the rotation deformer
+//! (bones use it too) and bone weight skinning.
 //!
 //! Ported from PurismCore (MIT), the verified clean-room runtime. A warp's
 //! children give their coordinates in the warp's normalized [0,1] x [0,1]
@@ -284,6 +285,155 @@ pub fn rotation_transform(r: &Rotation, io: &mut [f32]) {
 /// nested rotation the wrong way.
 pub fn signed_angle(a: Vec2, b: Vec2) -> f32 {
     (b.x * a.y - b.y * a.x).atan2(b.x * a.x + b.y * a.y)
+}
+
+/// Bring a rotation given in its parent's space out into the space its
+/// parent maps to: `to_parent` is the parent's current map. The parent may
+/// bend space, so the angle has no closed form: probe how a short vertical
+/// step maps and measure the turn (the verified runtime's method).
+/// `dir_delta` is the step, -10 under a rotation and -0.1 under a warp.
+pub fn resolve_under(
+    rot: &mut Rotation,
+    dir_delta: f32,
+    parent_scale: f32,
+    to_parent: impl Fn(Vec2) -> Vec2,
+) {
+    let t_origin = to_parent(rot.origin);
+    let mut direction = v2(0.0, 0.0);
+    let mut probe = 1.0f32;
+    for _ in 0..16 {
+        let tt = to_parent(v2(rot.origin.x, rot.origin.y + probe * dir_delta));
+        let dxy = tt.sub(t_origin);
+        if dxy.x != 0.0 || dxy.y != 0.0 {
+            direction = dxy;
+            break;
+        }
+        let tt = to_parent(v2(rot.origin.x, rot.origin.y - probe * dir_delta));
+        let dxy = tt.sub(t_origin);
+        if dxy.x != 0.0 || dxy.y != 0.0 {
+            direction = v2(-dxy.x, -dxy.y);
+            break;
+        }
+        probe *= 0.1;
+    }
+    let angle_adj = signed_angle(v2(0.0, dir_delta), direction) * -180.0 / core::f32::consts::PI;
+    rot.angle += angle_adj;
+    rot.origin = t_origin;
+    rot.scale *= parent_scale;
+}
+
+/// A rotation's map as a point: what `rotation_transform` does to it.
+pub fn rotation_point(r: &Rotation, p: Vec2) -> Vec2 {
+    let mut io = [p.x, p.y];
+    rotation_transform(r, &mut io);
+    v2(io[0], io[1])
+}
+
+/// A 2D affine map: `x' = m00 x + m01 y + tx`, `y' = m10 x + m11 y + ty`.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Affine {
+    pub m00: f32,
+    pub m01: f32,
+    pub m10: f32,
+    pub m11: f32,
+    pub tx: f32,
+    pub ty: f32,
+}
+
+impl Default for Affine {
+    fn default() -> Self {
+        Self::IDENTITY
+    }
+}
+
+impl Affine {
+    pub const IDENTITY: Affine =
+        Affine { m00: 1.0, m01: 0.0, m10: 0.0, m11: 1.0, tx: 0.0, ty: 0.0 };
+
+    /// The map `rotation_transform` applies.
+    pub fn of(r: &Rotation) -> Affine {
+        let (sin_a, cos_a) = r.angle.to_radians().sin_cos();
+        let rx = if r.reflect_x { -1.0 } else { 1.0 };
+        let ry = if r.reflect_y { -1.0 } else { 1.0 };
+        Affine {
+            m00: r.scale * cos_a * rx,
+            m01: r.scale * -sin_a * ry,
+            m10: r.scale * sin_a * rx,
+            m11: r.scale * cos_a * ry,
+            tx: r.origin.x,
+            ty: r.origin.y,
+        }
+    }
+
+    /// `self` after `first`: maps a point through `first`, then `self`.
+    pub fn after(&self, first: &Affine) -> Affine {
+        Affine {
+            m00: self.m00 * first.m00 + self.m01 * first.m10,
+            m01: self.m00 * first.m01 + self.m01 * first.m11,
+            m10: self.m10 * first.m00 + self.m11 * first.m10,
+            m11: self.m10 * first.m01 + self.m11 * first.m11,
+            tx: self.m00 * first.tx + self.m01 * first.ty + self.tx,
+            ty: self.m10 * first.tx + self.m11 * first.ty + self.ty,
+        }
+    }
+
+    /// The inverse map; None when it squashes the plane flat.
+    pub fn inverse(&self) -> Option<Affine> {
+        let det = self.m00 * self.m11 - self.m01 * self.m10;
+        if det.abs() < 1e-12 || !det.is_finite() {
+            return None;
+        }
+        let inv = 1.0 / det;
+        let (m00, m01, m10, m11) =
+            (self.m11 * inv, -self.m01 * inv, -self.m10 * inv, self.m00 * inv);
+        Some(Affine {
+            m00,
+            m01,
+            m10,
+            m11,
+            tx: -(m00 * self.tx + m01 * self.ty),
+            ty: -(m10 * self.tx + m11 * self.ty),
+        })
+    }
+
+    #[inline]
+    pub fn apply(&self, x: f32, y: f32) -> (f32, f32) {
+        (self.m00 * x + self.m01 * y + self.tx, self.m10 * x + self.m11 * y + self.ty)
+    }
+}
+
+/// Linear blend skinning in place: each vertex of `io` (xy pairs) moves to
+/// `v + sum(w * (J v - v))` over its `slots` (joint, weight) pairs, `J`
+/// the joint's map from rest to now. Weights summing to 1 make this the
+/// plain weighted sum of `J v`; weight left over keeps the vertex where its
+/// keyforms put it. A joint index past `joints` reads as the identity.
+pub fn skin_transform(
+    joints: &[Affine],
+    slot_joints: &[u32],
+    weights: &[f32],
+    slots: usize,
+    io: &mut [f32],
+) {
+    let (pts, _) = io.as_chunks_mut::<2>();
+    for (vi, p) in pts.iter_mut().enumerate() {
+        let [x, y] = *p;
+        let (mut dx, mut dy) = (0.0f32, 0.0f32);
+        let at = vi.saturating_mul(slots);
+        let end = at.saturating_add(slots);
+        let (Some(js), Some(ws)) = (slot_joints.get(at..end), weights.get(at..end)) else {
+            continue;
+        };
+        for (&j, &w) in js.iter().zip(ws) {
+            if w == 0.0 {
+                continue;
+            }
+            let Some(m) = joints.get(j as usize) else { continue };
+            let (sx, sy) = m.apply(x, y);
+            dx += w * (sx - x);
+            dy += w * (sy - y);
+        }
+        *p = [x + dx, y + dy];
+    }
 }
 
 #[cfg(test)]

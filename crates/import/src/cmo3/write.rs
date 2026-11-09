@@ -13,7 +13,7 @@
 
 use std::collections::HashMap;
 
-use ayatsuri_format::model::{AlphaBlend, Blend, DeformerKind, Model, PhysicsIo, flags};
+use ayatsuri_format::model::{AlphaBlend, Blend, BoneData, DeformerKind, Model, PhysicsIo, flags};
 
 use super::caffw;
 use super::xmlw::{Tree, fmt_f};
@@ -769,6 +769,9 @@ impl W {
 
 /// The project as archive bytes.
 pub fn to_cmo3(x: &Cmo3Export) -> Result<Vec<u8>, ImportError> {
+    if crate::moc3_export::has_bones(x.model) {
+        return Err(err(crate::moc3_export::BONES_NOT_EXPORTED));
+    }
     // the project gets the curves as plain keys too (Cubism's own setting
     // is not written yet)
     let baked;
@@ -1050,7 +1053,7 @@ pub fn to_cmo3(x: &Cmo3Export) -> Result<Vec<u8>, ImportError> {
         .map(|d| {
             w.t.obj(match d.kind {
                 DeformerKind::Warp(_) => "CWarpDeformerSource",
-                DeformerKind::Rotation(_) => "CRotationDeformerSource",
+                DeformerKind::Rotation(_) | DeformerKind::Bone(_) => "CRotationDeformerSource",
             })
         })
         .collect();
@@ -1072,7 +1075,9 @@ pub fn to_cmo3(x: &Cmo3Export) -> Result<Vec<u8>, ImportError> {
             d.binding.axes.iter().map(|a| (a.parameter as usize, a.keys.clone())).collect();
         let (opacities, slots) = match &d.kind {
             DeformerKind::Warp(wd) => (&wd.opacities, wd.opacities.len().max(1)),
-            DeformerKind::Rotation(r) => (&r.opacities, r.angles.len().max(1)),
+            DeformerKind::Rotation(r) | DeformerKind::Bone(BoneData { rotation: r, .. }) => {
+                (&r.opacities, r.angles.len().max(1))
+            }
         };
         let (grid, form_guids) = w.grid(&axes, &param_guids, slots);
         let name = name_or(x.deformer_names, i, &d.id);
@@ -1112,7 +1117,7 @@ pub fn to_cmo3(x: &Cmo3Export) -> Result<Vec<u8>, ImportError> {
                 }
                 spaces.push(Space::Warp);
             }
-            DeformerKind::Rotation(r) => {
+            DeformerKind::Rotation(r) | DeformerKind::Bone(BoneData { rotation: r, .. }) => {
                 w.t.b(node, "useBoneUi_testImpl", true);
                 let forms = w.t.list(node, "carray_list", "keyforms");
                 for (s, &g) in form_guids.iter().enumerate() {

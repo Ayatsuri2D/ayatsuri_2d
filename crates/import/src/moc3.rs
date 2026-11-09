@@ -583,6 +583,7 @@ pub fn from_moc3(bytes: &[u8]) -> Result<Model, ImportError> {
             clip_inherit: false,
             multiply,
             screen,
+            skin: None,
         });
     }
 

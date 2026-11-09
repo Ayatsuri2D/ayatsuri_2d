@@ -14,6 +14,7 @@ pub mod automesh;
 pub mod bezier;
 pub mod blend;
 pub mod blendshape;
+mod bones;
 pub mod clip;
 pub mod color;
 pub mod comp;
@@ -30,8 +31,12 @@ pub mod shapes;
 pub mod skin;
 pub mod stroke_mesh;
 
-use ayatsuri_format::model::{ArtMesh, Blend, BlendShape, DeformerKind, Model, Parameter};
-use deform::{Rotation, Vec2, rotation_transform, signed_angle, v2, warp_transform};
+use ayatsuri_format::model::{
+    ArtMesh, Blend, BlendShape, BoneData, DeformerKind, Model, Parameter, RotationData, SKIN_SLOTS,
+};
+use deform::{
+    Affine, Rotation, Vec2, resolve_under, rotation_transform, skin_transform, v2, warp_transform,
+};
 
 /// A loaded puppet: the model plus every buffer the frame loop needs,
 /// allocated once here.
@@ -78,8 +83,12 @@ pub struct Puppet {
     warp_grid: Vec<f32>,
     warp_grid_off: Vec<usize>,
     warp_grid_len: Vec<usize>,
-    /// Resolved rotation states.
+    /// Resolved rotation states (rotation deformers and bones).
     rot: Vec<Rotation>,
+    /// The same before the parent chain runs, in the parent's space.
+    rot_local: Vec<Rotation>,
+    /// Bone weight skinning, built at load (see `skinning`).
+    skinning: bones::Skinning,
     /// Blended-then-transformed mesh vertices, one flat buffer.
     mesh_pos: Vec<f32>,
     mesh_pos_off: Vec<usize>,
@@ -236,7 +245,7 @@ impl Puppet {
                     grid_total = grid_total.saturating_add(len);
                     warp_count += 1;
                 }
-                DeformerKind::Rotation(_) => {
+                DeformerKind::Rotation(_) | DeformerKind::Bone(_) => {
                     def_local.push(rot_count);
                     rot_count += 1;
                 }
@@ -309,7 +318,7 @@ impl Puppet {
             .unwrap_or(1);
         let max_items = model.draw_groups.iter().map(|g| g.items.len()).max().unwrap_or(1);
 
-        Self {
+        let mut puppet = Self {
             values,
             eps,
             part_user_opacity: vec![1.0; n_parts],
@@ -371,6 +380,8 @@ impl Puppet {
             warp_grid_off,
             warp_grid_len,
             rot: vec![Rotation::default(); rot_count as usize],
+            rot_local: vec![Rotation::default(); rot_count as usize],
+            skinning: bones::Skinning::default(),
             mesh_pos: vec![0.0; pos_total],
             mesh_pos_off,
             mesh_opacity: vec![0.0; n_meshes],
@@ -386,7 +397,96 @@ impl Puppet {
             shape_corners: Vec::with_capacity(max_corners),
             physics: physics::Physics::new(&model),
             model,
+        };
+        puppet.skinning = bones::Skinning::new(&puppet.model, |di| puppet.rest_rotation(di));
+        puppet
+    }
+
+    /// A rotation deformer's or bone's own state at rest (every parameter
+    /// at its default), in its parent's space; None when its keyforms do
+    /// not cover the defaults. Load time only: it allocates.
+    fn rest_rotation(&self, di: usize) -> Option<Rotation> {
+        let d = self.model.deformers.get(di)?;
+        let r = d.kind.rotation()?;
+        let params = &self.model.parameters;
+        let defaults: Vec<f32> = params.iter().map(|p| p.default).collect();
+        let mut corners = Vec::new();
+        let in_range = blend::corners(
+            &d.binding,
+            |p| defaults.get(p).copied().unwrap_or(0.0),
+            |p| self.eps.get(p).copied().unwrap_or((0.001, 0.0015)),
+            &mut corners,
+        );
+        if !in_range {
+            return None;
         }
+        let mut shape_corners = Vec::new();
+        let mut base = vec![0.0f32; 1];
+        Some(Self::local_rotation(
+            params,
+            &self.eps,
+            &defaults,
+            d,
+            r,
+            &corners,
+            &mut shape_corners,
+            &mut base,
+        ))
+    }
+
+    /// A rotation deformer's or bone's own state from its keyforms and
+    /// blend shapes, in its parent's space.
+    #[allow(clippy::too_many_arguments)]
+    fn local_rotation(
+        params: &[Parameter],
+        eps: &[(f32, f32)],
+        values: &[f32],
+        d: &ayatsuri_format::model::Deformer,
+        r: &RotationData,
+        corners: &[blend::Corner],
+        shape_corners: &mut Vec<blend::Corner>,
+        base: &mut [f32],
+    ) -> Rotation {
+        let mut rot = Rotation {
+            origin: v2(
+                Self::blend_scalar(corners, &r.origins_x),
+                Self::blend_scalar(corners, &r.origins_y),
+            ),
+            angle: r.base_angle + Self::blend_scalar(corners, &r.angles),
+            scale: Self::blend_scalar(corners, &r.scales),
+            reflect_x: corners
+                .first()
+                .and_then(|&(k, _)| r.reflect_x.get(k))
+                .copied()
+                .unwrap_or(false),
+            reflect_y: corners
+                .first()
+                .and_then(|&(k, _)| r.reflect_y.get(k))
+                .copied()
+                .unwrap_or(false),
+        };
+        for (channel, pool, slot) in [
+            (blendshape::Channel::Angle, &r.angles, &mut rot.angle),
+            (blendshape::Channel::OriginX, &r.origins_x, &mut rot.origin.x),
+            (blendshape::Channel::OriginY, &r.origins_y, &mut rot.origin.y),
+            (blendshape::Channel::Scale, &r.scales, &mut rot.scale),
+        ] {
+            let mut one = [*slot];
+            Self::add_shapes(
+                params,
+                eps,
+                values,
+                &d.binding,
+                &d.blend_shapes,
+                channel,
+                pool,
+                shape_corners,
+                base,
+                &mut one,
+            );
+            *slot = one[0];
+        }
+        rot
     }
 
     pub fn has_physics(&self) -> bool {
@@ -518,7 +618,7 @@ impl Puppet {
             }
             edit::Target::Deformer(i) => match &mut self.model.deformers.get_mut(i)?.kind {
                 DeformerKind::Warp(w) => w.opacities.get_mut(keyform),
-                DeformerKind::Rotation(r) => r.opacities.get_mut(keyform),
+                kind => kind.rotation_mut()?.opacities.get_mut(keyform),
             },
             edit::Target::Part(i) => {
                 self.model.parts.get_mut(i)?.offscreen.as_mut()?.opacities.get_mut(keyform)
@@ -530,8 +630,7 @@ impl Puppet {
     /// turn preview, the same way.
     pub fn rotation_angles_mut(&mut self, deformer: usize) -> Option<&mut [f32]> {
         self.cache.valid = false;
-        let d = self.model.deformers.get_mut(deformer)?;
-        let DeformerKind::Rotation(r) = &mut d.kind else { return None };
+        let r = self.model.deformers.get_mut(deformer)?.kind.rotation_mut()?;
         Some(r.angles.as_mut_slice())
     }
 
@@ -539,8 +638,7 @@ impl Puppet {
     /// scale handle preview, the same way.
     pub fn rotation_scales_mut(&mut self, deformer: usize) -> Option<&mut [f32]> {
         self.cache.valid = false;
-        let d = self.model.deformers.get_mut(deformer)?;
-        let DeformerKind::Rotation(r) = &mut d.kind else { return None };
+        let r = self.model.deformers.get_mut(deformer)?.kind.rotation_mut()?;
         Some(r.scales.as_mut_slice())
     }
 
@@ -552,8 +650,7 @@ impl Puppet {
         keyform: usize,
     ) -> Option<(&mut f32, &mut f32)> {
         self.cache.valid = false;
-        let d = self.model.deformers.get_mut(deformer)?;
-        let DeformerKind::Rotation(r) = &mut d.kind else { return None };
+        let r = self.model.deformers.get_mut(deformer)?.kind.rotation_mut()?;
         Some((r.origins_x.get_mut(keyform)?, r.origins_y.get_mut(keyform)?))
     }
 
@@ -618,6 +715,7 @@ impl Puppet {
         self.resolve_params();
         self.update_parts();
         self.update_deformers();
+        self.update_joints();
         self.update_meshes();
         self.apply_glues();
         self.sort_render_order();
@@ -884,10 +982,56 @@ impl Puppet {
                 let grid = self.warp_grid.get(off..off.saturating_add(len)).unwrap_or(&[]);
                 warp_transform(grid, w.rows as usize, w.cols as usize, w.quad, io);
             }
-            DeformerKind::Rotation(_) => {
+            DeformerKind::Rotation(_) | DeformerKind::Bone(_) => {
                 let r = self.rot.get(local).copied().unwrap_or_default();
                 rotation_transform(&r, io);
             }
+        }
+    }
+
+    /// Move a weighted mesh's points (in its parent's space) by its bones'
+    /// change from rest. Nothing happens to a mesh that is not skinned.
+    fn apply_skin(&self, mi: usize, io: &mut [f32]) {
+        let Some(slots) = self.skinning.slot_joints.get(mi) else { return };
+        if slots.is_empty() {
+            return;
+        }
+        let Some(skin) = self.model.art_meshes.get(mi).and_then(|m| m.skin.as_ref()) else {
+            return;
+        };
+        skin_transform(&self.skinning.now, slots, &skin.weights, SKIN_SLOTS, io);
+    }
+
+    /// Whether a bone a mesh is weighted to changed this frame.
+    fn skin_moved(&self, mi: usize) -> bool {
+        self.skinning.mesh_bones.get(mi).is_some_and(|bones| {
+            bones.iter().any(|&b| self.cache.def_moved.get(b as usize).copied().unwrap_or(true))
+        })
+    }
+
+    /// Every joint's map from rest to now, from this frame's local bone
+    /// states. A joint with a hidden or out-of-range link stays at rest.
+    fn update_joints(&mut self) {
+        let sk = &mut self.skinning;
+        for (j, now) in sk.now.iter_mut().enumerate() {
+            let Some(&(off, len)) = sk.span.get(j) else { break };
+            let path = sk.path.get(off..off.saturating_add(len)).unwrap_or(&[]);
+            let enabled =
+                path.iter().all(|&di| self.def_enabled.get(di as usize).copied().unwrap_or(false));
+            let def_local = &self.def_local;
+            let rot_local = &self.rot_local;
+            let resolved = if enabled {
+                bones::chain(path.iter().map(|&di| {
+                    let local = def_local.get(di as usize).copied().unwrap_or(0) as usize;
+                    rot_local.get(local).copied().unwrap_or_default()
+                }))
+            } else {
+                None
+            };
+            *now = match (resolved, sk.rest_inv.get(j)) {
+                (Some(r), Some(inv)) => Affine::of(&r).after(inv),
+                _ => Affine::IDENTITY,
+            };
         }
     }
 
@@ -1004,7 +1148,9 @@ impl Puppet {
                         *s = scale;
                     }
                 }
-                DeformerKind::Rotation(r) if same => {
+                DeformerKind::Rotation(r) | DeformerKind::Bone(BoneData { rotation: r, .. })
+                    if same =>
+                {
                     // the resolved rotation stands; opacity can still fade
                     let opacity = Self::blend_scalar(&corners, &r.opacities);
                     let scale = self.rot.get(local).map_or(1.0, |r| r.scale);
@@ -1015,85 +1161,33 @@ impl Puppet {
                         *o = opacity * parent_opacity;
                     }
                 }
-                DeformerKind::Rotation(r) => {
-                    let mut rot = Rotation {
-                        origin: v2(
-                            Self::blend_scalar(&corners, &r.origins_x),
-                            Self::blend_scalar(&corners, &r.origins_y),
-                        ),
-                        angle: r.base_angle + Self::blend_scalar(&corners, &r.angles),
-                        scale: Self::blend_scalar(&corners, &r.scales),
-                        reflect_x: corners
-                            .first()
-                            .and_then(|&(k, _)| r.reflect_x.get(k))
-                            .copied()
-                            .unwrap_or(false),
-                        reflect_y: corners
-                            .first()
-                            .and_then(|&(k, _)| r.reflect_y.get(k))
-                            .copied()
-                            .unwrap_or(false),
-                    };
-                    for (channel, pool, slot) in [
-                        (blendshape::Channel::Angle, &r.angles, &mut rot.angle),
-                        (blendshape::Channel::OriginX, &r.origins_x, &mut rot.origin.x),
-                        (blendshape::Channel::OriginY, &r.origins_y, &mut rot.origin.y),
-                        (blendshape::Channel::Scale, &r.scales, &mut rot.scale),
-                    ] {
-                        let mut one = [*slot];
-                        Self::add_shapes(
-                            &self.model.parameters,
-                            &self.eps,
-                            &self.values,
-                            &d.binding,
-                            &d.blend_shapes,
-                            channel,
-                            pool,
-                            &mut self.shape_corners,
-                            &mut self.base_scratch,
-                            &mut one,
-                        );
-                        *slot = one[0];
+                DeformerKind::Rotation(r) | DeformerKind::Bone(BoneData { rotation: r, .. }) => {
+                    // a bone resolves exactly as a rotation deformer does
+                    let mut rot = Self::local_rotation(
+                        &self.model.parameters,
+                        &self.eps,
+                        &self.values,
+                        d,
+                        r,
+                        &corners,
+                        &mut self.shape_corners,
+                        &mut self.base_scratch,
+                    );
+                    if let Some(slot) = self.rot_local.get_mut(local) {
+                        *slot = rot;
                     }
                     let opacity = Self::blend_scalar(&corners, &r.opacities);
                     if let Some(p) = parent {
-                        // The parent may bend space, so the child's angle has
-                        // no closed form: probe how a short vertical step maps
-                        // and measure the turn (the verified runtime's method).
-                        let parent_is_rotation = matches!(
-                            self.model.deformers.get(p).map(|pd| &pd.kind),
-                            Some(DeformerKind::Rotation(_))
-                        );
+                        let parent_is_rotation = self
+                            .model
+                            .deformers
+                            .get(p)
+                            .is_some_and(|pd| pd.kind.rotation().is_some());
                         let dir_delta = if parent_is_rotation { -10.0 } else { -0.1 };
-                        let t_origin = self.transform_point(p, rot.origin);
-                        let mut direction = v2(0.0, 0.0);
-                        let mut probe = 1.0f32;
-                        for _ in 0..16 {
-                            let tt = self.transform_point(
-                                p,
-                                v2(rot.origin.x, rot.origin.y + probe * dir_delta),
-                            );
-                            let dxy = tt.sub2(t_origin);
-                            if dxy.x != 0.0 || dxy.y != 0.0 {
-                                direction = dxy;
-                                break;
-                            }
-                            let tt = self.transform_point(
-                                p,
-                                v2(rot.origin.x, rot.origin.y - probe * dir_delta),
-                            );
-                            let dxy = tt.sub2(t_origin);
-                            if dxy.x != 0.0 || dxy.y != 0.0 {
-                                direction = v2(-dxy.x, -dxy.y);
-                                break;
-                            }
-                            probe *= 0.1;
-                        }
-                        let angle_adj = signed_angle(v2(0.0, dir_delta), direction) * -180.0
-                            / core::f32::consts::PI;
-                        rot.angle += angle_adj;
-                        rot.origin = t_origin;
-                        rot.scale *= self.def_scale.get(p).copied().unwrap_or(1.0);
+                        let parent_scale = self.def_scale.get(p).copied().unwrap_or(1.0);
+                        resolve_under(&mut rot, dir_delta, parent_scale, |q| {
+                            self.transform_point(p, q)
+                        });
                     }
                     if let Some(s) = self.def_scale.get_mut(di) {
                         *s = rot.scale;
@@ -1109,7 +1203,9 @@ impl Puppet {
             // blend shapes on opacity land on the deformer's own, under its parent's
             let own_opacity = match &d.kind {
                 DeformerKind::Warp(w) => &w.opacities,
-                DeformerKind::Rotation(r) => &r.opacities,
+                DeformerKind::Rotation(r) | DeformerKind::Bone(BoneData { rotation: r, .. }) => {
+                    &r.opacities
+                }
             };
             if blendshape::shapes_any(&d.blend_shapes, blendshape::Channel::Opacity) {
                 let mut delta = [0.0f32];
@@ -1192,7 +1288,8 @@ impl Puppet {
                 && !self.cache.mesh_glued.get(mi).copied().unwrap_or(true)
                 && self.cache.mesh_made.get(mi).copied().unwrap_or(false)
                 && self.cache.mesh_corners.get(mi).is_some_and(|c| *c == corners)
-                && self.cache.mesh_shapes_same(mi, &m.blend_shapes, &self.values);
+                && self.cache.mesh_shapes_same(mi, &m.blend_shapes, &self.values)
+                && !self.skin_moved(mi);
             if !enabled {
                 if let Some(o) = self.mesh_opacity.get_mut(mi) {
                     *o = 0.0;
@@ -1221,6 +1318,7 @@ impl Puppet {
                             &mut scratch,
                             out,
                         );
+                        self.apply_skin(mi, out);
                         if let Some(pd) = m.parent_deformer {
                             self.apply_deformer(pd as usize, out);
                         }
@@ -1244,6 +1342,8 @@ impl Puppet {
                         &mut scratch,
                         out,
                     );
+                    // own keyforms and blend shapes, then bones, then the parent
+                    self.apply_skin(mi, out);
                     if let Some(pd) = m.parent_deformer {
                         self.apply_deformer(pd as usize, out);
                     }
@@ -1618,7 +1718,7 @@ impl Puppet {
     /// in parent space, for origin dragging.
     pub fn rotation_local_origin(&self, deformer: usize) -> Option<(f32, f32)> {
         let d = self.model.deformers.get(deformer)?;
-        let DeformerKind::Rotation(r) = &d.kind else { return None };
+        let r = d.kind.rotation()?;
         let mut corners = Vec::new();
         let ok = blend::corners(
             &d.binding,
@@ -1638,9 +1738,7 @@ impl Puppet {
     /// A rotation deformer's resolved state, for editor overlays.
     pub fn rotation_state(&self, deformer: usize) -> Option<deform::Rotation> {
         let d = self.model.deformers.get(deformer)?;
-        if !matches!(d.kind, DeformerKind::Rotation(_)) {
-            return None;
-        }
+        d.kind.rotation()?;
         let local = self.def_local.get(deformer).copied()? as usize;
         self.rot.get(local).copied()
     }
@@ -1703,12 +1801,6 @@ impl Puppet {
                 clip_and: self.mesh_clip_and.get(mi).map(Vec::as_slice).unwrap_or_default(),
             })
         })
-    }
-}
-
-impl Vec2 {
-    fn sub2(self, o: Vec2) -> Vec2 {
-        v2(self.x - o.x, self.y - o.y)
     }
 }
 
@@ -1802,6 +1894,7 @@ mod tests {
                 clip_inherit: false,
                 multiply: Vec::new(),
                 screen: Vec::new(),
+                skin: None,
             }],
             glues: vec![],
             draw_groups: vec![],

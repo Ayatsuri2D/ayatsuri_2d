@@ -309,6 +309,7 @@ fn helper_mesh(
         blend_shapes,
         multiply: Vec::new(),
         screen: Vec::new(),
+        skin: None,
     })
 }
 
@@ -344,6 +345,7 @@ mod tests {
             blend_shapes: Vec::new(),
             multiply: Vec::new(),
             screen: Vec::new(),
+            skin: None,
         }
     }
 
