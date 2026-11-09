@@ -1,9 +1,9 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <component type="desktop-application">
-  <id>org.ayatsuri_2d.Ayatsuri2D</id>
+  <id>io.github.Ayatsuri2D.Ayatsuri2D</id>
   <name>Ayatsuri2D</name>
   <summary>Rig, animate and run Live2D-style 2D models</summary>
-  <developer id="org.ayatsuri_2d">
+  <developer id="io.github.Ayatsuri2D">
     <name>Ayatsuri2D</name>
   </developer>
   <metadata_license>CC0-1.0</metadata_license>
@@ -16,7 +16,7 @@
       moc3 models for apps like VTube Studio.
     </p>
   </description>
-  <launchable type="desktop-id">org.ayatsuri_2d.Ayatsuri2D.desktop</launchable>
+  <launchable type="desktop-id">io.github.Ayatsuri2D.Ayatsuri2D.desktop</launchable>
   <url type="homepage">https://github.com/Ayatsuri2D/ayatsuri_2d</url>
   <url type="bugtracker">https://github.com/Ayatsuri2D/ayatsuri_2d/issues</url>
   <content_rating type="oars-1.1"/>

@@ -32,7 +32,7 @@ export NUMVER
 DIST="${DIST:-$ROOT/dist/release}"
 mkdir -p "$DIST"
 export DIST
-export APP_ID=org.ayatsuri_2d.Ayatsuri2D
+export APP_ID=io.github.Ayatsuri2D.Ayatsuri2D
 export CARGO_TARGET_DIR="${CARGO_TARGET_DIR:-$ROOT/target}"
 
 # licence and credits ride along in every package

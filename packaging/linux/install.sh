@@ -19,7 +19,7 @@ while [ $# -gt 0 ]; do
     *) echo "unknown argument: $1" >&2; exit 2 ;;
   esac
 done
-APP_ID=org.ayatsuri_2d.Ayatsuri2D
+APP_ID=io.github.Ayatsuri2D.Ayatsuri2D
 
 files() {
   cd "$HERE" && find bin share -type f | sort
@@ -64,6 +64,7 @@ else
   for old in "$PREFIX"/share/applications/io.github.*.Ayatsuri2D.desktop \
     "$PREFIX"/share/mime/packages/io.github.*.Ayatsuri2D.xml \
     "$PREFIX"/share/metainfo/io.github.*.Ayatsuri2D.metainfo.xml; do
+    case "$old" in */"$APP_ID".*) continue ;; esac
     if [ -e "$old" ]; then rm -f "$old"; fi
   done
   for f in $(files); do
