@@ -1,26 +1,108 @@
 <?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Template for io.github.Ayatsuri2D.Ayatsuri2D.metainfo.xml. Edit this file,
+  then run `cargo xtask metainfo`: it fills @RELEASES@ from CHANGELOG.md and
+  writes the .metainfo.xml beside it, which every package installs as is.
+  `cargo xtask ci` fails when the two are out of step.
+-->
 <component type="desktop-application">
   <id>io.github.Ayatsuri2D.Ayatsuri2D</id>
   <name>Ayatsuri2D</name>
   <summary>Rig, animate and run Live2D-style 2D models</summary>
-  <developer id="io.github.Ayatsuri2D">
+  <developer id="io.github.ayatsuri2d">
     <name>Ayatsuri2D</name>
   </developer>
   <metadata_license>CC0-1.0</metadata_license>
   <project_license>GPL-3.0-only AND MIT AND Apache-2.0</project_license>
   <description>
     <p>
-      Ayatsuri2D is an open, native 2D puppet studio: import artwork from
-      Photoshop or Krita, mesh and rig it with warp and rotation deformers,
-      add physics and expressions, animate it, and export Cubism-compatible
-      moc3 models for apps like VTube Studio.
+      Ayatsuri2D is an open, native 2D puppet studio. Import artwork from
+      Photoshop or Krita, mesh and rig it, add physics and expressions,
+      animate it, and export Cubism-compatible moc3 models for apps like
+      VTube Studio.
+    </p>
+    <ul>
+      <li>Imports layered PSD, Krita and Clip Studio Paint artwork, and Cubism moc3 and cmo3 models</li>
+      <li>Automatic and hand-edited meshes, with Mirror Edit</li>
+      <li>Warp and rotation deformers, blend shapes and keyed parameters</li>
+      <li>Physics with a live pendulum preview, expressions and motions</li>
+      <li>An animation timeline, with video export through ffmpeg when installed</li>
+      <li>Pen tablet pressure on Linux and macOS</li>
+      <li>A local WebSocket API for tracking apps and tools</li>
+    </ul>
+    <p>
+      Live2D and Cubism are trademarks of Live2D Inc. Ayatsuri2D is an
+      independent project and is not affiliated with it.
     </p>
   </description>
   <launchable type="desktop-id">io.github.Ayatsuri2D.Ayatsuri2D.desktop</launchable>
+  <provides>
+    <binary>ayatsuri-launcher</binary>
+    <binary>ayatsuri</binary>
+    <mediatype>application/x-ayatsuri-model</mediatype>
+  </provides>
   <url type="homepage">https://github.com/Ayatsuri2D/ayatsuri_2d</url>
   <url type="bugtracker">https://github.com/Ayatsuri2D/ayatsuri_2d/issues</url>
-  <content_rating type="oars-1.1"/>
+  <url type="vcs-browser">https://github.com/Ayatsuri2D/ayatsuri_2d</url>
+  <url type="contribute">https://github.com/Ayatsuri2D/ayatsuri_2d/blob/main/CONTRIBUTING.md</url>
+  <update_contact>support@ayatsuri-2d.org</update_contact>
+  <branding>
+    <color type="primary" scheme_preference="light">#e9e4f2</color>
+    <color type="primary" scheme_preference="dark">#17161b</color>
+  </branding>
+  <!-- the README's screenshots; the art in them belongs to its artists (see LICENSING.md) -->
+  <screenshots>
+    <screenshot type="default">
+      <image>https://raw.githubusercontent.com/Ayatsuri2D/ayatsuri_2d/main/docs/media/hero.png</image>
+      <caption>A rigged model: mesh wireframe, keyed parameters, the deformer tree and parts</caption>
+    </screenshot>
+    <screenshot>
+      <image>https://raw.githubusercontent.com/Ayatsuri2D/ayatsuri_2d/main/docs/media/mesh-edit.png</image>
+      <caption>Mesh Edit with the manual tools, Mirror Edit and automatic mesh presets</caption>
+    </screenshot>
+    <screenshot>
+      <image>https://raw.githubusercontent.com/Ayatsuri2D/ayatsuri_2d/main/docs/media/rigging.png</image>
+      <caption>A warp deformer with its Bezier handles, keyed to the head parameters</caption>
+    </screenshot>
+    <screenshot>
+      <image>https://raw.githubusercontent.com/Ayatsuri2D/ayatsuri_2d/main/docs/media/physics.png</image>
+      <caption>The Physics page with the pendulum preview</caption>
+    </screenshot>
+    <screenshot>
+      <image>https://raw.githubusercontent.com/Ayatsuri2D/ayatsuri_2d/main/docs/media/animation.png</image>
+      <caption>The Animation workspace and its timeline</caption>
+    </screenshot>
+    <screenshot>
+      <image>https://raw.githubusercontent.com/Ayatsuri2D/ayatsuri_2d/main/docs/media/dashboard.png</image>
+      <caption>The home screen with recent models</caption>
+    </screenshot>
+  </screenshots>
+  <supports>
+    <control>pointing</control>
+    <control>keyboard</control>
+    <control>tablet</control>
+  </supports>
+  <requires>
+    <display_length compare="ge">768</display_length>
+  </requires>
+  <!--
+    social-info: the Discord activity status (on by default, off in Settings)
+    tells Discord what the user is working on. The update check sends no user
+    data. Re-check with https://hughsie.github.io/oars/generate.html when this
+    changes.
+  -->
+  <content_rating type="oars-1.1">
+    <content_attribute id="social-info">mild</content_attribute>
+  </content_rating>
+  <keywords>
+    <keyword>live2d</keyword>
+    <keyword>vtuber</keyword>
+    <keyword>puppet</keyword>
+    <keyword>rigging</keyword>
+    <keyword>moc3</keyword>
+    <keyword>animation</keyword>
+  </keywords>
   <releases>
-    <release version="@VERSION@" date="@DATE@" type="development"/>
+@RELEASES@
   </releases>
 </component>

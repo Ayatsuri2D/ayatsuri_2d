@@ -1,0 +1,92 @@
+# Maintainer: Ayatsuri2D <support@ayatsuri-2d.org>
+#
+# Builds Ayatsuri2D from the source tarball of a release tag, following the
+# Arch Rust package guidelines. Regenerate .SRCINFO after any change:
+#   makepkg --printsrcinfo > .SRCINFO
+# A Package Maintainer adopting this for [extra] replaces the Maintainer line
+# with their own and keeps this file's history as a Contributor line.
+
+pkgname=ayatsuri2d
+pkgver=0.6.1
+pkgrel=1
+pkgdesc='Open 2D puppet studio: rig, animate and export Live2D-style models'
+arch=('x86_64' 'aarch64')
+url='https://github.com/Ayatsuri2D/ayatsuri_2d'
+# the editor is GPL-3.0-only; the runtime, model and import crates it links
+# are MIT, and the C ABI crate is Apache-2.0 (see LICENSING.md)
+license=('GPL-3.0-only AND MIT AND Apache-2.0')
+# libasound is linked; the window system, xkbcommon and the GPU (Vulkan, or
+# EGL/GL) are opened at run time, so they are listed here, not found by ldd
+depends=(
+  'alsa-lib'
+  'gcc-libs'
+  'glibc'
+  'hicolor-icon-theme'
+  'libx11'
+  'libxcursor'
+  'libxi'
+  'libxkbcommon'
+  'libxrandr'
+  'vulkan-icd-loader'
+  'wayland'
+)
+makedepends=('cargo')
+optdepends=(
+  'ffmpeg: video and timelapse export'
+  'xdg-desktop-portal: native file dialogs'
+  'vulkan-driver: GPU rendering through Vulkan'
+)
+# Release tarballs are not signed yet. When the release workflow signs them,
+# add the .asc to source and the release key's fingerprint here:
+#   source+=("$url/releases/download/v$pkgver/$pkgname-$pkgver-src.tar.gz.asc")
+#   validpgpkeys=('<fingerprint of packaging/linux/ayatsuri2d-signing-key.asc>')
+source=("$pkgname-$pkgver.tar.gz::$url/archive/refs/tags/v$pkgver.tar.gz")
+# fill in with `updpkgsums` once the tag is public; SKIP is never accepted in a repository
+b2sums=('SKIP')
+_appid=io.github.Ayatsuri2D.Ayatsuri2D
+# GitHub names the top folder after the repository
+_srcdir="ayatsuri_2d-$pkgver"
+
+prepare() {
+  cd "$_srcdir"
+  export RUSTUP_TOOLCHAIN=stable
+  cargo fetch --locked --target "$(rustc --print host-tuple)"
+}
+
+build() {
+  cd "$_srcdir"
+  export RUSTUP_TOOLCHAIN=stable
+  export CARGO_TARGET_DIR=target
+  cargo build --frozen --release -p ayatsuri -p ayatsuri-launcher
+}
+
+check() {
+  cd "$_srcdir"
+  export RUSTUP_TOOLCHAIN=stable
+  export CARGO_TARGET_DIR=target
+  cargo test --frozen --workspace
+}
+
+package() {
+  cd "$_srcdir"
+  install -Dm755 -t "$pkgdir/usr/bin/" target/release/ayatsuri target/release/ayatsuri-launcher
+
+  local linux=packaging/linux
+  install -Dm644 "$linux/$_appid.desktop" "$pkgdir/usr/share/applications/$_appid.desktop"
+  install -Dm644 "$linux/$_appid.metainfo.xml" "$pkgdir/usr/share/metainfo/$_appid.metainfo.xml"
+  install -Dm644 "$linux/$_appid.mime.xml" "$pkgdir/usr/share/mime/packages/$_appid.xml"
+  local icon
+  for icon in assets/app-icon/hicolor/*/apps/ayatsuri2d.png; do
+    install -Dm644 "$icon" "$pkgdir/usr/share/icons/${icon#assets/app-icon/}"
+  done
+
+  install -Dm644 -t "$pkgdir/usr/share/doc/$pkgname/" README.md CHANGELOG.md assets/credits.tsv
+
+  # GPL-3.0 and Apache-2.0 texts are in licenses; MIT carries its copyright lines
+  local lic="$pkgdir/usr/share/licenses/$pkgname"
+  install -Dm644 -t "$lic/" LICENSING.md crates/openmoc3/NOTICE
+  local crate
+  for crate in core format import openmoc3; do
+    install -Dm644 "crates/$crate/LICENSE" "$lic/LICENSE-MIT-$crate"
+  done
+}
