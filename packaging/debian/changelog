@@ -1,0 +1,6 @@
+ayatsuri2d (0.6.1-0ppa0) UNRELEASED; urgency=medium
+
+  * First source package, built offline with vendored crates.
+    build-source.sh adds the entry for each release and Ubuntu series.
+
+ -- Ayatsuri2D <support@ayatsuri-2d.org>  Tue, 10 Nov 2026 12:00:00 +0000

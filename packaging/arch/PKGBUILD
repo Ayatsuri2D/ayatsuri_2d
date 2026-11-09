@@ -31,6 +31,9 @@ depends=(
   'wayland'
 )
 makedepends=('cargo')
+# makepkg's LTO puts GCC bitcode in ring's C objects, which rust-lld cannot
+# link ("undefined symbol: ring_core_..."); Cargo's own thin LTO still applies
+options=('!lto')
 optdepends=(
   'ffmpeg: video and timelapse export'
   'xdg-desktop-portal: native file dialogs'

@@ -1,0 +1,50 @@
+#!/usr/bin/make -f
+# Offline build against the vendored crates of the orig-vendor component
+# (unpacked to ./vendor), as Launchpad builders have no network.
+
+export DEB_BUILD_MAINT_OPTIONS = hardening=+all
+# Ubuntu's versioned toolchain; on a system without it the plain cargo is used
+export PATH := /usr/lib/rust-1.97/bin:$(PATH)
+export CARGO_HOME := $(CURDIR)/debian/cargo-home
+export CARGO_TARGET_DIR := $(CURDIR)/target
+export CARGO_NET_OFFLINE := true
+
+APPID := io.github.Ayatsuri2D.Ayatsuri2D
+DEST := $(CURDIR)/debian/ayatsuri2d
+JOBS := $(patsubst parallel=%,-j%,$(filter parallel=%,$(DEB_BUILD_OPTIONS)))
+
+%:
+	dh $@
+
+override_dh_auto_configure:
+	mkdir -p $(CARGO_HOME)
+	printf '%s\n' \
+	  '[source.crates-io]' 'replace-with = "vendored-sources"' \
+	  '[source.vendored-sources]' 'directory = "$(CURDIR)/vendor"' \
+	  > $(CARGO_HOME)/config.toml
+
+override_dh_auto_build:
+	cargo build --frozen --release $(JOBS) -p ayatsuri -p ayatsuri-launcher
+
+override_dh_auto_test:
+ifeq (,$(filter nocheck,$(DEB_BUILD_OPTIONS)))
+	cargo test --frozen $(JOBS) --workspace
+endif
+
+override_dh_auto_install:
+	install -Dm755 -t $(DEST)/usr/bin target/release/ayatsuri target/release/ayatsuri-launcher
+	install -Dm644 packaging/linux/$(APPID).desktop $(DEST)/usr/share/applications/$(APPID).desktop
+	install -Dm644 packaging/linux/$(APPID).metainfo.xml $(DEST)/usr/share/metainfo/$(APPID).metainfo.xml
+	install -Dm644 packaging/linux/$(APPID).mime.xml $(DEST)/usr/share/mime/packages/$(APPID).xml
+	for icon in assets/app-icon/hicolor/*/apps/ayatsuri2d.png; do \
+	  install -Dm644 "$$icon" "$(DEST)/usr/share/icons/$${icon#assets/app-icon/}"; \
+	done
+
+override_dh_installdocs:
+	dh_installdocs README.md LICENSING.md assets/credits.tsv
+
+override_dh_installchangelogs:
+	dh_installchangelogs CHANGELOG.md
+
+override_dh_auto_clean:
+	rm -rf target debian/cargo-home

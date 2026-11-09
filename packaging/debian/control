@@ -1,0 +1,45 @@
+Source: ayatsuri2d
+Section: graphics
+Priority: optional
+Maintainer: Ayatsuri2D <support@ayatsuri-2d.org>
+Rules-Requires-Root: no
+# Ubuntu 24.04 and 26.04 carry the versioned toolchain the app needs (Rust
+# 1.95 or newer); debian/rules puts /usr/lib/rust-1.97/bin first on PATH.
+# For Debian itself use "cargo (>= 1.95), rustc (>= 1.95)" instead: Launchpad
+# and the Debian buildds only ever try the first of a list of alternatives.
+Build-Depends:
+ debhelper-compat (= 13),
+ cargo-1.97,
+ rustc-1.97,
+ libasound2-dev,
+ pkgconf,
+Standards-Version: 4.7.2
+Homepage: https://github.com/Ayatsuri2D/ayatsuri_2d
+Vcs-Browser: https://github.com/Ayatsuri2D/ayatsuri_2d/tree/main/packaging/debian
+Vcs-Git: https://github.com/Ayatsuri2D/ayatsuri_2d.git
+
+Package: ayatsuri2d
+Architecture: amd64 arm64
+# the window system, xkbcommon and the GPU are opened at run time, so
+# dh_shlibdeps does not see them
+Depends:
+ ${shlibs:Depends},
+ ${misc:Depends},
+ hicolor-icon-theme,
+ libxkbcommon0,
+ libwayland-client0,
+ libvulkan1 | libegl1,
+Recommends:
+ libx11-6,
+ libxcursor1,
+ libxi6,
+ libxrandr2,
+ mesa-vulkan-drivers,
+ xdg-desktop-portal,
+Suggests:
+ ffmpeg,
+Description: open 2D puppet studio for Live2D-style models
+ Ayatsuri2D is an open, native 2D puppet studio: import artwork from
+ Photoshop, Krita or Clip Studio Paint, mesh and rig it with warp and
+ rotation deformers, add physics and expressions, animate it, and export
+ Cubism-compatible moc3 models for apps like VTube Studio.

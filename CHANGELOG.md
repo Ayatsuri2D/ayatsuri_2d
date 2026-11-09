@@ -48,6 +48,11 @@
   export of a model with bones stops with a message saying so.
   The editor tools will sit behind Settings > Experimental > Bones,
   which is off by default.
+- **Packaging recipes for Linux distributions**: build recipes for Arch
+  Linux, Debian and Ubuntu, Fedora and Flathub, all building from source,
+  are ready for when the source is public, so Ayatsuri2D can be offered
+  through each system's own package manager. The app's store listing now
+  shows screenshots and the notes of every release.
 
 ### Fixed
 
