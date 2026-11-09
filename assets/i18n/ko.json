@@ -726,7 +726,7 @@
   "Key the selected parameter": "선택한 파라미터에 키 지정",
   "Last evaluate": "마지막 평가",
   "Visible meshes": "보이는 메시",
-  "the moc3 format guide this project codes against, by Yoru_KenomoVT": "이 프로젝트가 기준으로 삼는 moc3 형식 가이드, Yoru_KenomoVT 작성",
+  "the moc3 format guide this project codes against": "이 프로젝트가 기준으로 삼는 moc3 형식 가이드",
   "original work": "원본 작업",
   "reference for runtime semantics, and the oracle the output is verified against": "런타임 동작의 참조 자료이자 출력 검증의 기준",
   "MIT": "MIT",

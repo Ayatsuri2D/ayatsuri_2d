@@ -726,7 +726,7 @@
   "Key the selected parameter": "为所选参数打关键",
   "Last evaluate": "上次计算",
   "Visible meshes": "可见图形网格",
-  "the moc3 format guide this project codes against, by Yoru_KenomoVT": "本项目所依据的 moc3 格式指南，由 Yoru_KenomoVT 编写",
+  "the moc3 format guide this project codes against": "本项目所依据的 moc3 格式指南",
   "original work": "原创作品",
   "reference for runtime semantics, and the oracle the output is verified against": "运行时语义的参考，也是验证输出所用的基准",
   "MIT": "MIT",

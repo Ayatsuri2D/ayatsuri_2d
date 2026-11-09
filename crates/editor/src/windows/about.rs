@@ -83,7 +83,7 @@ fn crates() -> &'static [Crate] {
 const REFERENCES: &[(&str, &str, &str, &str)] = &[
     (
         "Ayatsuri2D format research",
-        "the moc3 format guide this project codes against, by Yoru_KenomoVT",
+        "the moc3 format guide this project codes against",
         "original work",
         "",
     ),

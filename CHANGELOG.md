@@ -87,6 +87,10 @@
 
 ### Changed
 
+- The app's publisher, package maintainer and copyright now read
+  Ayatsuri2D, and the Linux app id is `org.ayatsuri_2d.Ayatsuri2D`. The
+  Linux installer removes the menu entry an older install left under the
+  previous id, so the menu shows Ayatsuri2D once.
 - Stroke mesh-mapping is no longer experimental: its pen is always in
   Mesh Edit's tool details, and Settings > Experimental no longer lists
   it.
@@ -246,7 +250,7 @@ are now signed.
 ### Thanks
 
 - **[@seoriboi](https://github.com/seoriboi)** and
-  **[RikaYamano](https://www.twitch.tv/rikayamanovt)** suggested features
+  **RikaYamano** suggested features
   and reported bugs for this version. Thank you!
 
 ## 0.6.0 (2026-10-29)

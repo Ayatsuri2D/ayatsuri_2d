@@ -19,7 +19,7 @@ while [ $# -gt 0 ]; do
     *) echo "unknown argument: $1" >&2; exit 2 ;;
   esac
 done
-APP_ID=io.github.Yoru_KenomoVT.Ayatsuri2D
+APP_ID=org.ayatsuri_2d.Ayatsuri2D
 
 files() {
   cd "$HERE" && find bin share -type f | sort
@@ -59,6 +59,13 @@ if [ "$UNINSTALL" = 1 ]; then
   rmdir "$PREFIX/share/doc/ayatsuri2d" 2>/dev/null || true
   echo "removed Ayatsuri2D from $PREFIX"
 else
+  # the app id changed: an older install's menu entry, file type and
+  # metadata would otherwise show a second, stale entry
+  for old in "$PREFIX"/share/applications/io.github.*.Ayatsuri2D.desktop \
+    "$PREFIX"/share/mime/packages/io.github.*.Ayatsuri2D.xml \
+    "$PREFIX"/share/metainfo/io.github.*.Ayatsuri2D.metainfo.xml; do
+    if [ -e "$old" ]; then rm -f "$old"; fi
+  done
   for f in $(files); do
     mkdir -p "$(dirname "$PREFIX/$f")"
     case "$f" in bin/*) mode=755 ;; *) mode=644 ;; esac

@@ -9,8 +9,8 @@ version_schema: semver
 release: 1
 section: graphics
 priority: optional
-maintainer: Yoru_KenomoVT <support@ayatsuri-2d.org>
-vendor: Yoru_KenomoVT
+maintainer: Ayatsuri2D <support@ayatsuri-2d.org>
+vendor: Ayatsuri2D
 homepage: https://github.com/Ayatsuri2D/ayatsuri_2d
 license: GPL-3.0-only AND MIT AND Apache-2.0
 description: |-
