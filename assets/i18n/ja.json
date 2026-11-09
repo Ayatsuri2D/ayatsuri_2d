@@ -726,7 +726,7 @@
   "Key the selected parameter": "選択したパラメータにキーを打つ",
   "Last evaluate": "最終評価",
   "Visible meshes": "表示中のメッシュ",
-  "the moc3 format guide this project codes against, by Yoru_KenomoVT": "このプロジェクトが準拠するmoc3フォーマットガイド（Yoru_KenomoVT作）",
+  "the moc3 format guide this project codes against": "このプロジェクトが準拠するmoc3フォーマットガイド",
   "original work": "オリジナル作品",
   "reference for runtime semantics, and the oracle the output is verified against": "ランタイムの動作の参考資料、および出力の検証基準",
   "MIT": "MIT",

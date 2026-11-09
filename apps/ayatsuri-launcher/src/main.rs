@@ -401,7 +401,7 @@ impl eframe::App for Launcher {
         card.text(
             pos2(rect.max.x - 40.0, bottom - 14.0),
             egui::Align2::RIGHT_BOTTOM,
-            format!("Version {}  ·  Yoru_KenomoVT", env!("CARGO_PKG_VERSION")),
+            format!("Version {}", env!("CARGO_PKG_VERSION")),
             egui::FontId::proportional(10.5),
             a(Color32::from_gray(0x80)),
         );
