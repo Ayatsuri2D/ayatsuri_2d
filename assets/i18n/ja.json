@@ -1438,7 +1438,7 @@
   "Off: the points and edges the stroke mesh covers are removed": "オフ: ストロークのメッシュが覆う頂点と辺は削除されます",
   "Repeated density": "繰り返し密度",
   "Stroke mesh-mapping": "ストロークメッシュマッピング",
-  "Stroke mesh-mapping (experimental): drag to build a mesh along a stroke. Shift+E confirms, Delete cancels": "ストロークメッシュマッピング(実験的): ドラッグでストロークに沿ったメッシュを作ります。Shift+Eで確定、Deleteで取り消し",
+  "Stroke mesh-mapping: drag to build a mesh along a stroke. Shift+E confirms, Delete cancels": "ストロークメッシュマッピング: ドラッグでストロークに沿ったメッシュを作ります。Shift+Eで確定、Deleteで取り消し",
   "With 2 vertices across: flip the diagonal of the first and last cells": "幅の頂点数が2のとき: 最初と最後のセルの対角線を反転します",
   "TEXTURE ATLAS": "テクスチャアトラス",
   "Repack when a mesh outgrows its art": "メッシュが絵からはみ出したら再配置",

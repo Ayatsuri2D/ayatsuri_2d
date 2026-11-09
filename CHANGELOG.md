@@ -65,6 +65,9 @@
 
 ### Changed
 
+- Stroke mesh-mapping is no longer experimental: its pen is always in
+  Mesh Edit's tool details, and Settings > Experimental no longer lists
+  it.
 - The project moved to a private repository,
   github.com/Ayatsuri2D/ayatsuri_2d, and every link in the app,
   README and packages points there.

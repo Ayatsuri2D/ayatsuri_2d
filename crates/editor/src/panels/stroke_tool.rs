@@ -1,4 +1,4 @@
-// Stroke mesh-mapping in Mesh Edit (experimental), after the Cubism manual:
+// Stroke mesh-mapping in Mesh Edit, after the Cubism manual:
 // drag to draw a stroke and the mesh is built along it; click the line to
 // add a control point, Alt+click one to delete it, drag one to move it,
 // Shift+drag to draw another stroke, drag away from the path to redraw it.
