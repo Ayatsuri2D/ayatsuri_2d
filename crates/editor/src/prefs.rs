@@ -208,6 +208,9 @@ pub struct Prefs {
     /// Inherited clipping: a mesh also clipped by what its masks are
     /// clipped by.
     pub experimental_inherit_clip: bool,
+    /// Bones: bone deformers, weighted meshes and IK in the editor.
+    #[serde(default)]
+    pub experimental_bones: bool,
     /// Solo's inactive color, rgba; None for the default.
     pub solo_tint: Option<[u8; 4]>,
     /// Highlight overlapping polygons' color, rgba; None for the default.

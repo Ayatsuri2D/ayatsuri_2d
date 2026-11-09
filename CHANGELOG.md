@@ -26,6 +26,28 @@
   move in front or behind as a parameter turns (a hand passing in front
   of the body). Between keys the field shows the blended order and a
   change moves every key by the same amount, as before.
+- **Bones in the format and the runtime**: an `.aom` model can now hold
+  bones, and art meshes weighted to them, with as many bones per vertex
+  as the rig needs. A bone turns, moves and scales over its parameters like a
+  rotation deformer, and anything placed under it without weights follows
+  it the same way. A bone can also scale its two axes by different
+  amounts and shear them, keyed over parameters like its angle, and a
+  bone under such a bone takes on its whole shape. Each bone can choose
+  what it takes from its parent: everything, only its position, its
+  position and scale, or its position and turn with or without its
+  mirroring. A chain of one or two bones can reach for a target bone
+  (IK): one bone points at it, two bend at the joint between them, to the
+  side the rig chooses, so the end of the chain lands on it, and straighten
+  toward it when it is too far. How strongly the chain follows the target
+  can be keyed over parameters, and everything under the chain, weighted
+  meshes included, moves with it. A weighted mesh bends smoothly between the bones it is
+  weighted to, and sits exactly where it was drawn when every parameter
+  is at its default. Such models load and play in the runtime and in the
+  editor's viewport. Creating bones and painting weights in the editor,
+  and moc3 export of models with bones, come next; for now a moc3 or cmo3
+  export of a model with bones stops with a message saying so.
+  The editor tools will sit behind Settings > Experimental > Bones,
+  which is off by default.
 
 ### Fixed
 

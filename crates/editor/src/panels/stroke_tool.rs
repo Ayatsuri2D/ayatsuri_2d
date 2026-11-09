@@ -639,6 +639,7 @@ mod tests {
             blend_shapes: Vec::new(),
             multiply: Vec::new(),
             screen: Vec::new(),
+            skin: None,
         });
         let ctx = egui::Context::default();
         let s = Session::create(&ctx, "t".into(), String::new(), model).unwrap();

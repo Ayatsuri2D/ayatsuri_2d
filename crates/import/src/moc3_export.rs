@@ -107,6 +107,9 @@ pub const VTS_NOTE: &str = "5.3 is not compatible with VTube Studio or OpenVT ye
 /// export is lossless.
 pub fn export_warnings(model: &Model, version: ExportVersion) -> Vec<String> {
     let mut out = Vec::new();
+    if has_bones(model) {
+        out.push(BONES_NOT_EXPORTED.to_string());
+    }
     if version.max_slot() < 101 {
         let quads = model
             .deformers
@@ -467,8 +470,25 @@ impl Bindings {
     }
 }
 
+/// Why a model with bones does not export yet.
+pub const BONES_NOT_EXPORTED: &str = "bones are not exported to moc3 yet";
+
+/// Whether the model has bones or bone weights, which moc3 and cmo3
+/// export cannot carry yet.
+pub fn has_bones(model: &Model) -> bool {
+    model.deformers.iter().any(|d| d.kind.is_bone())
+        || !model.ik.is_empty()
+        || model.art_meshes.iter().any(|m| m.skin.as_ref().is_some_and(|s| !s.weights.is_empty()))
+}
+
 /// Serialize the model as a `.moc3` of the chosen revision.
 pub fn to_moc3(model: &Model, version: ExportVersion) -> Result<Vec<u8>, ImportError> {
+    // the bake will go here: a plain bone becomes a rotation deformer, but
+    // one that shears or scales its axes unevenly has no rotation deformer
+    // to become, so it and what it holds rigidly bake to a warp instead
+    if has_bones(model) {
+        return Err(err(BONES_NOT_EXPORTED));
+    }
     // extended interpolation goes out as plain keys along its curve, the
     // way Cubism hands it to the runtime
     let baked;
@@ -651,6 +671,7 @@ pub fn to_moc3(model: &Model, version: ExportVersion) -> Result<Vec<u8>, ImportE
         d_kb.push(kb);
         let expected = d.binding.keyform_count();
         match &d.kind {
+            DeformerKind::Bone(_) => return Err(err(BONES_NOT_EXPORTED)),
             DeformerKind::Warp(w) => {
                 let grid_floats = w.grid_points() * 2;
                 if w.opacities.len() != expected
@@ -734,6 +755,7 @@ pub fn to_moc3(model: &Model, version: ExportVersion) -> Result<Vec<u8>, ImportE
             let one = |v: &Vec<f32>| v.first().copied().unwrap_or(0.0);
             let off;
             match &d.kind {
+                DeformerKind::Bone(_) => return Err(err(BONES_NOT_EXPORTED)),
                 DeformerKind::Warp(_) => {
                     off = w_opac.len() as i32;
                     for ((g, o), c) in deltas(Channel::Positions)?
@@ -1557,6 +1579,7 @@ mod tests {
             clip_inherit: false,
             multiply: Vec::new(),
             screen: Vec::new(),
+            skin: None,
         });
         for v in ExportVersion::ALL.into_iter().filter(|v| v.max_slot() >= 113) {
             let file = to_moc3(&model, v).unwrap();
@@ -1671,6 +1694,7 @@ mod tests {
             blend_shapes: shapes,
             multiply: Vec::new(),
             screen: Vec::new(),
+            skin: None,
         };
         model.art_meshes.push(mesh(
             "A",
@@ -1801,6 +1825,7 @@ mod tests {
             clip_inherit: false,
             multiply: Vec::new(),
             screen: vec![0.0, 0.0, 0.0, 0.0, 0.0, 1.0],
+            skin: None,
         });
         let color = |m: &Model, x: f32| {
             let mut p = ayatsuri_core::Puppet::new(m.clone());
@@ -1848,6 +1873,7 @@ mod tests {
             clip_inherit: false,
             multiply: Vec::new(),
             screen: Vec::new(),
+            skin: None,
         };
         let mut model = Model::new();
         model.art_meshes.push(mesh("Overlay", ColorBlend::Overlay));
@@ -1927,6 +1953,7 @@ mod tests {
             }],
             multiply: Vec::new(),
             screen: Vec::new(),
+            skin: None,
         });
         let drawn = |m: &Model, x: f32, smile: f32| {
             let mut p = ayatsuri_core::Puppet::new(m.clone());
@@ -2012,6 +2039,7 @@ mod tests {
             clip_inherit: false,
             multiply: Vec::new(),
             screen: Vec::new(),
+            skin: None,
         };
         model.art_meshes.push(mesh("Strand", Some(0)));
         model.art_meshes.push(mesh("Head", None));
@@ -2107,6 +2135,7 @@ mod tests {
             clip_inherit: false,
             multiply: Vec::new(),
             screen: Vec::new(),
+            skin: None,
         });
         model.draw_groups.push(DrawGroup {
             total: 1,

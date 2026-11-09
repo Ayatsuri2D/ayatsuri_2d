@@ -864,6 +864,7 @@ mod tests {
             blend_shapes: Vec::new(),
             multiply: Vec::new(),
             screen: Vec::new(),
+            skin: None,
         });
         m
     }

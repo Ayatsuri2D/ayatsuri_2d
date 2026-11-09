@@ -7994,7 +7994,7 @@ impl EditorUi {
                                 (0..w.grid_points()).map(|p| (p, dx, dy)).collect();
                             ayatsuri_core::edit::move_warp_points(m, d, None, &moves);
                         }
-                        Some(DeformerKind::Rotation(_)) => {
+                        Some(DeformerKind::Rotation(_) | DeformerKind::Bone(_)) => {
                             ayatsuri_core::edit::move_rotation_origin(m, d, dx, dy);
                         }
                         None => {}
@@ -10804,7 +10804,7 @@ impl EditorUi {
         let was = self.session.as_ref().and_then(|s| match s.puppet.model().deformers.get(i) {
             Some(d) => match &d.kind {
                 DeformerKind::Warp(w) => Some((w.cols, w.rows)),
-                DeformerKind::Rotation(_) => None,
+                DeformerKind::Rotation(_) | DeformerKind::Bone(_) => None,
             },
             None => None,
         });
@@ -11157,7 +11157,10 @@ impl EditorUi {
                         });
                         row(ui, crate::i18n::tr("Keyforms"), format!("{}", w.opacities.len()));
                     }
-                    DeformerKind::Rotation(r) => {
+                    DeformerKind::Rotation(r)
+                    | DeformerKind::Bone(ayatsuri_format::model::BoneData {
+                        rotation: r, ..
+                    }) => {
                         row(ui, crate::i18n::tr("Type"), crate::i18n::tr("Rotation").into());
                         row(ui, crate::i18n::tr("Base angle"), format!("{:.1}", r.base_angle));
                         row(ui, crate::i18n::tr("Keyforms"), format!("{}", r.opacities.len()));
@@ -16970,10 +16973,9 @@ fn pivot_move(
     drag_x: f32,
     drag_y: f32,
 ) -> Option<PivotMove> {
-    use ayatsuri_format::model::DeformerKind;
     let model = puppet.model();
     let def = model.deformers.get(deformer)?;
-    let DeformerKind::Rotation(rot) = &def.kind else { return None };
+    let rot = def.kind.rotation()?;
     let values: Vec<f32> = (0..model.parameters.len()).map(|i| puppet.value(i)).collect();
     // the keyform the parameters sit on right now
     let current = ayatsuri_core::keyform::keyform_at(
@@ -19797,6 +19799,7 @@ mod drag_tests {
             clip_inherit: false,
             multiply: Vec::new(),
             screen: Vec::new(),
+            skin: None,
         });
         let w = ayatsuri_core::edit::create_deformer(
             &mut m,
@@ -19893,6 +19896,7 @@ mod mesh_delete_tests {
                 clip_inherit: false,
                 multiply: Vec::new(),
                 screen: Vec::new(),
+                skin: None,
             });
         }
         let ctx = egui::Context::default();
@@ -20080,6 +20084,7 @@ mod key_cmd_tests {
             clip_inherit: false,
             multiply: Vec::new(),
             screen: Vec::new(),
+            skin: None,
         });
         let ctx = egui::Context::default();
         let s = Session::create(&ctx, "t".into(), String::new(), model).unwrap();
@@ -20372,6 +20377,7 @@ mod point_paste_tests {
                 clip_inherit: false,
                 multiply: Vec::new(),
                 screen: Vec::new(),
+                skin: None,
             },
         };
         // dropped at (4, 4) but the warp drew it at (5, 3)
@@ -20679,6 +20685,7 @@ mod eyedropper_tests {
             clip_inherit: false,
             multiply: Vec::new(),
             screen: Vec::new(),
+            skin: None,
         });
         let mut puppet = ayatsuri_core::Puppet::new(m);
         puppet.update();

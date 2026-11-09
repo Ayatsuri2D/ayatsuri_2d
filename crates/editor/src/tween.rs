@@ -55,7 +55,11 @@ pub fn blend(before: &Model, after: &Model, t: f32) -> Model {
                 lerp_all(&x.positions, &mut y.positions, k);
                 lerp_all(&x.opacities, &mut y.opacities, k);
             }
-            (DeformerKind::Rotation(x), DeformerKind::Rotation(y)) => {
+            (DeformerKind::Rotation(x), DeformerKind::Rotation(y))
+            | (
+                DeformerKind::Bone(ayatsuri_format::model::BoneData { rotation: x, .. }),
+                DeformerKind::Bone(ayatsuri_format::model::BoneData { rotation: y, .. }),
+            ) => {
                 lerp_all(&x.angles, &mut y.angles, k);
                 lerp_all(&x.origins_x, &mut y.origins_x, k);
                 lerp_all(&x.origins_y, &mut y.origins_y, k);
@@ -113,6 +117,7 @@ mod tests {
             clip_inherit: false,
             multiply: Vec::new(),
             screen: Vec::new(),
+            skin: None,
         }
     }
 

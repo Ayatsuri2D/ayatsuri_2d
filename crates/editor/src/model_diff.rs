@@ -105,13 +105,15 @@ fn deformer_pose(before: &Model, after: &Model, id: &str) -> Vec<(usize, f32)> {
             first_diff(&y.positions, &x.positions, x.grid_points() * 2)
                 .or_else(|| first_diff(&y.opacities, &x.opacities, 1))
         }
-        (DeformerKind::Rotation(x), DeformerKind::Rotation(y)) => {
-            first_diff(&y.angles, &x.angles, 1)
-                .or_else(|| first_diff(&y.origins_x, &x.origins_x, 1))
-                .or_else(|| first_diff(&y.origins_y, &x.origins_y, 1))
-                .or_else(|| first_diff(&y.scales, &x.scales, 1))
-                .or_else(|| first_diff(&y.opacities, &x.opacities, 1))
-        }
+        (DeformerKind::Rotation(x), DeformerKind::Rotation(y))
+        | (
+            DeformerKind::Bone(ayatsuri_format::model::BoneData { rotation: x, .. }),
+            DeformerKind::Bone(ayatsuri_format::model::BoneData { rotation: y, .. }),
+        ) => first_diff(&y.angles, &x.angles, 1)
+            .or_else(|| first_diff(&y.origins_x, &x.origins_x, 1))
+            .or_else(|| first_diff(&y.origins_y, &x.origins_y, 1))
+            .or_else(|| first_diff(&y.scales, &x.scales, 1))
+            .or_else(|| first_diff(&y.opacities, &x.opacities, 1)),
         _ => None,
     };
     k.map(|k| keyform_pose(&a.binding, k)).unwrap_or_default()
@@ -246,7 +248,11 @@ pub fn diff(before: &Model, after: &Model) -> Vec<Change> {
                     None
                 }
             }
-            (DeformerKind::Rotation(x), DeformerKind::Rotation(y)) => {
+            (DeformerKind::Rotation(x), DeformerKind::Rotation(y))
+            | (
+                DeformerKind::Bone(ayatsuri_format::model::BoneData { rotation: x, .. }),
+                DeformerKind::Bone(ayatsuri_format::model::BoneData { rotation: y, .. }),
+            ) => {
                 if !same_binding(&b.binding, &a.binding) {
                     Some("keys changed")
                 } else if x.angles != y.angles || x.base_angle != y.base_angle {
@@ -276,7 +282,7 @@ pub fn diff(before: &Model, after: &Model) -> Vec<Change> {
         let kind_of = |m: &Model| {
             m.deformers.iter().find(|d| d.id == c.name).map(|d| match d.kind {
                 DeformerKind::Warp(_) => What::Warp,
-                DeformerKind::Rotation(_) => What::Rotation,
+                DeformerKind::Rotation(_) | DeformerKind::Bone(_) => What::Rotation,
             })
         };
         c.what = kind_of(after).or_else(|| kind_of(before)).unwrap_or(What::Warp);
@@ -418,6 +424,7 @@ mod tests {
             clip_inherit: false,
             multiply: Vec::new(),
             screen: Vec::new(),
+            skin: None,
         }
     }
 

@@ -4,7 +4,7 @@
 // form. Every function leaves the model untouched when it returns false or
 // None.
 
-use ayatsuri_format::model::{ArtMesh, Binding, BlendShape, DeformerKind, Model};
+use ayatsuri_format::model::{ArtMesh, Binding, BlendShape, BoneData, DeformerKind, Model};
 
 use crate::edit::{KeySrc, Target, axis_lens, product, remap, with_object};
 
@@ -99,6 +99,24 @@ fn channels(model: &mut Model, target: Target) -> Option<(Binding, Vec<Chan<'_>>
                     Chan { data: &mut r.scales, elems: 1, kind: Kind::Plain },
                     Chan { data: &mut r.opacities, elems: 1, kind: Kind::Plain },
                 ],
+                DeformerKind::Bone(BoneData {
+                    rotation: r, scales_y, shears_x, shears_y, ..
+                }) => {
+                    let mut v = vec![
+                        Chan { data: &mut r.angles, elems: 1, kind: Kind::Angle },
+                        Chan { data: &mut r.origins_x, elems: 1, kind: Kind::OriginX },
+                        Chan { data: &mut r.origins_y, elems: 1, kind: Kind::OriginY },
+                        Chan { data: &mut r.scales, elems: 1, kind: Kind::Plain },
+                        Chan { data: &mut r.opacities, elems: 1, kind: Kind::Plain },
+                    ];
+                    // a bone's own pools, when it has them
+                    for data in [scales_y, shears_x, shears_y] {
+                        if !data.is_empty() {
+                            v.push(Chan { data, elems: 1, kind: Kind::Plain });
+                        }
+                    }
+                    v
+                }
             };
             colour_chans(&mut chans, multiply, screen);
             Some((binding, chans))
@@ -663,6 +681,7 @@ mod tests {
                 clip_inherit: false,
                 multiply: Vec::new(),
                 screen: Vec::new(),
+                skin: None,
             }],
             ..Model::new()
         }

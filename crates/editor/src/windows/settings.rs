@@ -1007,7 +1007,7 @@ impl EditorUi {
         );
         section(ui, crate::i18n::tr("FEATURES"));
         let master = self.prefs.experimental;
-        let features: [(&str, &str, &mut bool); 2] = [
+        let features: [(&str, &str, &mut bool); 3] = [
             (
                 "Clip groups",
                 "Name a set of masks in the Inspector so several meshes clip by it together, \
@@ -1020,6 +1020,12 @@ impl EditorUi {
                  masks are clipped by. moc3 export carries it with hidden helper masks, so it \
                  works in every version and VTube Studio",
                 &mut self.prefs.experimental_inherit_clip,
+            ),
+            (
+                "Bones",
+                "Bone chains that bend meshes by painted weights, with inherit modes and IK. \
+                 They play in .aom and the SDK; moc3 export does not carry them yet",
+                &mut self.prefs.experimental_bones,
             ),
         ];
         for (name, hint, on) in features {

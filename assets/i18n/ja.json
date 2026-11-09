@@ -1342,6 +1342,8 @@
   "Features still being tested. They may change, and a model that uses one may look different in other apps until it is finished.": "テスト中の機能です。変更される可能性があり、使用したモデルは完成するまで他のアプリで見た目が異なる場合があります。",
   "Inherited clipping": "クリッピングの継承",
   "Shows Inherit in the Inspector's clipping: a mesh is also clipped by what its masks are clipped by. Drawn exactly in the editor; moc3 export clips it by its own masks only for now": "インスペクターのクリッピングに「継承」を表示します。メッシュは、そのマスク自体をクリッピングしているものでもクリッピングされます。エディタでは正確に描画されます。moc3 書き出しでは今のところ自分のマスクだけでクリッピングされます",
+  "Bones": "ボーン",
+  "Bone chains that bend meshes by painted weights, with inherit modes and IK. They play in .aom and the SDK; moc3 export does not carry them yet": "ペイントしたウェイトでメッシュを曲げるボーンチェーン。継承モードとIK付き。.aomとSDKで動きます。moc3書き出しにはまだ含まれません",
   "Experimental features": "試験的機能",
   "Turns every feature below on or off at once": "下のすべての機能をまとめてオン・オフします",
   "FEATURES": "機能",

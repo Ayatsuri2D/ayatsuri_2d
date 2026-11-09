@@ -108,7 +108,8 @@ fn rooted(rest: &ayatsuri_core::Puppet, d: &Deformer) -> Option<Deformer> {
                 map_pairs(&mut b.positions);
             }
         }
-        DeformerKind::Rotation(r) => {
+        DeformerKind::Rotation(r)
+        | DeformerKind::Bone(ayatsuri_format::model::BoneData { rotation: r, .. }) => {
             for (x, y) in r.origins_x.iter_mut().zip(r.origins_y.iter_mut()) {
                 (*x, *y) = map(*x, *y);
             }
@@ -552,6 +553,7 @@ mod tests {
             clip_inherit: false,
             multiply: Vec::new(),
             screen: Vec::new(),
+            skin: None,
         });
         let warp = NewDeformer::Warp { rows: 2, cols: 2 };
         ayatsuri_core::edit::create_deformer(
