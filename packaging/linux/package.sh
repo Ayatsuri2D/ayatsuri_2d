@@ -50,9 +50,8 @@ install -Dm755 "$BIN/ayatsuri-launcher" "$STAGE/usr/bin/ayatsuri-launcher"
 strip "$STAGE/usr/bin/ayatsuri" "$STAGE/usr/bin/ayatsuri-launcher" 2>/dev/null || true
 install -Dm644 "$HERE/$APP_ID.desktop" "$STAGE/usr/share/applications/$APP_ID.desktop"
 install -Dm644 "$HERE/$APP_ID.mime.xml" "$STAGE/usr/share/mime/packages/$APP_ID.xml"
-mkdir -p "$STAGE/usr/share/metainfo"
-sed -e "s/@VERSION@/$VERSION/g" -e "s/@DATE@/$(date -u +%Y-%m-%d)/g" \
-  "$HERE/$APP_ID.metainfo.xml.in" >"$STAGE/usr/share/metainfo/$APP_ID.metainfo.xml"
+# generated from the .in template and CHANGELOG.md by `cargo xtask metainfo`
+install -Dm644 "$HERE/$APP_ID.metainfo.xml" "$STAGE/usr/share/metainfo/$APP_ID.metainfo.xml"
 mkdir -p "$STAGE/usr/share/icons"
 cp -R "$ROOT/assets/app-icon/hicolor" "$STAGE/usr/share/icons/"
 mkdir -p "$STAGE/usr/share/doc/ayatsuri2d"

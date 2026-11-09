@@ -19,13 +19,15 @@ description: |-
   deformers, add physics, expressions and animation, and export
   Cubism-compatible moc3 models for VTube Studio and other apps.
 
-# the binaries link only glibc and libgcc_s; windowing (X11/Wayland, xkbcommon) and the GPU
+# the binaries link glibc, libgcc_s and libasound (ALSA, the audio fallback); windowing (X11/Wayland, xkbcommon) and the GPU
 # (Vulkan, or EGL/GL) are loaded at runtime, so they are dependencies here, not ELF NEEDED
 overrides:
   deb:
     depends:
       - libc6 (>= 2.35)
       - libgcc-s1
+      # renamed for the 64-bit time_t transition in Ubuntu 24.04 and Debian 13
+      - libasound2t64 | libasound2
       - libxkbcommon0
       - libvulkan1 | libegl1
     recommends:
@@ -38,6 +40,7 @@ overrides:
       - xdg-desktop-portal
   rpm:
     depends:
+      - alsa-lib
       - libxkbcommon
       - (vulkan-loader or libglvnd-egl)
 

@@ -1,0 +1,90 @@
+Format: https://www.debian.org/doc/packaging-manuals/copyright-format/1.0/
+Upstream-Name: Ayatsuri2D
+Upstream-Contact: Ayatsuri2D <support@ayatsuri-2d.org>
+Source: https://github.com/Ayatsuri2D/ayatsuri_2d
+Comment:
+ The screenshots in docs/media show third-party artwork used with its
+ artists' permission and are under no free licence (see LICENSING.md).
+ They are not installed; a tarball for the Debian archive must be repacked
+ without them (Files-Excluded below, applied by uscan).
+Files-Excluded: docs/media
+
+Files: *
+Copyright: 2026 The Ayatsuri2D Project
+License: GPL-3.0-only
+
+Files:
+ crates/core/*
+ crates/format/*
+ crates/import/*
+ crates/openmoc3/*
+Copyright:
+ 2026 Sakura Motion Project <https://sakura2d.org/>
+ 2026 The Ayatsuri2D Project
+License: Expat
+Comment: Parts are ported from PurismCore (MIT); see crates/openmoc3/NOTICE
+ and docs/provenance.md.
+
+Files: crates/capi/*
+Copyright: 2026 The Ayatsuri2D Project
+License: Apache-2.0
+
+Files: vendor/*
+Copyright: The authors of each crate, as named in vendor/<crate>/Cargo.toml
+ and its licence files.
+License: Rust-crates
+Comment: The orig-vendor component is the output of `cargo vendor` for the
+ Cargo.lock of this release (packaging/vendor.sh). Each crate keeps its own
+ licence files; packaging/fedora/license-summary.sh --list prints the crates
+ linked into the binaries with their SPDX expressions.
+
+Files: debian/*
+Copyright: 2026 The Ayatsuri2D Project
+License: GPL-3.0-only
+
+License: GPL-3.0-only
+ This program is free software: you can redistribute it and/or modify it
+ under the terms of the GNU General Public License as published by the Free
+ Software Foundation, version 3.
+ .
+ This program is distributed in the hope that it will be useful, but WITHOUT
+ ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+ FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for
+ more details.
+ .
+ On Debian systems, the complete text of the GNU General Public License
+ version 3 can be found in /usr/share/common-licenses/GPL-3.
+
+License: Expat
+ Permission is hereby granted, free of charge, to any person obtaining a copy
+ of this software and associated documentation files (the "Software"), to
+ deal in the Software without restriction, including without limitation the
+ rights to use, copy, modify, merge, publish, distribute, sublicense, and/or
+ sell copies of the Software, and to permit persons to whom the Software is
+ furnished to do so, subject to the following conditions:
+ .
+ The above copyright notice and this permission notice shall be included in
+ all copies or substantial portions of the Software.
+ .
+ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+ FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS
+ IN THE SOFTWARE.
+
+License: Apache-2.0
+ Licensed under the Apache License, Version 2.0 (the "License"); you may not
+ use this file except in compliance with the License.
+ .
+ On Debian systems, the complete text of the Apache License version 2.0 can
+ be found in /usr/share/common-licenses/Apache-2.0.
+
+License: Rust-crates
+ Each vendored crate is under the licence its Cargo.toml declares, all of
+ them free: mostly MIT OR Apache-2.0, and also MIT, Apache-2.0, Zlib, ISC,
+ BSD-2-Clause, BSD-3-Clause, 0BSD, Unlicense, BSL-1.0, MPL-2.0,
+ Unicode-3.0, CDLA-Permissive-2.0, OFL-1.1 and Ubuntu-font-1.0 (fonts
+ bundled by epaint_default_fonts), some offered together with LGPL-2.1+ or
+ GPL-2.0 as alternatives. The full text of each is in the crate's folder.
