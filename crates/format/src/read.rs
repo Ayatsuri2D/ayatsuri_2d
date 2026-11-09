@@ -242,6 +242,14 @@ mod tests {
             screen: Vec::new(),
             skin: Some(skin),
         });
+        model.ik.push(crate::model::IkConstraint {
+            id: "Reach".into(),
+            bones: vec![0],
+            target: 0,
+            binding: Binding::default(),
+            mix: vec![0.75],
+            bend_positive: vec![false],
+        });
         AomPayload { model, ..AomPayload::default() }
     }
 
@@ -253,6 +261,9 @@ mod tests {
         let DeformerKind::Bone(b) = &back.model.deformers[0].kind else { panic!("bone") };
         assert_eq!(b.length, 2.5);
         assert_eq!(b.inherit, crate::model::Inherit::NoScale);
+        let ik = &back.model.ik[0];
+        assert_eq!((ik.id.as_str(), ik.bones.as_slice(), ik.target), ("Reach", &[0u32][..], 0));
+        assert_eq!((ik.mix.clone(), ik.bend_positive.clone()), (vec![0.75], vec![false]));
         assert_eq!(
             (b.scales_y.clone(), b.shears_x.clone(), b.shears_y.clone()),
             (vec![0.5], vec![10.0], vec![-5.0])
@@ -271,6 +282,7 @@ mod tests {
         let mut old = boned();
         old.model.deformers.clear();
         old.model.art_meshes[0].skin = None;
+        old.model.ik.clear();
         let mut raw = rmp_serde::to_vec_named(&old).unwrap();
         // take the `skin` entry out of the mesh map, as a file written
         // before it existed has none: its key and nil, and one off the
@@ -291,6 +303,7 @@ mod tests {
         let back = crate::read::read(&bytes).unwrap();
         let m = &back.model.art_meshes[0];
         assert!(m.skin.is_none());
+        assert!(back.model.ik.is_empty());
         assert_eq!(m.positions, vec![0.0, 0.0, 1.0, 0.0, 0.0, 1.0]);
     }
 

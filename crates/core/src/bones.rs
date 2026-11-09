@@ -152,8 +152,8 @@ impl Skinning {
 #[cfg(test)]
 mod tests {
     use ayatsuri_format::model::{
-        ArtMesh, Binding, BindingAxis, BoneData, Deformer, DeformerKind, Inherit, Model, Parameter,
-        RotationData, Skin, WarpData,
+        ArtMesh, Binding, BindingAxis, BoneData, Deformer, DeformerKind, IkConstraint, Inherit,
+        Model, Parameter, RotationData, Skin, WarpData,
     };
 
     use crate::Puppet;
@@ -643,5 +643,136 @@ mod tests {
         let shift = (got[0] - TRI[0], got[1] - TRI[1]);
         let want: Vec<f32> = TRI.chunks(2).flat_map(|q| [q[0] + shift.0, q[1] + shift.1]).collect();
         assert!(close(&got, &want), "{got:?}");
+    }
+
+    fn ik(bones: &[u32], target: u32, mix: f32, bend_positive: bool) -> IkConstraint {
+        IkConstraint {
+            id: "IK".into(),
+            bones: bones.to_vec(),
+            target,
+            binding: Binding::default(),
+            mix: vec![mix],
+            bend_positive: vec![bend_positive],
+        }
+    }
+
+    /// A target bone at `at` (deformer 0), a bone at the root (1) and its
+    /// child one unit up (2); a mesh under the root whose first point is
+    /// the elbow, one under the child whose first point is its tip.
+    fn arm(at: (f32, f32), constraint: IkConstraint) -> Model {
+        let mut m = model(
+            vec![
+                turner(true, None, 2, at, 0.0),
+                turner(true, None, 0, (0.0, 0.0), 0.0),
+                turner(true, Some(1), 1, (0.0, 1.0), 0.0),
+            ],
+            vec![
+                mesh(Some(1), vec![0.0, 1.0, 0.5, 0.0, 0.0, 0.5], None),
+                mesh(Some(2), vec![0.0, 1.0, 0.5, 0.0, 0.0, 0.5], None),
+            ],
+        );
+        m.ik.push(constraint);
+        m
+    }
+
+    fn near(a: (f32, f32), b: (f32, f32)) -> bool {
+        (a.0 - b.0).abs() < 1e-4 && (a.1 - b.1).abs() < 1e-4
+    }
+
+    fn first(p: &Puppet, mesh: usize) -> (f32, f32) {
+        let d = drawn(p, mesh);
+        (d[0], d[1])
+    }
+
+    #[test]
+    fn one_bone_aims_at_its_target() {
+        let mut p = Puppet::new(arm((2.0, 0.0), ik(&[1], 0, 1.0, true)));
+        p.update();
+        // the root's y axis now points along x: its unit-up point lies on it
+        assert!(near(first(&p, 0), (1.0, 0.0)), "{:?}", first(&p, 0));
+    }
+
+    #[test]
+    fn mix_goes_part_of_the_way() {
+        let mut p = Puppet::new(arm((2.0, 0.0), ik(&[1], 0, 0.5, true)));
+        p.update();
+        let h = core::f32::consts::FRAC_1_SQRT_2;
+        assert!(near(first(&p, 0), (h, h)), "{:?}", first(&p, 0));
+        let mut p = Puppet::new(arm((2.0, 0.0), ik(&[1], 0, 0.0, true)));
+        p.update();
+        assert!(near(first(&p, 0), (0.0, 1.0)));
+    }
+
+    #[test]
+    fn two_bones_reach_and_bend_either_way() {
+        let target = (1.2, 0.5);
+        let mut elbows = Vec::new();
+        for bend in [true, false] {
+            let mut p = Puppet::new(arm(target, ik(&[1, 2], 0, 1.0, bend)));
+            p.update();
+            assert!(near(first(&p, 1), target), "{bend}: {:?}", first(&p, 1));
+            let e = first(&p, 0);
+            // both bones keep their lengths
+            assert!(((e.0 * e.0 + e.1 * e.1).sqrt() - 1.0).abs() < 1e-4);
+            elbows.push(e);
+        }
+        // the elbows sit on either side of the line to the target, and a
+        // counterclockwise bend puts the elbow on its clockwise side
+        let side = |e: (f32, f32)| target.0 * e.1 - target.1 * e.0;
+        assert!(side(elbows[0]) < 0.0 && side(elbows[1]) > 0.0, "{elbows:?}");
+    }
+
+    #[test]
+    fn a_target_out_of_reach_straightens_the_chain() {
+        let mut p = Puppet::new(arm((3.0, 4.0), ik(&[1, 2], 0, 1.0, true)));
+        p.update();
+        assert!(near(first(&p, 0), (0.6, 0.8)), "{:?}", first(&p, 0));
+        assert!(near(first(&p, 1), (1.2, 1.6)), "{:?}", first(&p, 1));
+    }
+
+    #[test]
+    fn a_mesh_weighted_to_an_ik_chain_follows_it() {
+        // the target moves with P0
+        let build = |rigid: Option<Vec<f32>>| {
+            let mut m = arm((1.2, 0.5), ik(&[1, 2], 0, 1.0, true));
+            if let DeformerKind::Bone(b) = &mut m.deformers[0].kind {
+                b.rotation.origins_x = vec![0.4, 1.2, 1.4];
+            }
+            m.art_meshes = vec![mesh(
+                None,
+                TRI.to_vec(),
+                Some(skin(&[&[(2, 1.0)], &[(2, 1.0)], &[(2, 1.0)]])),
+            )];
+            if let Some(local) = rigid {
+                m.art_meshes.push(mesh(Some(2), local, None));
+            }
+            m
+        };
+        let mut p = Puppet::new(build(None));
+        p.update();
+        // at rest (the chain solved) the weighted mesh is as drawn
+        assert!(close(&drawn(&p, 0), &TRI));
+        // a rigid child of the chain's end placed on it at rest
+        let rest = crate::deform::Affine::of(&p.rotation_state(2).unwrap());
+        let mut local = TRI.to_vec();
+        rest.inverse().unwrap().apply_all(&mut local);
+        let mut p = Puppet::new(build(Some(local)));
+        for v in [-1.0, -0.4, 0.5, 1.0] {
+            pose(&mut p, [0.0, 0.0, v]);
+            let (a, b) = (drawn(&p, 0), drawn(&p, 1));
+            assert!(a.iter().zip(&b).all(|(x, y)| (x - y).abs() < 1e-4), "{v}: {a:?} {b:?}");
+        }
+        // and it did move
+        assert!(!close(&drawn(&p, 0), &TRI));
+    }
+
+    #[test]
+    fn a_constraint_that_does_not_check_out_is_left_alone() {
+        // the target comes after the chain; a chain of a bone and a stranger
+        for c in [ik(&[1], 2, 1.0, true), ik(&[2, 1], 0, 1.0, true), ik(&[], 0, 1.0, true)] {
+            let mut p = Puppet::new(arm((2.0, 0.0), c));
+            p.update();
+            assert!(near(first(&p, 0), (0.0, 1.0)));
+        }
     }
 }

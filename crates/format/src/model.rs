@@ -769,6 +769,30 @@ pub struct Model {
     /// one per art mesh or deformer.
     #[serde(default)]
     pub original_shapes: Vec<OriginalShape>,
+    /// Bone chains that reach for a target, solved each frame.
+    #[serde(default)]
+    pub ik: Vec<IkConstraint>,
+}
+
+/// Turns a chain of one or two bones toward a target bone's joint. One
+/// bone aims its y axis at the target; two (a bone and its child) bend so
+/// the child's tip, `length` along its y axis, reaches it, or point
+/// straight at it when it is out of reach. Solved after the chain's own
+/// keyforms, before anything under it, so everything under it follows.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(default)]
+pub struct IkConstraint {
+    pub id: String,
+    /// Deformer indices: one bone, or a bone then its child.
+    pub bones: Vec<u32>,
+    /// A bone before the chain in deformer order, so it is placed first.
+    pub target: u32,
+    pub binding: Binding,
+    /// Per keyform: how far to go from the keyed pose to the solved one,
+    /// 0 to 1.
+    pub mix: Vec<f32>,
+    /// Per keyform: the elbow of a two-bone chain bends counterclockwise.
+    pub bend_positive: Vec<bool>,
 }
 
 /// How an original shape was taken.

@@ -4566,6 +4566,7 @@ mod tests {
             art_path_page: None,
             original_shapes: Vec::new(),
             clip_groups: Vec::new(),
+            ik: Vec::new(),
         }
     }
 

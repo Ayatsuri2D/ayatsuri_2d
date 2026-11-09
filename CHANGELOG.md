@@ -35,7 +35,12 @@
   bone under such a bone takes on its whole shape. Each bone can choose
   what it takes from its parent: everything, only its position, its
   position and scale, or its position and turn with or without its
-  mirroring. A weighted mesh bends smoothly between the bones it is
+  mirroring. A chain of one or two bones can reach for a target bone
+  (IK): one bone points at it, two bend at the joint between them, to the
+  side the rig chooses, so the end of the chain lands on it, and straighten
+  toward it when it is too far. How strongly the chain follows the target
+  can be keyed over parameters, and everything under the chain, weighted
+  meshes included, moves with it. A weighted mesh bends smoothly between the bones it is
   weighted to, and sits exactly where it was drawn when every parameter
   is at its default. Such models load and play in the runtime and in the
   editor's viewport. Creating bones and painting weights in the editor,

@@ -22,6 +22,7 @@ pub mod compose;
 pub mod deform;
 pub mod draworder;
 pub mod edit;
+mod ik;
 pub mod keyform;
 pub mod original;
 pub mod overlap;
@@ -91,6 +92,13 @@ pub struct Puppet {
     bone_local: Vec<deform::Bone>,
     /// Bones resolved (rotation deformers leave theirs default).
     bone_world: Vec<deform::Resolved>,
+    /// The IK constraints that check out, and per rotation deformer or
+    /// bone the turn (degrees) an IK chain's root gave its child this
+    /// frame.
+    ik: Vec<ik::Plan>,
+    ik_turn: Vec<f32>,
+    /// Scratch for solving IK, sized at load.
+    ik_scratch: IkScratch,
     /// Bone weight skinning, built at load (see `skinning`).
     skinning: bones::Skinning,
     /// Blended-then-transformed mesh vertices, one flat buffer.
@@ -198,6 +206,14 @@ impl Cache {
     }
 }
 
+/// What solving IK works in, apart from the frame's own scratch.
+#[derive(Default)]
+struct IkScratch {
+    corners: Vec<blend::Corner>,
+    shape_corners: Vec<blend::Corner>,
+    base: Vec<f32>,
+}
+
 #[derive(Default)]
 struct Cache {
     /// False after an in-place keyform edit, until the next full update.
@@ -215,6 +231,8 @@ struct Cache {
     mesh_made: Vec<bool>,
     /// Held by glue: always redone.
     mesh_glued: Vec<bool>,
+    /// In an IK chain: always redone, as the target may move.
+    def_ik: Vec<bool>,
 }
 
 impl Puppet {
@@ -307,6 +325,7 @@ impl Puppet {
             .chain(model.deformers.iter().map(|d| &d.binding))
             .chain(model.art_meshes.iter().map(|m| &m.binding))
             .chain(model.glues.iter().map(|g| &g.binding))
+            .chain(model.ik.iter().map(|c| &c.binding))
             .map(|b| 1usize << b.axes.len().min(16))
             .max()
             .unwrap_or(1);
@@ -321,6 +340,16 @@ impl Puppet {
             .max()
             .unwrap_or(1);
         let max_items = model.draw_groups.iter().map(|g| g.items.len()).max().unwrap_or(1);
+
+        let ik = ik::plans(&model);
+        let mut def_ik = vec![false; n_defs];
+        for p in &ik {
+            for d in [Some(p.root), p.child].into_iter().flatten() {
+                if let Some(f) = def_ik.get_mut(d) {
+                    *f = true;
+                }
+            }
+        }
 
         let mut puppet = Self {
             values,
@@ -350,6 +379,7 @@ impl Puppet {
                 def_corners: vec![Vec::new(); n_defs],
                 def_made: vec![false; n_defs],
                 def_moved: vec![true; n_defs],
+                def_ik,
                 mesh_corners: vec![Vec::new(); n_meshes],
                 mesh_shapes: model
                     .art_meshes
@@ -386,6 +416,13 @@ impl Puppet {
             rot: vec![Rotation::default(); rot_count as usize],
             bone_local: vec![deform::Bone::default(); rot_count as usize],
             bone_world: vec![deform::Resolved::default(); rot_count as usize],
+            ik,
+            ik_turn: vec![0.0; rot_count as usize],
+            ik_scratch: IkScratch {
+                corners: Vec::with_capacity(max_corners),
+                shape_corners: Vec::with_capacity(max_corners),
+                base: vec![0.0; 1],
+            },
             skinning: bones::Skinning::default(),
             mesh_pos: vec![0.0; pos_total],
             mesh_pos_off,
@@ -1083,6 +1120,7 @@ impl Puppet {
     fn update_deformers(&mut self) {
         let mut corners = core::mem::take(&mut self.corners);
         let mut scratch = core::mem::take(&mut self.scratch);
+        let mut ik_scratch = core::mem::take(&mut self.ik_scratch);
 
         for di in 0..self.model.deformers.len() {
             let Some(d) = self.model.deformers.get(di) else { break };
@@ -1131,7 +1169,8 @@ impl Puppet {
                 && !parent_moved
                 && self.cache.def_made.get(di).copied().unwrap_or(false)
                 && self.cache.def_corners.get(di).is_some_and(|c| *c == corners)
-                && self.cache.def_shapes_same(di, &d.blend_shapes, &self.values);
+                && self.cache.def_shapes_same(di, &d.blend_shapes, &self.values)
+                && !self.cache.def_ik.get(di).copied().unwrap_or(false);
             if let Some(m) = self.cache.def_moved.get_mut(di) {
                 *m = !same;
             }
@@ -1238,7 +1277,7 @@ impl Puppet {
                     }
                 }
                 DeformerKind::Bone(b) => {
-                    let own = Self::local_bone(
+                    let mut own = Self::local_bone(
                         &self.model.parameters,
                         &self.eps,
                         &self.values,
@@ -1248,6 +1287,23 @@ impl Puppet {
                         &mut self.shape_corners,
                         &mut self.base_scratch,
                     );
+                    // an IK chain: the child takes the turn its root gave
+                    // it, the root solves for itself and its child
+                    let given = self.ik_turn.get(local).copied().unwrap_or(0.0);
+                    if given != 0.0 {
+                        own.angle += given;
+                    }
+                    if let Some(plan) = self.ik.iter().find(|p| p.root == di).copied() {
+                        let child = plan.child.and_then(|c| self.def_local.get(c)).copied();
+                        let turns = self.solve_ik(&plan, &own, &mut ik_scratch);
+                        let (root_turn, child_turn) = turns.unwrap_or((0.0, 0.0));
+                        if root_turn != 0.0 {
+                            own.angle += root_turn;
+                        }
+                        if let Some(t) = child.and_then(|c| self.ik_turn.get_mut(c as usize)) {
+                            *t = child_turn;
+                        }
+                    }
                     if let Some(slot) = self.bone_local.get_mut(local) {
                         *slot = own;
                     }
@@ -1314,6 +1370,90 @@ impl Puppet {
 
         self.corners = corners;
         self.scratch = scratch;
+        self.ik_scratch = ik_scratch;
+    }
+
+    /// Solve an IK chain whose root is about to resolve with its own state
+    /// `own`: the turns (degrees, local) its root and its child take, the
+    /// constraint's mix applied. The chain is solved where it is drawn and
+    /// each turn brought back into its bone's parent frame (a frame that
+    /// reflects turns the other way). None leaves the chain as keyed.
+    fn solve_ik(
+        &self,
+        plan: &ik::Plan,
+        own: &deform::Bone,
+        sc: &mut IkScratch,
+    ) -> Option<(f32, f32)> {
+        let c = self.model.ik.get(plan.constraint)?;
+        let values = &self.values;
+        let eps = &self.eps;
+        let in_range = blend::corners(
+            &c.binding,
+            |p| values.get(p).copied().unwrap_or(0.0),
+            |p| eps.get(p).copied().unwrap_or((0.001, 0.0015)),
+            &mut sc.corners,
+        );
+        if !in_range || !self.def_enabled.get(plan.target).copied().unwrap_or(false) {
+            return None;
+        }
+        let mix = Self::blend_scalar(&sc.corners, &c.mix).clamp(0.0, 1.0);
+        if mix == 0.0 {
+            return None;
+        }
+        let bend = sc.corners.first().and_then(|&(k, _)| c.bend_positive.get(k)).copied();
+        let bend = bend.unwrap_or(true);
+        let target = {
+            let local = self.def_local.get(plan.target).copied()? as usize;
+            let m = self.bone_world.get(local)?.map;
+            v2(m.tx, m.ty)
+        };
+        let root = self.resolve_bone_at(plan.root, own);
+        let joint = v2(root.map.tx, root.map.ty);
+        // +1, or -1 when the frame the bone resolves into reflects
+        let sign = |world: &Affine, own: &deform::Bone| {
+            let local = Affine::bone(own).det();
+            if world.det() * local < 0.0 { -1.0 } else { 1.0 }
+        };
+        let root_sign = sign(&root.map, own);
+        let Some(ci) = plan.child else {
+            let dir = v2(root.map.m01, root.map.m11);
+            let turn = ik::aim(joint, dir, target)?;
+            return Some((root_sign * mix * turn.to_degrees(), 0.0));
+        };
+        let d = self.model.deformers.get(ci)?;
+        let DeformerKind::Bone(b) = &d.kind else { return None };
+        let in_range = blend::corners(
+            &d.binding,
+            |p| values.get(p).copied().unwrap_or(0.0),
+            |p| eps.get(p).copied().unwrap_or((0.001, 0.0015)),
+            &mut sc.corners,
+        );
+        if !in_range {
+            return None;
+        }
+        let child_own = Self::local_bone(
+            &self.model.parameters,
+            &self.eps,
+            &self.values,
+            d,
+            b,
+            &sc.corners,
+            &mut sc.shape_corners,
+            &mut sc.base,
+        );
+        let parent = Parent::Bone { world: root.map, plain: root.plain, scale: root.scale };
+        let child = resolve_bone(&child_own, b.inherit, parent);
+        let elbow = v2(child.map.tx, child.map.ty);
+        let tip = child.map.apply_v(v2(0.0, b.length));
+        let follows = matches!(
+            b.inherit,
+            deform::Inherit::Normal
+                | deform::Inherit::NoScale
+                | deform::Inherit::NoScaleOrReflection
+        );
+        let (r, k) = ik::two_bone(joint, elbow, tip, target, bend, follows)?;
+        let child_sign = sign(&child.map, &child_own);
+        Some((root_sign * mix * r.to_degrees(), child_sign * mix * k.to_degrees()))
     }
 
     fn update_meshes(&mut self) {
@@ -1971,6 +2111,7 @@ mod tests {
             art_path_page: None,
             original_shapes: Vec::new(),
             clip_groups: Vec::new(),
+            ik: Vec::new(),
         }
     }
 

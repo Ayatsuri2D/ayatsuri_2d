@@ -477,6 +477,7 @@ pub const BONES_NOT_EXPORTED: &str = "bones are not exported to moc3 yet";
 /// export cannot carry yet.
 pub fn has_bones(model: &Model) -> bool {
     model.deformers.iter().any(|d| d.kind.is_bone())
+        || !model.ik.is_empty()
         || model.art_meshes.iter().any(|m| m.skin.as_ref().is_some_and(|s| !s.weights.is_empty()))
 }
 
