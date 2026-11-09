@@ -75,7 +75,7 @@ pub(crate) fn chain(
 /// The deformers from just under `top` (None: the root) down to `bone`,
 /// outermost first, when `bone` is a bone under `top` with only rotation
 /// deformers and bones between.
-fn path_to(model: &Model, bone: u32, top: Option<u32>) -> Option<Vec<u32>> {
+pub(crate) fn path_to(model: &Model, bone: u32, top: Option<u32>) -> Option<Vec<u32>> {
     if !model.deformers.get(bone as usize)?.kind.is_bone() {
         return None;
     }
@@ -97,12 +97,14 @@ fn path_to(model: &Model, bone: u32, top: Option<u32>) -> Option<Vec<u32>> {
 }
 
 impl Skinning {
-    /// Check every mesh's weights and make the joints they read. `rest`
-    /// gives a rotation deformer's or bone's local state at rest.
+    /// Check every mesh's weights and make the joints they read. A joint
+    /// is bound where the mesh's skin says; `rest` gives a rotation
+    /// deformer's or bone's local state at rest, for a bone with no bind.
     pub(crate) fn new(model: &Model, rest: impl Fn(usize) -> Option<Bone>) -> Skinning {
         let mut s = Skinning::default();
-        // (bone, mesh parent) of each joint, to share joints between meshes
-        let mut keys: Vec<(u32, Option<u32>)> = Vec::new();
+        // (bone, mesh parent, bind) of each joint, to share joints between
+        // meshes
+        let mut keys: Vec<(u32, Option<u32>, Option<[u32; 6]>)> = Vec::new();
         for m in &model.art_meshes {
             let made = (|| {
                 let skin = m.skin.as_ref()?;
@@ -119,12 +121,19 @@ impl Skinning {
                         slots.push(u32::MAX);
                         continue;
                     }
-                    let key = (b, m.parent_deformer);
+                    let bind = skin.bind_of(b);
+                    let key = (b, m.parent_deformer, bind.map(|v| v.map(f32::to_bits)));
                     let j = match keys.iter().position(|k| *k == key) {
                         Some(j) => j,
                         None => {
                             let path = path_to(model, b, m.parent_deformer)?;
-                            let rest_inv = chain(model, &path, &rest)?.inverse()?;
+                            let at = match bind {
+                                Some([m00, m01, m10, m11, tx, ty]) => {
+                                    Affine { m00, m01, m10, m11, tx, ty }
+                                }
+                                None => chain(model, &path, &rest)?,
+                            };
+                            let rest_inv = at.inverse()?;
                             keys.push(key);
                             s.bone.push(b);
                             s.span.push((s.path.len(), path.len()));
@@ -411,7 +420,15 @@ mod tests {
         // outside the mesh's parent
         for (weights, parent) in [
             (skin(&[&[(0, 1.0)], &[(0, 1.0)], &[(0, 1.0)]]), None),
-            (Skin { offsets: vec![0, 4], bones: vec![1; 4], weights: vec![1.0; 4] }, None),
+            (
+                Skin {
+                    offsets: vec![0, 4],
+                    bones: vec![1; 4],
+                    weights: vec![1.0; 4],
+                    ..Skin::default()
+                },
+                None,
+            ),
             (skin(&[&[(1, 1.0)], &[(1, 1.0)], &[(1, 1.0)]]), Some(2)),
         ] {
             let m = model(

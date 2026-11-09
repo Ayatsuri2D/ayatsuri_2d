@@ -606,9 +606,46 @@ pub struct Skin {
     /// Parallel to `bones`.
     #[serde(with = "f32_bin")]
     pub weights: Vec<f32>,
+    /// The pose the weights were bound in: for each bone in `bind_bones`,
+    /// six floats in `bind_maps` (m00, m01, m10, m11, tx, ty), the map of
+    /// its chain of rotation deformers and bones in the mesh parent's
+    /// space at that pose. A vertex moves by its bones' change from their
+    /// bind. A bone with no bind here (files saved before binds existed)
+    /// is bound where it sits with every parameter at its default.
+    #[serde(with = "u32_bin")]
+    pub bind_bones: Vec<u32>,
+    #[serde(with = "f32_bin")]
+    pub bind_maps: Vec<f32>,
 }
 
 impl Skin {
+    /// The bind map of `bone`, when it has one.
+    pub fn bind_of(&self, bone: u32) -> Option<[f32; 6]> {
+        let i = self.bind_bones.iter().position(|&b| b == bone)?;
+        let m = self.bind_maps.get(i.checked_mul(6)?..i.checked_mul(6)?.checked_add(6)?)?;
+        m.try_into().ok()
+    }
+
+    /// Set (or add) the bind map of `bone`.
+    pub fn set_bind(&mut self, bone: u32, map: [f32; 6]) {
+        // a list out of step is dropped rather than misread
+        if self.bind_maps.len() != self.bind_bones.len().saturating_mul(6) {
+            self.bind_bones.clear();
+            self.bind_maps.clear();
+        }
+        match self.bind_bones.iter().position(|&b| b == bone) {
+            Some(i) => {
+                if let Some(slot) = self.bind_maps.get_mut(i * 6..i * 6 + 6) {
+                    slot.copy_from_slice(&map);
+                }
+            }
+            None => {
+                self.bind_bones.push(bone);
+                self.bind_maps.extend_from_slice(&map);
+            }
+        }
+    }
+
     /// From each vertex's (bone, weight) pairs.
     pub fn from_pairs<'a>(per_vertex: impl IntoIterator<Item = &'a [(u32, f32)]>) -> Skin {
         let mut s = Skin { offsets: vec![0], ..Skin::default() };
