@@ -180,7 +180,7 @@ mod tests {
 
     /// A model with a bone and a mesh weighted to it.
     fn boned() -> AomPayload {
-        use crate::model::{BoneData, Deformer, DeformerKind, RotationData, SKIN_SLOTS, Skin};
+        use crate::model::{BoneData, Deformer, DeformerKind, RotationData, Skin};
         let mut model = Model::new();
         model.deformers.push(Deformer {
             id: "Bone".into(),
@@ -209,12 +209,14 @@ mod tests {
             screen: Vec::new(),
             blend_shapes: Vec::new(),
         });
-        let mut bones = vec![0u32; 3 * SKIN_SLOTS];
-        bones[SKIN_SLOTS + 1] = 7;
-        let mut weights = vec![0.0f32; 3 * SKIN_SLOTS];
-        weights[0] = 1.0;
-        weights[SKIN_SLOTS] = 0.5;
-        weights[SKIN_SLOTS + 1] = 0.5;
+        // one bone, two, and five (bones past the one here are left out
+        // when it plays, but the file keeps them)
+        let pairs: [&[(u32, f32)]; 3] = [
+            &[(0, 1.0)],
+            &[(0, 0.5), (7, 0.5)],
+            &[(0, 0.2), (1, 0.2), (2, 0.2), (3, 0.2), (4, 0.2)],
+        ];
+        let skin = Skin::from_pairs(pairs);
         model.art_meshes.push(ArtMesh {
             id: "M".into(),
             parent_part: None,
@@ -237,7 +239,7 @@ mod tests {
             blend_shapes: Vec::new(),
             multiply: Vec::new(),
             screen: Vec::new(),
-            skin: Some(Skin { bones, weights }),
+            skin: Some(skin),
         });
         AomPayload { model, ..AomPayload::default() }
     }
@@ -255,7 +257,10 @@ mod tests {
         );
         assert_eq!(b.rotation.angles, vec![15.0]);
         assert_eq!((b.rotation.origins_x[0], b.rotation.origins_y[0]), (0.5, 0.25));
-        assert_eq!(back.model.art_meshes[0].skin, with.model.art_meshes[0].skin);
+        let skin = back.model.art_meshes[0].skin.clone().unwrap();
+        assert_eq!(Some(&skin), with.model.art_meshes[0].skin.as_ref());
+        assert_eq!(skin.offsets, vec![0, 1, 3, 8]);
+        assert!(skin.fits(3));
     }
 
     #[test]

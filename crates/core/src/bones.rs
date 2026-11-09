@@ -8,7 +8,7 @@
 //! and the joint's map is "now after inverse rest". A mesh's weight slots
 //! point at joints; a mesh whose weights do not check out is not skinned.
 
-use ayatsuri_format::model::{Model, SKIN_SLOTS};
+use ayatsuri_format::model::Model;
 
 use crate::deform::{Affine, Bone, Parent, Resolved, Vec2, resolve_bone, resolve_under};
 
@@ -25,8 +25,8 @@ pub(crate) struct Skinning {
     pub rest_inv: Vec<Affine>,
     /// Per joint, this frame: the map from rest to now.
     pub now: Vec<Affine>,
-    /// Per mesh: the joint each weight slot reads (`u32::MAX` for an empty
-    /// slot); empty when the mesh is not skinned.
+    /// Per mesh: the joint each (bone, weight) pair reads (`u32::MAX` for
+    /// a pair of weight 0); empty when the mesh is not skinned.
     pub slot_joints: Vec<Vec<u32>>,
     /// Per mesh: the bones it reads, so the cache redoes it when one moves.
     pub mesh_bones: Vec<Vec<u32>>,
@@ -101,11 +101,10 @@ impl Skinning {
         for m in &model.art_meshes {
             let made = (|| {
                 let skin = m.skin.as_ref()?;
-                let len = (m.vertex_count as usize).checked_mul(SKIN_SLOTS)?;
-                if skin.bones.len() != len || skin.weights.len() != len {
+                if !skin.fits(m.vertex_count as usize) {
                     return None;
                 }
-                let mut slots = Vec::with_capacity(len);
+                let mut slots = Vec::with_capacity(skin.bones.len());
                 let mut bones: Vec<u32> = Vec::new();
                 for (&b, &w) in skin.bones.iter().zip(&skin.weights) {
                     if !w.is_finite() {
@@ -149,7 +148,7 @@ impl Skinning {
 mod tests {
     use ayatsuri_format::model::{
         ArtMesh, Binding, BindingAxis, BoneData, Deformer, DeformerKind, Model, Parameter,
-        RotationData, SKIN_SLOTS, Skin, WarpData,
+        RotationData, Skin, WarpData,
     };
 
     use crate::Puppet;
@@ -264,19 +263,9 @@ mod tests {
         }
     }
 
-    /// One (bone, weight) list per vertex, packed into slots.
+    /// One (bone, weight) list per vertex.
     fn skin(per_vertex: &[&[(u32, f32)]]) -> Skin {
-        let mut s = Skin {
-            bones: vec![0; per_vertex.len() * SKIN_SLOTS],
-            weights: vec![0.0; per_vertex.len() * SKIN_SLOTS],
-        };
-        for (v, pairs) in per_vertex.iter().enumerate() {
-            for (k, &(b, w)) in pairs.iter().enumerate() {
-                s.bones[v * SKIN_SLOTS + k] = b;
-                s.weights[v * SKIN_SLOTS + k] = w;
-            }
-        }
-        s
+        Skin::from_pairs(per_vertex.iter().copied())
     }
 
     fn model(deformers: Vec<Deformer>, meshes: Vec<ArtMesh>) -> Model {
@@ -413,11 +402,11 @@ mod tests {
 
     #[test]
     fn weights_that_do_not_check_out_leave_the_mesh_unskinned() {
-        // a rotation deformer is not a bone; a short weight list; a bone
+        // a rotation deformer is not a bone; offsets for one vertex; a bone
         // outside the mesh's parent
         for (weights, parent) in [
             (skin(&[&[(0, 1.0)], &[(0, 1.0)], &[(0, 1.0)]]), None),
-            (Skin { bones: vec![1; 4], weights: vec![1.0; 4] }, None),
+            (Skin { offsets: vec![0, 4], bones: vec![1; 4], weights: vec![1.0; 4] }, None),
             (skin(&[&[(1, 1.0)], &[(1, 1.0)], &[(1, 1.0)]]), Some(2)),
         ] {
             let m = model(
@@ -542,5 +531,33 @@ mod tests {
         let n = b.rotation.angles.len();
         assert_eq!(n, 6);
         assert_eq!((b.scales_y.len(), b.shears_x.len(), b.shears_y.len()), (n, n, n));
+    }
+
+    #[test]
+    fn a_vertex_takes_any_number_of_bones() {
+        // five pairs on one vertex, a bone repeated: 0.6 of A and 0.4 of B
+        let five: &[(u32, f32)] = &[(0, 0.2), (1, 0.2), (0, 0.2), (1, 0.2), (0, 0.2)];
+        let mut p = Puppet::new(weighted(skin(&[&[(1, 1.0)], five, &[]])));
+        for v in POSES {
+            pose(&mut p, v);
+            let (m, b, a) = (drawn(&p, 0), drawn(&p, 1), drawn(&p, 2));
+            let mix = |i: usize| 0.6 * a[i] + 0.4 * b[i];
+            // the third vertex has no pairs: it stays where its keyforms put it
+            let want = [b[0], b[1], mix(2), mix(3), TRI[4], TRI[5]];
+            assert!(close(&m, &want), "{v:?}: {m:?} vs {want:?}");
+        }
+    }
+
+    #[test]
+    fn offsets_that_do_not_fit_leave_the_mesh_unskinned() {
+        let mut bad = skin(&[&[(1, 1.0)], &[(1, 1.0)], &[(1, 1.0)]]);
+        bad.offsets = vec![0, 2, 1, 3];
+        let m = weighted(bad);
+        let mut plain = m.clone();
+        plain.art_meshes[0].skin = None;
+        let (mut p, mut q) = (Puppet::new(m), Puppet::new(plain));
+        pose(&mut p, [0.5, 0.5, 0.0]);
+        pose(&mut q, [0.5, 0.5, 0.0]);
+        assert_eq!(drawn(&p, 0), drawn(&q, 0));
     }
 }

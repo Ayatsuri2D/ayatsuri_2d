@@ -32,7 +32,7 @@ pub mod skin;
 pub mod stroke_mesh;
 
 use ayatsuri_format::model::{
-    ArtMesh, Blend, BlendShape, BoneData, DeformerKind, Model, Parameter, RotationData, SKIN_SLOTS,
+    ArtMesh, Blend, BlendShape, BoneData, DeformerKind, Model, Parameter, RotationData,
 };
 use deform::{
     Affine, Parent, Rotation, Vec2, resolve_bone, resolve_under, rotation_transform,
@@ -1043,7 +1043,7 @@ impl Puppet {
         let Some(skin) = self.model.art_meshes.get(mi).and_then(|m| m.skin.as_ref()) else {
             return;
         };
-        skin_transform(&self.skinning.now, slots, &skin.weights, SKIN_SLOTS, io);
+        skin_transform(&self.skinning.now, &skin.offsets, slots, &skin.weights, io);
     }
 
     /// Whether a bone a mesh is weighted to changed this frame.

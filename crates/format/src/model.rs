@@ -546,14 +546,12 @@ pub struct ArtMesh {
     pub skin: Option<Skin>,
 }
 
-/// How many bones one vertex can be weighted to.
-pub const SKIN_SLOTS: usize = 4;
-
-/// A mesh's bone weights: [`SKIN_SLOTS`] (bone, weight) pairs per vertex,
-/// vertex-major. A vertex's weights sum to 1; slots it does not use hold
-/// weight 0. Bones are deformer indices, each a [`DeformerKind::Bone`]
-/// under the mesh's parent deformer (any bone when the mesh has none),
-/// with only rotation deformers and bones between.
+/// A mesh's bone weights, any number per vertex: vertex `v`'s (bone,
+/// weight) pairs are `bones[offsets[v]..offsets[v + 1]]` with the same
+/// range of `weights`. A vertex's weights sum to 1; one with no pairs
+/// follows the parent deformer alone. Bones are deformer indices, each a
+/// [`DeformerKind::Bone`] under the mesh's parent deformer (any bone when
+/// the mesh has none), with only rotation deformers and bones between.
 ///
 /// A weighted mesh's keyforms and blend shapes are made first, in its
 /// parent's space; then each vertex moves by its bones' change from their
@@ -562,12 +560,41 @@ pub const SKIN_SLOTS: usize = 4;
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Skin {
-    /// `vertex_count * SKIN_SLOTS` deformer indices.
+    /// `vertex_count + 1` offsets into `bones`: the first 0, never falling,
+    /// the last `bones.len()`.
+    #[serde(with = "u32_bin")]
+    pub offsets: Vec<u32>,
+    /// Deformer indices.
     #[serde(with = "u32_bin")]
     pub bones: Vec<u32>,
-    /// `vertex_count * SKIN_SLOTS` weights, parallel to `bones`.
+    /// Parallel to `bones`.
     #[serde(with = "f32_bin")]
     pub weights: Vec<f32>,
+}
+
+impl Skin {
+    /// From each vertex's (bone, weight) pairs.
+    pub fn from_pairs<'a>(per_vertex: impl IntoIterator<Item = &'a [(u32, f32)]>) -> Skin {
+        let mut s = Skin { offsets: vec![0], ..Skin::default() };
+        for pairs in per_vertex {
+            for &(b, w) in pairs {
+                s.bones.push(b);
+                s.weights.push(w);
+            }
+            s.offsets.push(s.bones.len() as u32);
+        }
+        s
+    }
+
+    /// Whether the offsets fit `vertex_count` vertices and the pairs.
+    pub fn fits(&self, vertex_count: usize) -> bool {
+        let n = self.bones.len();
+        self.offsets.len() == vertex_count.saturating_add(1)
+            && self.offsets.first() == Some(&0)
+            && self.offsets.last().is_some_and(|&l| l as usize == n)
+            && self.offsets.is_sorted()
+            && self.weights.len() == n
+    }
 }
 
 /// Keyforms added on top of an object's normal blend instead of multiplied

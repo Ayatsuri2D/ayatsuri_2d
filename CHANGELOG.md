@@ -27,8 +27,8 @@
   of the body). Between keys the field shows the blended order and a
   change moves every key by the same amount, as before.
 - **Bones in the format and the runtime**: an `.aom` model can now hold
-  bones, and art meshes weighted to them, with up to four bones per
-  vertex. A bone turns, moves and scales over its parameters like a
+  bones, and art meshes weighted to them, with as many bones per vertex
+  as the rig needs. A bone turns, moves and scales over its parameters like a
   rotation deformer, and anything placed under it without weights follows
   it the same way. A bone can also scale its two axes by different
   amounts and shear them, keyed over parameters like its angle, and a

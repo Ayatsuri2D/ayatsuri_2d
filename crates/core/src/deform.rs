@@ -570,25 +570,26 @@ impl Affine {
     }
 }
 
-/// Linear blend skinning in place: each vertex of `io` (xy pairs) moves to
-/// `v + sum(w * (J v - v))` over its `slots` (joint, weight) pairs, `J`
-/// the joint's map from rest to now. Weights summing to 1 make this the
-/// plain weighted sum of `J v`; weight left over keeps the vertex where its
+/// Linear blend skinning in place: each vertex `v` of `io` (xy pairs)
+/// moves to `v + sum(w * (J v - v))` over its pairs, which are
+/// `offsets[v]..offsets[v + 1]` of `pair_joints` and `weights`, `J` the
+/// joint's map from rest to now. Weights summing to 1 make this the plain
+/// weighted sum of `J v`; weight left over keeps the vertex where its
 /// keyforms put it. A joint index past `joints` reads as the identity.
 pub fn skin_transform(
     joints: &[Affine],
-    slot_joints: &[u32],
+    offsets: &[u32],
+    pair_joints: &[u32],
     weights: &[f32],
-    slots: usize,
     io: &mut [f32],
 ) {
     let (pts, _) = io.as_chunks_mut::<2>();
-    for (vi, p) in pts.iter_mut().enumerate() {
+    for (p, span) in pts.iter_mut().zip(offsets.windows(2)) {
         let [x, y] = *p;
         let (mut dx, mut dy) = (0.0f32, 0.0f32);
-        let at = vi.saturating_mul(slots);
-        let end = at.saturating_add(slots);
-        let (Some(js), Some(ws)) = (slot_joints.get(at..end), weights.get(at..end)) else {
+        let &[at, end] = span else { continue };
+        let (at, end) = (at as usize, end as usize);
+        let (Some(js), Some(ws)) = (pair_joints.get(at..end), weights.get(at..end)) else {
             continue;
         };
         for (&j, &w) in js.iter().zip(ws) {
