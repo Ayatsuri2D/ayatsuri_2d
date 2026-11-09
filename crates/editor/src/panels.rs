@@ -13,6 +13,7 @@ use crate::dock::{self, DockAction, DockNode, PanelKind};
 use crate::point_edit;
 
 mod api_bar;
+mod bones;
 mod deformer_dialog;
 mod original;
 mod param_menu;
@@ -44,6 +45,10 @@ enum Tool {
     TextureAtlas,
     /// Modeling > Temporary Deform Tool, bound to the selection.
     TempDeform,
+    /// Bones (Settings > Experimental > Bones): drag out bones and chains.
+    Bone,
+    /// Bones: brush a mesh's weights for one bone.
+    WeightPaint,
 }
 
 impl Tool {
@@ -62,6 +67,8 @@ impl Tool {
             Tool::ArtPath,
         ],
     ];
+    /// Shown after the others while the Bones switch is on.
+    const BONES: &'static [Tool] = &[Tool::Bone, Tool::WeightPaint];
     fn icon(self) -> &'static str {
         match self {
             Tool::Arrow => egui_phosphor::regular::CURSOR,
@@ -77,6 +84,8 @@ impl Tool {
             Tool::ArtPath => egui_phosphor::regular::PEN_NIB,
             Tool::TextureAtlas => egui_phosphor::regular::SQUARES_FOUR,
             Tool::TempDeform => egui_phosphor::regular::BOUNDING_BOX,
+            Tool::Bone => egui_phosphor::regular::BONE,
+            Tool::WeightPaint => egui_phosphor::regular::PAINT_BRUSH_BROAD,
         }
     }
     fn label(self) -> &'static str {
@@ -94,6 +103,8 @@ impl Tool {
             Tool::ArtPath => "ArtPath",
             Tool::TextureAtlas => "Texture Atlas",
             Tool::TempDeform => "Temporary Deform Tool",
+            Tool::Bone => "Bone",
+            Tool::WeightPaint => "Weight Paint",
         }
     }
 }
@@ -452,7 +463,7 @@ fn tool_key(t: Tool) -> Option<&'static str> {
         Tool::WarpCreate => "tool-warp",
         Tool::RotationCreate => "tool-rotation",
         Tool::TextureAtlas => "tool-atlas",
-        Tool::TempDeform => return None,
+        Tool::TempDeform | Tool::Bone | Tool::WeightPaint => return None,
     })
 }
 
@@ -467,6 +478,8 @@ struct ToolOptions {
     warp_rows: u32,
     /// Stroke mesh-mapping's settings.
     stroke: stroke_tool::StrokeOpts,
+    /// Weight binding and painting.
+    bones: bones::BoneOpts,
 }
 
 impl Default for ToolOptions {
@@ -478,6 +491,7 @@ impl Default for ToolOptions {
             warp_cols: 5,
             warp_rows: 5,
             stroke: stroke_tool::StrokeOpts::default(),
+            bones: bones::BoneOpts::default(),
         }
     }
 }
@@ -663,6 +677,8 @@ pub struct EditorUi {
     mesh_art: Option<MeshArt>,
     /// Stroke mesh-mapping's strokes, not yet confirmed.
     stroke_edit: Option<stroke_tool::StrokeEdit>,
+    /// The bone tools' pick, mesh and strokes.
+    bones: bones::BoneState,
     /// Confirm asked for on the canvas: applied once it lets go.
     stroke_confirm: bool,
     /// The mesh Mesh Edit was on last frame, to notice it closing.
@@ -1847,6 +1863,7 @@ impl Default for EditorUi {
             dev_def_logged: false,
             mesh_art: None,
             stroke_edit: None,
+            bones: bones::BoneState::default(),
             stroke_confirm: false,
             mesh_edit_was: None,
             dev_mesh_logged: false,
@@ -9780,7 +9797,8 @@ impl EditorUi {
                 theme::pal().text,
             );
         }
-        for (gi, group) in Tool::GROUPS.iter().enumerate() {
+        let bone_group = self.prefs.bones_on().then_some(Tool::BONES);
+        for (gi, group) in Tool::GROUPS.iter().copied().chain(bone_group).enumerate() {
             if gi > 0 {
                 let (sep, _) = ui.allocate_exact_size(vec2(7.0, 26.0), Sense::hover());
                 ui.painter().line_segment(
@@ -10050,6 +10068,8 @@ impl EditorUi {
                 }
                 if is_warp {
                     paint_warp_glyph(ui, pos2(x, rect.center().y));
+                } else if s.puppet.model().deformers.get(i).is_some_and(|d| d.kind.is_bone()) {
+                    paint_bone_glyph(ui, pos2(x, rect.center().y));
                 } else {
                     paint_rotation_glyph(ui, pos2(x, rect.center().y));
                 }
@@ -11113,6 +11133,9 @@ impl EditorUi {
                 }
                 ui.separator();
                 original::inspector_rows(ui, s, ayatsuri_core::edit::Target::ArtMesh(i));
+                if self.prefs.bones_on() {
+                    bones::weight_rows(ui, s, i);
+                }
             }
             Some(Sel::Deformer(i)) => {
                 let name = s.deformer_names.get(i).cloned().unwrap_or_default();
@@ -11161,11 +11184,13 @@ impl EditorUi {
                     | DeformerKind::Bone(ayatsuri_format::model::BoneData {
                         rotation: r, ..
                     }) => {
-                        row(ui, crate::i18n::tr("Type"), crate::i18n::tr("Rotation").into());
+                        let kind = if d.kind.is_bone() { "Bone" } else { "Rotation" };
+                        row(ui, crate::i18n::tr("Type"), crate::i18n::tr(kind).into());
                         row(ui, crate::i18n::tr("Base angle"), format!("{:.1}", r.base_angle));
                         row(ui, crate::i18n::tr("Keyforms"), format!("{}", r.opacities.len()));
                     }
                 }
+                let bone_rows = d.kind.is_bone() && self.prefs.bones_on();
                 let kids = s
                     .puppet
                     .model()
@@ -11188,6 +11213,11 @@ impl EditorUi {
                     &mut self.color_pick,
                     &mut self.color_picked,
                 );
+                if bone_rows {
+                    ui.separator();
+                    bones::bone_rows(ui, s, i);
+                    bones::ik_rows(ui, s, i, self.sel_param);
+                }
                 ui.separator();
                 original::inspector_rows(ui, s, ayatsuri_core::edit::Target::Deformer(i));
             }
@@ -12154,7 +12184,145 @@ impl EditorUi {
                 self.pick_pages.clear();
             }
         }
-        if self.tool == Tool::Arrow && !space && self.mesh_edit.is_none() && !eyedropping {
+        // bones, over the art: the Bone tool draws them, Weight Paint brushes
+        // their weights, and the arrow picks one under a click before the
+        // art under it
+        let mut bone_click = false;
+        if !self.prefs.bones_on() && matches!(self.tool, Tool::Bone | Tool::WeightPaint) {
+            self.tool = Tool::Arrow;
+        }
+        if self.prefs.bones_on() && self.mesh_edit.is_none() {
+            let bview = bones::View { origin, scale, canvas: c };
+            let sel_def = match self.selected {
+                Some(Sel::Deformer(d)) => Some(d),
+                _ => None,
+            };
+            let sel_mesh = match self.selected {
+                Some(Sel::Mesh(m)) => Some(m),
+                _ => None,
+            };
+            self.bones.follow(s.puppet.model(), sel_mesh, sel_def);
+            let segs = bones::segments(s, bview);
+            let free = !space && !eyedropping;
+            let mut act = None;
+            if free && self.tool == Tool::WeightPaint {
+                let pen = self.pen.brush(&self.prefs);
+                let opts = &self.tool_opts.bones;
+                act = bones::weight_paint(
+                    ui,
+                    &vp,
+                    &resp,
+                    &mut self.bones,
+                    s,
+                    &segs,
+                    bview,
+                    opts,
+                    pen,
+                );
+            }
+            let hover = ui
+                .ctx()
+                .input(|i| i.pointer.latest_pos())
+                .filter(|_| resp.hovered() && free)
+                .and_then(|p| bones::bone_at(&segs, p));
+            let mut picked = self.bones.bones(s.puppet.model());
+            if self.tool == Tool::WeightPaint {
+                picked = self.bones.active.into_iter().collect();
+            }
+            bones::draw_bones(&vp, &segs, &picked, hover, self.disp.rotation_color);
+            let model = s.puppet.model();
+            let is_bone = |d: usize| model.deformers.get(d).is_some_and(|x| x.kind.is_bone());
+            if free && self.tool == Tool::Bone {
+                // a drag off the selected bone's tip makes its child; one
+                // elsewhere goes under a selected warp or rotation deformer
+                let tip_of = sel_def.filter(|&d| is_bone(d));
+                let parent = sel_def.filter(|&d| !is_bone(d) && d < model.deformers.len());
+                act =
+                    bones::bone_tool(ui, &vp, &resp, &mut self.bones, &segs, bview, tip_of, parent);
+            }
+            let mods = ui.ctx().input(|i| i.modifiers);
+            if free
+                && self.tool == Tool::Arrow
+                && resp.clicked()
+                && let Some(b) = resp.interact_pointer_pos().and_then(|p| bones::bone_at(&segs, p))
+            {
+                act = Some(bones::BoneAct::Pick { bone: Some(b), add: mods.command || mods.shift });
+                bone_click = true;
+            }
+            match act {
+                Some(bones::BoneAct::Pick { bone, add }) => {
+                    let pick = &mut self.bones.pick;
+                    match (bone, add) {
+                        (Some(b), true) if pick.contains(&b) => pick.retain(|&x| x != b),
+                        (Some(b), true) => pick.push(b),
+                        (Some(b), false) => *pick = vec![b],
+                        (None, _) => pick.clear(),
+                    }
+                    self.selected = pick.last().copied().map(Sel::Deformer);
+                    self.def_pick = pick.clone();
+                }
+                Some(bones::BoneAct::Create { parent, joint, tip }) => {
+                    let model = s.puppet.model();
+                    let id = ayatsuri_core::bone_edit::free_bone_id(model);
+                    // in its parent's part, else the weights' mesh's
+                    let part = parent
+                        .and_then(|p| model.deformers.get(p))
+                        .map(|d| d.parent_part)
+                        .or_else(|| {
+                            let mi = self.bones.mesh_index(model)?;
+                            Some(model.art_meshes.get(mi)?.parent_part)
+                        })
+                        .flatten();
+                    let made = std::cell::Cell::new(None);
+                    if s.edit(|m| {
+                        made.set(ayatsuri_core::bone_edit::create_bone(
+                            m, parent, part, joint, tip, id,
+                        ));
+                        made.get().is_some()
+                    }) && let Some(b) = made.get()
+                    {
+                        log::info!(
+                            "bone {b} made{}",
+                            if parent.is_some() { " as a child" } else { "" }
+                        );
+                        self.bones.pick = vec![b];
+                        self.selected = Some(Sel::Deformer(b));
+                        self.def_pick = vec![b];
+                    }
+                }
+                Some(bones::BoneAct::Paint { mesh, bone, hits }) => {
+                    let brush = self.tool_opts.bones.brush;
+                    let value = self.tool_opts.bones.value;
+                    let mut failed = None;
+                    if s.edit(|m| {
+                        match ayatsuri_core::bone_edit::paint_weights(
+                            m, mesh, bone, &hits, brush, value,
+                        ) {
+                            Ok(changed) => changed,
+                            Err(e) => {
+                                failed = Some(e);
+                                false
+                            }
+                        }
+                    }) {
+                        log::debug!(
+                            "mesh {mesh}: {brush:?} on {} point(s) for bone {bone}",
+                            hits.len()
+                        );
+                    }
+                    if let Some(e) = failed {
+                        set_notice(&mut self.notice, bones::bind_message(e));
+                    }
+                }
+                None => {}
+            }
+        }
+        if self.tool == Tool::Arrow
+            && !space
+            && self.mesh_edit.is_none()
+            && !eyedropping
+            && !bone_click
+        {
             let unit_of = |ptr: Pos2| {
                 (
                     ((ptr.x - origin.x) / scale - c.origin_x) / c.pixels_per_unit,
@@ -13709,7 +13877,16 @@ impl EditorUi {
                     let a = angle.to_radians();
                     let handle = self.rot_handle.get(&di).copied().unwrap_or(26.0);
                     let dir = vec2(a.sin(), -a.cos()) * handle;
-                    let tip = o + dir;
+                    // a bone turns by its tip or anywhere along it
+                    let bone_tip = if self.prefs.bones_on() {
+                        ayatsuri_core::bone_edit::bone_ends(&s.puppet, di)
+                            .map(|(_, t)| to_screen(t.0, t.1))
+                            .filter(|t| t.distance(o) > 9.0)
+                    } else {
+                        None
+                    };
+                    let tip = bone_tip.unwrap_or(o + dir);
+                    let on_bone = |p: Pos2| bone_tip.is_some() && bones::near_segment(p, o, tip);
 
                     // a drag only starts once the pointer has gone past the
                     // click distance (wider in pen mode), so what it grabs
@@ -13718,7 +13895,7 @@ impl EditorUi {
                     let at = if resp.drag_started() { press.or(ptr) } else { ptr };
                     let near_origin =
                         at.is_some_and(|p| p.distance(o) < 9.0) && self.rot_drag.is_none();
-                    let near_tip = at.is_some_and(|p| p.distance(tip) < 9.0)
+                    let near_tip = at.is_some_and(|p| p.distance(tip) < 9.0 || on_bone(p))
                         && !near_origin
                         && self.rot_drag.is_none();
                     // the round scale handle: the ring around the centre
@@ -13726,7 +13903,7 @@ impl EditorUi {
                         && !near_origin
                         && !near_tip
                         && self.rot_drag.is_none();
-                    if !space {
+                    if !space && !matches!(self.tool, Tool::Bone | Tool::WeightPaint) {
                         if resp.drag_started()
                             && !self.def_locked.contains(&di)
                             && (near_origin || near_tip || near_ring)
@@ -18565,6 +18742,16 @@ fn paint_warp_glyph(ui: &Ui, at: Pos2) {
     p.rect_stroke(r, 0.0, s, StrokeKind::Inside);
     p.line_segment([pos2(r.center().x, r.min.y), pos2(r.center().x, r.max.y)], s);
     p.line_segment([pos2(r.min.x, r.center().y), pos2(r.max.x, r.center().y)], s);
+}
+
+/// A bone: a small tapered shape, joint at the bottom.
+fn paint_bone_glyph(ui: &Ui, at: Pos2) {
+    let p = ui.painter();
+    let c = at + vec2(5.0, 0.0);
+    let s = Stroke::new(1.2, theme::pal().rotation_red);
+    let pts =
+        vec![c + vec2(0.0, 5.0), c + vec2(2.5, 2.0), c + vec2(0.0, -5.0), c + vec2(-2.5, 2.0)];
+    p.add(egui::Shape::convex_polygon(pts, theme::pal().rotation_red.gamma_multiply(0.3), s));
 }
 
 /// The red fan Cubism marks rotation deformers with.

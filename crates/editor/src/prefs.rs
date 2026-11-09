@@ -294,6 +294,10 @@ impl Prefs {
         self.experimental && self.experimental_inherit_clip
     }
 
+    pub fn bones_on(&self) -> bool {
+        self.experimental && self.experimental_bones
+    }
+
     /// The saved colour of the canvas page, if one was picked.
     pub fn canvas_page_color(&self) -> Option<egui::Color32> {
         self.canvas_page.map(|[r, g, b]| egui::Color32::from_rgb(r, g, b))
