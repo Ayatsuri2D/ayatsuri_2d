@@ -1342,6 +1342,8 @@
   "Features still being tested. They may change, and a model that uses one may look different in other apps until it is finished.": "Funksies wat nog getoets word. Hulle kan verander, en 'n model wat een gebruik kan in ander toepassings anders lyk totdat dit klaar is.",
   "Inherited clipping": "Geërfde knip",
   "Shows Inherit in the Inspector's clipping: a mesh is also clipped by what its masks are clipped by. Drawn exactly in the editor; moc3 export clips it by its own masks only for now": "Wys Erf by die knip in die Inspekteur: 'n mesh word ook geknip deur wat sy maskers knip. Presies geteken in die redigeerder; moc3-uitvoer knip dit vir nou net met sy eie maskers",
+  "Bones": "Bene",
+  "Bone chains that bend meshes by painted weights, with inherit modes and IK. They play in .aom and the SDK; moc3 export does not carry them yet": "Beenkettings wat meshes buig volgens geverfde gewigte, met oorerwingsmodusse en IK. Hulle speel in .aom en die SDK; moc3-uitvoer dra hulle nog nie",
   "Experimental features": "Eksperimentele funksies",
   "Turns every feature below on or off at once": "Skakel al die funksies hieronder gelyk aan of af",
   "FEATURES": "FUNKSIES",

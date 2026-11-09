@@ -46,6 +46,8 @@
   editor's viewport. Creating bones and painting weights in the editor,
   and moc3 export of models with bones, come next; for now a moc3 or cmo3
   export of a model with bones stops with a message saying so.
+  The editor tools will sit behind Settings > Experimental > Bones,
+  which is off by default.
 
 ### Fixed
 

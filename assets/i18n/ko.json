@@ -1342,6 +1342,8 @@
   "Features still being tested. They may change, and a model that uses one may look different in other apps until it is finished.": "아직 테스트 중인 기능입니다. 바뀔 수 있으며, 이를 사용한 모델은 완성될 때까지 다른 앱에서 다르게 보일 수 있습니다.",
   "Inherited clipping": "클리핑 상속",
   "Shows Inherit in the Inspector's clipping: a mesh is also clipped by what its masks are clipped by. Drawn exactly in the editor; moc3 export clips it by its own masks only for now": "인스펙터의 클리핑에 '상속'을 표시합니다. 메시는 마스크를 클리핑하는 것으로도 클리핑됩니다. 에디터에서는 정확히 그려지며, moc3 내보내기는 지금은 자신의 마스크로만 클리핑합니다",
+  "Bones": "본",
+  "Bone chains that bend meshes by painted weights, with inherit modes and IK. They play in .aom and the SDK; moc3 export does not carry them yet": "칠한 웨이트로 메시를 구부리는 본 체인. 상속 모드와 IK 포함. .aom과 SDK에서 동작하며, moc3 내보내기에는 아직 포함되지 않습니다",
   "Experimental features": "실험적 기능",
   "Turns every feature below on or off at once": "아래 모든 기능을 한꺼번에 켜거나 끕니다",
   "FEATURES": "기능",
