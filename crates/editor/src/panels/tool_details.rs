@@ -415,16 +415,15 @@ impl EditorUi {
             {
                 self.mesh_mode = 5;
             }
-            if self.prefs.stroke_mesh_on()
-                && icon(
-                    ui,
-                    self.mesh_mode == 7,
-                    true,
-                    ph::PEN_NIB,
-                    "Stroke mesh-mapping (experimental): drag to build a mesh along a stroke. \
+            if icon(
+                ui,
+                self.mesh_mode == 7,
+                true,
+                ph::PEN_NIB,
+                "Stroke mesh-mapping: drag to build a mesh along a stroke. \
                      Shift+E confirms, Delete cancels",
-                )
-                .clicked()
+            )
+            .clicked()
             {
                 self.mesh_mode = 7;
             }

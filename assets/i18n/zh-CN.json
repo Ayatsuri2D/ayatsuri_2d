@@ -1438,7 +1438,7 @@
   "Off: the points and edges the stroke mesh covers are removed": "关闭时:笔画网格覆盖的顶点和边会被删除",
   "Repeated density": "重复密度",
   "Stroke mesh-mapping": "笔画网格映射",
-  "Stroke mesh-mapping (experimental): drag to build a mesh along a stroke. Shift+E confirms, Delete cancels": "笔画网格映射(实验性):拖动以沿笔画生成网格。Shift+E 确定,Delete 取消",
+  "Stroke mesh-mapping: drag to build a mesh along a stroke. Shift+E confirms, Delete cancels": "笔画网格映射:拖动以沿笔画生成网格。Shift+E 确定,Delete 取消",
   "With 2 vertices across: flip the diagonal of the first and last cells": "宽度顶点数为 2 时:翻转首尾单元格的对角线",
   "TEXTURE ATLAS": "纹理集",
   "Repack when a mesh outgrows its art": "网格超出其图像时重新排布",

@@ -15888,12 +15888,9 @@ impl EditorUi {
                         ));
                     }
                 }
-                // stroke mesh-mapping (experimental), drawn over the mesh:
+                // stroke mesh-mapping, drawn over the mesh:
                 // strokes stay put while another tool is used, and go with
                 // Mesh Edit
-                if self.mesh_mode == 7 && !self.prefs.stroke_mesh_on() {
-                    self.mesh_mode = 0;
-                }
                 if self.mesh_mode == 7 && !space {
                     let sv = stroke_tool::View { origin, scale, rect: view };
                     let act = stroke_tool::stroke_tool(
