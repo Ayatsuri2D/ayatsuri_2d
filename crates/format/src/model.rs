@@ -269,13 +269,49 @@ pub struct BoneData {
     pub shears_x: Vec<f32>,
     #[serde(default)]
     pub shears_y: Vec<f32>,
+    /// What the bone takes from its parent.
+    #[serde(default)]
+    pub inherit: Inherit,
 }
 
 impl BoneData {
     /// A bone with only a rotation deformer's keyforms.
     pub fn new(rotation: RotationData, length: f32) -> Self {
-        Self { rotation, length, scales_y: Vec::new(), shears_x: Vec::new(), shears_y: Vec::new() }
+        Self {
+            rotation,
+            length,
+            scales_y: Vec::new(),
+            shears_x: Vec::new(),
+            shears_y: Vec::new(),
+            inherit: Inherit::Normal,
+        }
     }
+}
+
+/// What a bone takes from its parent's frame at its joint. The joint
+/// always lands where the parent maps it; the rest is the parent's turn,
+/// its scale (shear included) and its reflection.
+///
+/// Under another bone that shears, scales unevenly or reflects, the frame
+/// is that bone's whole map: its turn is the turn of its y axis, its
+/// reflection a flip of its x axis, and its scale what is left. Under
+/// anything else (a rotation deformer, a warp, a bone that only turns and
+/// scales evenly) the frame is what a rotation deformer reads there: the
+/// turn of a short vertical step and the parent's scale, with no
+/// reflection, so `NoScale` and `NoScaleOrReflection` agree.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub enum Inherit {
+    /// The parent's whole frame.
+    #[default]
+    Normal,
+    /// Only where the joint lands.
+    OnlyTranslation,
+    /// The parent's scale, not its turn or reflection.
+    NoRotationOrReflection,
+    /// The parent's turn and reflection, not its scale.
+    NoScale,
+    /// The parent's turn alone.
+    NoScaleOrReflection,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

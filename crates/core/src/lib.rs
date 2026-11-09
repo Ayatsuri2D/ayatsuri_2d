@@ -455,9 +455,13 @@ impl Puppet {
 
     /// Bring bone `di` out of its parent's space with this frame's parents.
     fn resolve_bone_at(&self, di: usize, own: &deform::Bone) -> deform::Resolved {
-        let parent = self.model.deformers.get(di).and_then(|d| d.parent_deformer);
-        let Some(p) = parent.map(|p| p as usize) else {
-            return resolve_bone(own, Parent::Root);
+        let d = self.model.deformers.get(di);
+        let inherit = match d.map(|d| &d.kind) {
+            Some(DeformerKind::Bone(b)) => b.inherit,
+            _ => deform::Inherit::Normal,
+        };
+        let Some(p) = d.and_then(|d| d.parent_deformer).map(|p| p as usize) else {
+            return resolve_bone(own, inherit, Parent::Root);
         };
         let scale = self.def_scale.get(p).copied().unwrap_or(1.0);
         let map = |q: Vec2| self.transform_point(p, q);
@@ -465,12 +469,12 @@ impl Puppet {
             Some(DeformerKind::Bone(_)) => {
                 let local = self.def_local.get(p).copied().unwrap_or(0) as usize;
                 let w = self.bone_world.get(local).copied().unwrap_or_default();
-                resolve_bone(own, Parent::Bone { world: w.map, plain: w.plain, scale })
+                resolve_bone(own, inherit, Parent::Bone { world: w.map, plain: w.plain, scale })
             }
             Some(DeformerKind::Rotation(_)) => {
-                resolve_bone(own, Parent::Probe { map: &map, dir: -10.0, scale })
+                resolve_bone(own, inherit, Parent::Probe { map: &map, dir: -10.0, scale })
             }
-            _ => resolve_bone(own, Parent::Probe { map: &map, dir: -0.1, scale }),
+            _ => resolve_bone(own, inherit, Parent::Probe { map: &map, dir: -0.1, scale }),
         }
     }
 

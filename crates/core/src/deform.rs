@@ -8,6 +8,8 @@
 //! triangles otherwise); outside, a virtual cell extrapolates near the grid
 //! and an affine basis takes over far from it.
 
+pub use ayatsuri_format::model::Inherit;
+
 #[derive(Debug, Clone, Copy, PartialEq, Default)]
 pub struct Vec2 {
     pub x: f32,
@@ -405,27 +407,45 @@ pub struct Resolved {
     pub rotation: Rotation,
 }
 
-/// Bring a bone out of its parent's space. Under a plain bone, a rotation
-/// deformer or a warp it resolves exactly as a rotation deformer does
-/// (`resolve_under`), so a plain bone matches one bit for bit; under a
-/// bone that shears, scales unevenly or reflects, the parent's map is
-/// composed in whole.
-pub fn resolve_bone(local: &Bone, parent: Parent<'_>) -> Resolved {
-    let at = |parent_scale: f32, map: &dyn Fn(Vec2) -> Vec2, dir: f32| {
-        let mut r = local.rotation();
-        resolve_under(&mut r, dir, parent_scale, map);
-        let scale_y =
-            if local.scale_y == local.scale_x { r.scale } else { local.scale_y * parent_scale };
-        Bone { origin: r.origin, angle: r.angle, scale_x: r.scale, scale_y, ..*local }
+/// Bring a bone out of its parent's space, taking what `inherit` says
+/// from the parent's frame at its joint (see [`Inherit`]). Under a plain
+/// bone, a rotation deformer or a warp the frame is measured as a
+/// rotation deformer measures it, so a plain bone that inherits in full
+/// matches a rotation deformer bit for bit (`resolve_under`); under a bone
+/// that shears, scales unevenly or reflects, the frame is its whole map.
+pub fn resolve_bone(local: &Bone, inherit: Inherit, parent: Parent<'_>) -> Resolved {
+    let (turn, scale) = match inherit {
+        Inherit::Normal => (true, true),
+        Inherit::OnlyTranslation => (false, false),
+        Inherit::NoRotationOrReflection => (false, true),
+        Inherit::NoScale | Inherit::NoScaleOrReflection => (true, false),
+    };
+    let measured = |parent_scale: f32, map: &dyn Fn(Vec2) -> Vec2, dir: f32| {
+        if turn && scale {
+            let mut r = local.rotation();
+            resolve_under(&mut r, dir, parent_scale, map);
+            let scale_y =
+                if local.scale_y == local.scale_x { r.scale } else { local.scale_y * parent_scale };
+            return Bone { origin: r.origin, angle: r.angle, scale_x: r.scale, scale_y, ..*local };
+        }
+        let (origin, adj) = probe(local.origin, dir, map);
+        let k = if scale { parent_scale } else { 1.0 };
+        Bone {
+            origin,
+            angle: if turn { local.angle + adj } else { local.angle },
+            scale_x: local.scale_x * k,
+            scale_y: local.scale_y * k,
+            ..*local
+        }
     };
     let world = match parent {
         Parent::Root => *local,
-        Parent::Probe { map, dir, scale } => at(scale, map, dir),
-        Parent::Bone { world, plain: true, scale } => at(scale, &|q| world.apply_v(q), -10.0),
+        Parent::Probe { map, dir, scale } => measured(scale, map, dir),
+        Parent::Bone { world, plain: true, scale } => measured(scale, &|q| world.apply_v(q), -10.0),
         Parent::Bone { world, plain: false, .. } => {
             let own = Affine::bone(&Bone { origin: v2(0.0, 0.0), ..*local });
             let t = world.apply_v(local.origin);
-            let mut map = world.linear().after(&own);
+            let mut map = world.frame(inherit).after(&own);
             map.tx = t.x;
             map.ty = t.y;
             return Resolved::exact(map);
@@ -499,6 +519,27 @@ impl Affine {
             m11: b.scale_y * cos_y * ry,
             tx: b.origin.x,
             ty: b.origin.y,
+        }
+    }
+
+    /// The part of this map's linear frame that `inherit` takes: its turn
+    /// is the turn of its y axis, its reflection a flip of its x axis, its
+    /// scale what is left (see [`Inherit`]).
+    pub fn frame(&self, inherit: Inherit) -> Affine {
+        let (sx, sy) = (self.m00.hypot(self.m10), self.m01.hypot(self.m11));
+        let turn = (-self.m01).atan2(self.m11);
+        let (s, c) = turn.sin_cos();
+        let flip = if self.det() < 0.0 { -1.0 } else { 1.0 };
+        let rotate =
+            |fx: f32| Affine { m00: c * fx, m01: -s, m10: s * fx, m11: c, tx: 0.0, ty: 0.0 };
+        match inherit {
+            Inherit::Normal => self.linear(),
+            Inherit::OnlyTranslation => Affine::IDENTITY,
+            Inherit::NoRotationOrReflection => {
+                Affine { m00: sx, m01: 0.0, m10: 0.0, m11: sy, tx: 0.0, ty: 0.0 }
+            }
+            Inherit::NoScale => rotate(flip),
+            Inherit::NoScaleOrReflection => rotate(1.0),
         }
     }
 

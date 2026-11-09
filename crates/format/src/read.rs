@@ -204,6 +204,7 @@ mod tests {
                 scales_y: vec![0.5],
                 shears_x: vec![10.0],
                 shears_y: vec![-5.0],
+                inherit: crate::model::Inherit::NoScale,
             }),
             multiply: Vec::new(),
             screen: Vec::new(),
@@ -251,6 +252,7 @@ mod tests {
         let back = crate::read::read(&crate::writer::write(&with).unwrap()).unwrap();
         let DeformerKind::Bone(b) = &back.model.deformers[0].kind else { panic!("bone") };
         assert_eq!(b.length, 2.5);
+        assert_eq!(b.inherit, crate::model::Inherit::NoScale);
         assert_eq!(
             (b.scales_y.clone(), b.shears_x.clone(), b.shears_y.clone()),
             (vec![0.5], vec![10.0], vec![-5.0])
@@ -315,6 +317,7 @@ mod tests {
         let b: BoneData = rmp_serde::from_slice(&bytes).unwrap();
         assert_eq!(b.length, 1.0);
         assert!(b.scales_y.is_empty() && b.shears_x.is_empty() && b.shears_y.is_empty());
+        assert_eq!(b.inherit, crate::model::Inherit::Normal);
     }
 
     #[test]

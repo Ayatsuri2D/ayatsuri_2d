@@ -8,7 +8,7 @@
 //! and the joint's map is "now after inverse rest". A mesh's weight slots
 //! point at joints; a mesh whose weights do not check out is not skinned.
 
-use ayatsuri_format::model::Model;
+use ayatsuri_format::model::{DeformerKind, Inherit, Model};
 
 use crate::deform::{Affine, Bone, Parent, Resolved, Vec2, resolve_bone, resolve_under};
 
@@ -45,7 +45,8 @@ pub(crate) fn chain(
     let mut prev: Option<(bool, Resolved)> = None;
     for &di in path {
         let own = local(di as usize)?;
-        let is_bone = model.deformers.get(di as usize)?.kind.is_bone();
+        let kind = &model.deformers.get(di as usize)?.kind;
+        let is_bone = kind.is_bone();
         let above = prev.map(|(_, r)| r);
         let map = |q: Vec2| above.unwrap_or_default().map.apply_v(q);
         let res = if is_bone {
@@ -54,7 +55,11 @@ pub(crate) fn chain(
                 Some((true, r)) => Parent::Bone { world: r.map, plain: r.plain, scale: r.scale },
                 Some((false, r)) => Parent::Probe { map: &map, dir: -10.0, scale: r.scale },
             };
-            resolve_bone(&own, parent)
+            let inherit = match kind {
+                DeformerKind::Bone(b) => b.inherit,
+                _ => Inherit::Normal,
+            };
+            resolve_bone(&own, inherit, parent)
         } else {
             let mut rot = own.rotation();
             if let Some(r) = above {
@@ -147,7 +152,7 @@ impl Skinning {
 #[cfg(test)]
 mod tests {
     use ayatsuri_format::model::{
-        ArtMesh, Binding, BindingAxis, BoneData, Deformer, DeformerKind, Model, Parameter,
+        ArtMesh, Binding, BindingAxis, BoneData, Deformer, DeformerKind, Inherit, Model, Parameter,
         RotationData, Skin, WarpData,
     };
 
@@ -559,5 +564,84 @@ mod tests {
         pose(&mut p, [0.5, 0.5, 0.0]);
         pose(&mut q, [0.5, 0.5, 0.0]);
         assert_eq!(drawn(&p, 0), drawn(&q, 0));
+    }
+
+    #[test]
+    fn each_inherit_mode_takes_its_part_of_the_parent() {
+        use crate::deform::{self, Affine, Inherit, v2};
+        let modes = [
+            Inherit::Normal,
+            Inherit::OnlyTranslation,
+            Inherit::NoRotationOrReflection,
+            Inherit::NoScale,
+            Inherit::NoScaleOrReflection,
+        ];
+        // a plain parent (turns and scales evenly), then one that reflects
+        for reflect in [false, true] {
+            for mode in modes {
+                let mut parent = turner(true, None, 0, (0.2, 0.1), 30.0);
+                if let DeformerKind::Bone(b) = &mut parent.kind {
+                    b.rotation.scales = vec![1.5; 3];
+                    b.rotation.reflect_x = vec![reflect; 3];
+                }
+                let mut child = turner(true, Some(0), 1, (0.0, 1.0), 45.0);
+                if let DeformerKind::Bone(b) = &mut child.kind {
+                    b.inherit = mode;
+                }
+                let m = model(vec![parent, child], vec![mesh(Some(1), TRI.to_vec(), None)]);
+                let mut p = Puppet::new(m);
+                for v in POSES {
+                    pose(&mut p, v);
+                    let (pa, ca) = (30.0 * v[0], 45.0 * v[1]);
+                    let parent = Affine::bone(&deform::Bone {
+                        origin: v2(0.2, 0.1),
+                        angle: pa,
+                        scale_x: 1.5,
+                        scale_y: 1.5,
+                        reflect_x: reflect,
+                        ..deform::Bone::default()
+                    });
+                    let turn = |deg: f32, flip: f32| {
+                        let (s, c) = deg.to_radians().sin_cos();
+                        Affine { m00: c * flip, m01: -s, m10: s * flip, m11: c, tx: 0.0, ty: 0.0 }
+                    };
+                    // what each mode takes, by hand
+                    let frame = match mode {
+                        Inherit::Normal => parent.linear(),
+                        Inherit::OnlyTranslation => Affine::IDENTITY,
+                        Inherit::NoRotationOrReflection => {
+                            Affine { m00: 1.5, m11: 1.5, ..Affine::IDENTITY }
+                        }
+                        Inherit::NoScale => turn(pa, if reflect { -1.0 } else { 1.0 }),
+                        Inherit::NoScaleOrReflection => turn(pa, 1.0),
+                    };
+                    let own = turn(ca, 1.0);
+                    let at = parent.apply_v(v2(0.0, 1.0));
+                    let mut want = frame.after(&own);
+                    (want.tx, want.ty) = (at.x, at.y);
+                    let mut io = TRI.to_vec();
+                    want.apply_all(&mut io);
+                    assert!(close(&drawn(&p, 0), &io), "{reflect} {mode:?} {v:?}");
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn a_bone_that_takes_only_the_joint_keeps_its_own_angle_under_a_warp() {
+        let made = |inherit: Inherit| {
+            let mut bone = turner(true, Some(0), 0, (0.5, 0.5), 30.0);
+            if let DeformerKind::Bone(b) = &mut bone.kind {
+                b.inherit = inherit;
+            }
+            model(vec![warp(2), bone], vec![mesh(Some(1), TRI.to_vec(), None)])
+        };
+        let mut p = Puppet::new(made(Inherit::OnlyTranslation));
+        pose(&mut p, [0.0, 0.0, 1.0]);
+        // the warp shears, but the mesh under the bone only moves with it
+        let got = drawn(&p, 0);
+        let shift = (got[0] - TRI[0], got[1] - TRI[1]);
+        let want: Vec<f32> = TRI.chunks(2).flat_map(|q| [q[0] + shift.0, q[1] + shift.1]).collect();
+        assert!(close(&got, &want), "{got:?}");
     }
 }
