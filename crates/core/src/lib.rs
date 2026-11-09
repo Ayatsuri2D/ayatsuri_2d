@@ -14,6 +14,7 @@ pub mod automesh;
 pub mod bezier;
 pub mod blend;
 pub mod blendshape;
+pub mod bone_edit;
 mod bones;
 pub mod clip;
 pub mod color;

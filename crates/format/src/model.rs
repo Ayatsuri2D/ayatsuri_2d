@@ -584,9 +584,9 @@ pub struct ArtMesh {
 
 /// A mesh's bone weights, any number per vertex: vertex `v`'s (bone,
 /// weight) pairs are `bones[offsets[v]..offsets[v + 1]]` with the same
-/// range of `weights`. A vertex's weights sum to 1; one with no pairs
-/// follows the parent deformer alone. Bones are deformer indices, each a
-/// [`DeformerKind::Bone`] under the mesh's parent deformer (any bone when
+/// range of `weights`. A vertex's weights sum to 1 at most: what is left,
+/// and all of a vertex with no pairs, follows the parent deformer alone.
+/// Bones are deformer indices, each a [`DeformerKind::Bone`] under the mesh's parent deformer (any bone when
 /// the mesh has none), with only rotation deformers and bones between.
 ///
 /// A weighted mesh's keyforms and blend shapes are made first, in its

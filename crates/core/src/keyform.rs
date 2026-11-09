@@ -237,7 +237,11 @@ pub fn keyform_at(model: &Model, target: Target, values: &[f32]) -> Option<usize
     if let Some(k) = crate::shapes::keyform_at(model, target, values)? {
         return Some(k);
     }
-    let binding = binding_of(model, target)?;
+    keyform_on(model, binding_of(model, target)?, values)
+}
+
+/// `keyform_at` for any binding (an IK constraint's), blend shapes aside.
+pub fn keyform_on(model: &Model, binding: &Binding, values: &[f32]) -> Option<usize> {
     let lens = axis_lens(binding);
     let mut coords = Vec::with_capacity(lens.len());
     for axis in &binding.axes {
