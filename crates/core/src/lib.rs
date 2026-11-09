@@ -1943,6 +1943,17 @@ impl Puppet {
         ))
     }
 
+    /// Where bone `bone` sits now as a mesh under `top` (None: the root)
+    /// reads it: its chain's map in `top`'s space, as six floats (m00,
+    /// m01, m10, m11, tx, ty), the form a skin's bind takes. None when the
+    /// bone is not under `top` with only rotation deformers and bones
+    /// between, or is hidden.
+    pub fn bone_chain(&self, bone: usize, top: Option<u32>) -> Option<[f32; 6]> {
+        let path = bones::path_to(&self.model, bone as u32, top)?;
+        let m = bones::chain(&self.model, &path, |di| self.bone_state(di))?;
+        Some([m.m00, m.m01, m.m10, m.m11, m.tx, m.ty])
+    }
+
     /// A rotation deformer's resolved state, for editor overlays.
     pub fn rotation_state(&self, deformer: usize) -> Option<deform::Rotation> {
         let d = self.model.deformers.get(deformer)?;

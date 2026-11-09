@@ -217,7 +217,8 @@ mod tests {
             &[(0, 0.5), (7, 0.5)],
             &[(0, 0.2), (1, 0.2), (2, 0.2), (3, 0.2), (4, 0.2)],
         ];
-        let skin = Skin::from_pairs(pairs);
+        let mut skin = Skin::from_pairs(pairs);
+        skin.set_bind(0, [0.5, -1.0, 1.0, 0.5, 3.0, -2.0]);
         model.art_meshes.push(ArtMesh {
             id: "M".into(),
             parent_part: None,
@@ -274,6 +275,29 @@ mod tests {
         assert_eq!(Some(&skin), with.model.art_meshes[0].skin.as_ref());
         assert_eq!(skin.offsets, vec![0, 1, 3, 8]);
         assert!(skin.fits(3));
+        assert_eq!(skin.bind_of(0), Some([0.5, -1.0, 1.0, 0.5, 3.0, -2.0]));
+        assert_eq!(skin.bind_of(1), None);
+    }
+
+    #[test]
+    fn a_skin_saved_before_binds_loads_with_none() {
+        use crate::model::Skin;
+        // the three fields a skin had before binds, by name
+        #[derive(serde::Serialize)]
+        struct Old {
+            #[serde(with = "crate::model::u32_bin")]
+            offsets: Vec<u32>,
+            #[serde(with = "crate::model::u32_bin")]
+            bones: Vec<u32>,
+            #[serde(with = "crate::model::f32_bin")]
+            weights: Vec<f32>,
+        }
+        let old = Old { offsets: vec![0, 1], bones: vec![2], weights: vec![1.0] };
+        for raw in [rmp_serde::to_vec_named(&old).unwrap(), rmp_serde::to_vec(&old).unwrap()] {
+            let s: Skin = rmp_serde::from_slice(&raw).unwrap();
+            assert_eq!((s.bones.clone(), s.weights.clone()), (vec![2], vec![1.0]));
+            assert!(s.bind_bones.is_empty() && s.bind_maps.is_empty());
+        }
     }
 
     #[test]

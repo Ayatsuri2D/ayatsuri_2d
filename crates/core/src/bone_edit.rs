@@ -53,7 +53,11 @@ pub fn remap_skin(
     if !skin.fits(vertex_count) {
         // offsets that do not fit are not read anyway: carry what can be
         let bones: Option<Vec<u32>> = skin.bones.iter().map(|&b| map(b)).collect();
-        return bones.map(|bones| Skin { bones, ..skin.clone() });
+        return bones.map(|bones| {
+            let mut out = Skin { bones, ..skin.clone() };
+            carry_binds(skin, &mut out, &map);
+            out
+        });
     }
     let mut pairs = pairs_of(Some(skin), vertex_count);
     for v in &mut pairs {
@@ -72,7 +76,22 @@ pub fn remap_skin(
         }
         *v = kept;
     }
-    skin_from(&pairs)
+    let mut out = skin_from(&pairs)?;
+    carry_binds(skin, &mut out, &map);
+    Some(out)
+}
+
+/// `to` takes `from`'s binds through `map`, those of bones it still uses.
+fn carry_binds(from: &Skin, to: &mut Skin, map: impl Fn(u32) -> Option<u32>) {
+    to.bind_bones.clear();
+    to.bind_maps.clear();
+    for &b in &from.bind_bones {
+        if let (Some(n), Some(bind)) = (map(b), from.bind_of(b))
+            && to.bones.contains(&n)
+        {
+            to.set_bind(n, bind);
+        }
+    }
 }
 
 /// Renumber the deformer indices that bone weights and IK constraints
@@ -381,24 +400,27 @@ fn to_segment(p: (f32, f32), a: (f32, f32), b: (f32, f32)) -> f32 {
 }
 
 /// Weight `mesh` to `bones` by distance: each vertex leans on each bone
-/// (joint to tip, as drawn at rest) by inverse distance raised to a power
-/// that `smoothness` (0 to 1) lowers, so a smoother bind blends further
-/// from each bone. Weights under a hundredth are dropped and the rest sum
-/// to 1. The mesh moves under the parent the bones need (see
-/// [`bind_parent`]) without moving on screen; its old weights are replaced.
+/// (joint to tip, as drawn at the parameter `values`) by inverse distance
+/// raised to a power that `smoothness` (0 to 1) lowers, so a smoother bind
+/// blends further from each bone. Weights under a hundredth are dropped
+/// and the rest sum to 1. The bones are bound where they sit at `values`,
+/// so the mesh does not move. The mesh moves under the parent the bones
+/// need (see [`bind_parent`]) without moving on screen; its old weights
+/// are replaced.
 pub fn auto_weights(
     model: &mut Model,
     mesh: usize,
     bones: &[usize],
     smoothness: f32,
+    values: &[f32],
 ) -> Result<(), BindError> {
     let mut next = model.clone();
     seat_mesh(&mut next, mesh, bones)?;
-    // drawn at rest, with no weights of its own in the way
+    // drawn as posed, with no weights of its own in the way
     if let Some(m) = next.art_meshes.get_mut(mesh) {
         m.skin = None;
     }
-    let rest = edit::rest_puppet(&next);
+    let rest = posed(&next, values);
     let pts = rest.mesh_drawn_positions(mesh).ok_or(BindError::NoMesh)?;
     let segs: Vec<(u32, Pt, Pt)> =
         bones.iter().filter_map(|&b| bone_ends(&rest, b).map(|(j, t)| (b as u32, j, t))).collect();
@@ -428,8 +450,131 @@ pub fn auto_weights(
     if let Some(m) = next.art_meshes.get_mut(mesh) {
         m.skin = skin_from(&pairs);
     }
+    bind_at(&mut next, &rest, mesh, false);
     *model = next;
     Ok(())
+}
+
+/// A puppet of `model` posed at `values` (a parameter missing from them
+/// sits at its default).
+fn posed(model: &Model, values: &[f32]) -> Puppet {
+    let mut puppet = Puppet::new(model.clone());
+    for (i, p) in model.parameters.iter().enumerate() {
+        puppet.set_value(i, values.get(i).copied().unwrap_or(p.default));
+    }
+    puppet.update();
+    puppet
+}
+
+/// Bind `mesh`'s bones where they sit in `puppet` (`model` as posed): all
+/// of them, or only those with no bind yet. True when a bind was set.
+fn bind_at(model: &mut Model, puppet: &Puppet, mesh: usize, only_missing: bool) -> bool {
+    let bones = mesh_bones(model, mesh);
+    let Some(m) = model.art_meshes.get_mut(mesh) else { return false };
+    let parent = m.parent_deformer;
+    let Some(skin) = &mut m.skin else { return false };
+    let mut changed = false;
+    for b in bones {
+        if only_missing && skin.bind_of(b).is_some() {
+            continue;
+        }
+        if let Some(map) = puppet.bone_chain(b as usize, parent) {
+            skin.set_bind(b, map);
+            changed = true;
+        }
+    }
+    changed
+}
+
+/// Set Bind Pose: bind every bone of `mesh` where it sits at `values`, so
+/// the mesh shows its own keyforms there, unbent.
+pub fn set_bind_pose(model: &mut Model, mesh: usize, values: &[f32]) -> bool {
+    let puppet = posed(model, values);
+    bind_at(model, &puppet, mesh, false)
+}
+
+/// Whether `bone` is `deformer` or under it.
+fn under(model: &Model, bone: u32, deformer: usize) -> bool {
+    edit::deformer_under(model, bone as usize, deformer)
+}
+
+/// The meshes weighted to `deformer` or a bone under it.
+fn meshes_on(model: &Model, deformer: usize) -> Vec<usize> {
+    (0..model.art_meshes.len())
+        .filter(|&mi| mesh_bones(model, mi).iter().any(|&b| under(model, b, deformer)))
+        .collect()
+}
+
+/// Before `deformer` is edited: every mesh weighted to it or a bone
+/// under it binds, at every parameter's default, each bone that has no
+/// bind yet, where it is read from today. Nothing moves, and the edit
+/// then bends the meshes instead of moving their bind with it.
+pub fn pin_binds(model: &mut Model, deformer: usize) -> bool {
+    let meshes: Vec<usize> = meshes_on(model, deformer)
+        .into_iter()
+        .filter(|&mi| {
+            let Some(s) = model.art_meshes.get(mi).and_then(|m| m.skin.as_ref()) else {
+                return false;
+            };
+            mesh_bones(model, mi).iter().any(|&b| s.bind_of(b).is_none())
+        })
+        .collect();
+    if meshes.is_empty() {
+        return false;
+    }
+    let rest = edit::rest_puppet(model);
+    let mut changed = false;
+    for mi in meshes {
+        changed |= bind_at(model, &rest, mi, true);
+    }
+    changed
+}
+
+fn affine(m: [f32; 6]) -> crate::deform::Affine {
+    let [m00, m01, m10, m11, tx, ty] = m;
+    crate::deform::Affine { m00, m01, m10, m11, tx, ty }
+}
+
+fn floats(a: crate::deform::Affine) -> [f32; 6] {
+    [a.m00, a.m01, a.m10, a.m11, a.tx, a.ty]
+}
+
+/// After `deformer` moved alone (Ctrl): every mesh weighted to it or a
+/// bone under it is bound again so it looks at `values` as it did in
+/// `before`: each bone's bind takes the bone's move, the old bind composed
+/// with the inverse of where the bone was and where it is now. True when a
+/// bind changed.
+pub fn keep_bound(before: &Model, after: &mut Model, values: &[f32], deformer: usize) -> bool {
+    let meshes = meshes_on(after, deformer);
+    if meshes.is_empty() {
+        return false;
+    }
+    let (then, now) = (posed(before, values), posed(after, values));
+    let rest = edit::rest_puppet(before);
+    let mut changed = false;
+    for mi in meshes {
+        let bones = mesh_bones(after, mi);
+        let Some(m) = after.art_meshes.get_mut(mi) else { continue };
+        let parent = m.parent_deformer;
+        let Some(skin) = &mut m.skin else { continue };
+        for b in bones {
+            let (Some(t), Some(n)) =
+                (then.bone_chain(b as usize, parent), now.bone_chain(b as usize, parent))
+            else {
+                continue;
+            };
+            if t == n {
+                continue;
+            }
+            let Some(old) = skin.bind_of(b).or_else(|| rest.bone_chain(b as usize, parent)) else {
+                continue;
+            };
+            let Some(t_inv) = affine(t).inverse() else { continue };
+            skin.set_bind(b, floats(affine(old).after(&t_inv).after(&affine(n))));
+            changed = true;
+        }
+    }
+    changed
 }
 
 fn normalise(ws: &mut [(u32, f32)]) {
@@ -480,7 +625,9 @@ pub fn vertex_weights(model: &Model, mesh: usize, bone: u32) -> Vec<f32> {
 /// share what the bone does not take, in proportion, so the total stays 1;
 /// a vertex with only this bone keeps what was painted, the rest following
 /// its parent deformer. Weights under a hundredth drop. The mesh moves
-/// under the parent the bones need, as for [`auto_weights`].
+/// under the parent the bones need, as for [`auto_weights`]. A bone the
+/// mesh had no bind for is bound where it sits at the parameter `values`.
+#[allow(clippy::too_many_arguments)]
 pub fn paint_weights(
     model: &mut Model,
     mesh: usize,
@@ -488,6 +635,7 @@ pub fn paint_weights(
     hits: &[(usize, f32)],
     brush: WeightBrush,
     value: f32,
+    values: &[f32],
 ) -> Result<bool, BindError> {
     let mut bones: Vec<usize> = mesh_bones(model, mesh).iter().map(|&b| b as usize).collect();
     if !bones.contains(&bone) {
@@ -562,7 +710,13 @@ pub fn paint_weights(
     if !changed {
         return Ok(false);
     }
+    let old = m.skin.take();
     m.skin = skin_from(&pairs);
+    if let (Some(old), Some(new)) = (&old, &mut m.skin) {
+        carry_binds(old, new, Some);
+    }
+    let puppet = posed(&next, values);
+    bind_at(&mut next, &puppet, mesh, true);
     *model = next;
     Ok(true)
 }
@@ -730,6 +884,7 @@ pub fn delete_ik_key(model: &mut Model, ik: usize, param: usize, value: f32) -> 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::edit::Target;
     use ayatsuri_format::model::{ArtMesh, BindingAxis, Parameter, WarpData};
 
     fn param(id: &str) -> Parameter {
@@ -951,14 +1106,14 @@ mod tests {
             vec![bone("A", None, (0.0, 0.0), 1.5), bone("B", Some(0), (0.0, 1.5), 1.5)],
             vec![mesh(None, vec![1.0, 0.0, 1.0, 1.0, 1.0, 2.0, 1.0, 3.0])],
         );
-        auto_weights(&mut m, 0, &[0, 1], 0.2).unwrap();
+        auto_weights(&mut m, 0, &[0, 1], 0.2, &[]).unwrap();
         let a = vertex_weights(&m, 0, 0);
         let b = vertex_weights(&m, 0, 1);
         assert!(a[0] > 0.9 && b[3] > 0.9, "{a:?} {b:?}");
         assert!(sums(&m, 0).iter().all(|s| (s - 1.0).abs() < 1e-5));
         // smoother reaches further
         let mut soft = m.clone();
-        auto_weights(&mut soft, 0, &[0, 1], 1.0).unwrap();
+        auto_weights(&mut soft, 0, &[0, 1], 1.0, &[]).unwrap();
         assert!(vertex_weights(&soft, 0, 1)[0] > b[0]);
     }
 
@@ -969,7 +1124,7 @@ mod tests {
             vec![mesh(Some(0), vec![0.1, 0.1, 0.2, 0.1, 0.1, 0.2, 0.2, 0.2])],
         );
         let before = edit::rest_puppet(&m).mesh_drawn_positions(0).unwrap();
-        auto_weights(&mut m, 0, &[1], 0.5).unwrap();
+        auto_weights(&mut m, 0, &[1], 0.5, &[]).unwrap();
         assert_eq!(m.art_meshes[0].parent_deformer, None);
         let after = edit::rest_puppet(&m).mesh_drawn_positions(0).unwrap();
         assert!(before.iter().zip(&after).all(|(a, b)| (a - b).abs() < 1e-4));
@@ -979,23 +1134,25 @@ mod tests {
             vec![mesh(None, QUAD.to_vec())],
         );
         m.deformers.push(bone("B", Some(1), (0.5, 0.5), 1.0));
-        assert_eq!(auto_weights(&mut m, 0, &[2, 3], 0.5), Err(BindError::NoCommonParent));
-        assert_eq!(auto_weights(&mut m, 0, &[0], 0.5), Err(BindError::NotBone));
+        assert_eq!(auto_weights(&mut m, 0, &[2, 3], 0.5, &[]), Err(BindError::NoCommonParent));
+        assert_eq!(auto_weights(&mut m, 0, &[0], 0.5, &[]), Err(BindError::NotBone));
     }
 
     #[test]
     fn painting_keeps_each_vertex_whole() {
         let mut m = two_bone_rig();
         m.ik.clear();
-        assert!(paint_weights(&mut m, 0, 1, &[(1, 0.2), (3, 0.5)], WeightBrush::Add, 1.0).unwrap());
+        assert!(
+            paint_weights(&mut m, 0, 1, &[(1, 0.2), (3, 0.5)], WeightBrush::Add, 1.0, &[]).unwrap()
+        );
         let a = vertex_weights(&m, 0, 1);
         assert!((a[1] - 0.95).abs() < 1e-5 && (a[3] - 0.5).abs() < 1e-5, "{a:?}");
         assert!(sums(&m, 0).iter().all(|s| (s - 1.0).abs() < 1e-5), "{:?}", sums(&m, 0));
         // a lone bone painted down leaves the rest to the parent
-        assert!(paint_weights(&mut m, 0, 1, &[(0, 0.4)], WeightBrush::Subtract, 1.0).unwrap());
+        assert!(paint_weights(&mut m, 0, 1, &[(0, 0.4)], WeightBrush::Subtract, 1.0, &[]).unwrap());
         assert!((sums(&m, 0)[0] - 0.6).abs() < 1e-5);
-        assert!(paint_weights(&mut m, 0, 2, &[(0, 1.0)], WeightBrush::Replace, 0.0).is_ok());
-        assert!(paint_weights(&mut m, 0, 1, &[(1, 1.0)], WeightBrush::Smooth, 1.0).unwrap());
+        assert!(paint_weights(&mut m, 0, 2, &[(0, 1.0)], WeightBrush::Replace, 0.0, &[]).is_ok());
+        assert!(paint_weights(&mut m, 0, 1, &[(1, 1.0)], WeightBrush::Smooth, 1.0, &[]).unwrap());
         assert!(remove_weights(&mut m, 0));
         assert!(m.art_meshes[0].skin.is_none());
     }
@@ -1028,6 +1185,99 @@ mod tests {
         assert_eq!(m.ik[ci].mix, vec![0.25]);
         assert!(delete_ik(&mut m, ci));
         assert!(m.ik.is_empty());
+    }
+
+    /// A column of points beside a bone's y axis.
+    const OFF: [f32; 8] = [1.0, 0.0, 1.0, 1.0, 1.0, 2.0, 1.0, 3.0];
+
+    fn drawn(m: &Model) -> Vec<f32> {
+        edit::rest_puppet(m).mesh_drawn_positions(0).unwrap()
+    }
+
+    fn close(a: &[f32], b: &[f32]) -> bool {
+        a.len() == b.len() && a.iter().zip(b).all(|(x, y)| (x - y).abs() < 1e-4)
+    }
+
+    fn one_bone() -> Model {
+        model(vec![bone("A", None, (0.0, 0.0), 3.0)], vec![mesh(None, OFF.to_vec())])
+    }
+
+    #[test]
+    fn a_bone_with_no_keys_turned_leaves_its_mesh_bent() {
+        let mut m = one_bone();
+        auto_weights(&mut m, 0, &[0], 0.5, &[]).unwrap();
+        assert!(m.art_meshes[0].skin.as_ref().unwrap().bind_of(0).is_some());
+        assert!(close(&drawn(&m), &OFF), "binding moves nothing");
+        assert!(!pin_binds(&mut m, 0), "already bound");
+        assert!(edit::rotate_rotation_at(&mut m, 0, 0, 30.0));
+        assert!(!close(&drawn(&m), &OFF), "the turn bends the mesh for good");
+    }
+
+    #[test]
+    fn editing_the_default_key_bends_the_mesh() {
+        let mut m = one_bone();
+        assert!(edit::add_keys(&mut m, Target::Deformer(0), 0, &[-1.0, 0.0, 1.0]));
+        auto_weights(&mut m, 0, &[0], 0.5, &[]).unwrap();
+        assert!(set_bone_field(&mut m, 0, 1, BoneField::Angle, 45.0));
+        assert!(!close(&drawn(&m), &OFF));
+    }
+
+    #[test]
+    fn a_skin_without_binds_reads_as_before_until_pinned() {
+        let mut m = one_bone();
+        m.art_meshes[0].skin =
+            Some(Skin::from_pairs([&[(0u32, 1.0f32)][..], &[(0, 1.0)], &[(0, 1.0)], &[(0, 1.0)]]));
+        let mut old = m.clone();
+        assert!(edit::rotate_rotation_at(&mut old, 0, 0, 30.0));
+        assert!(close(&drawn(&old), &OFF), "rest at the defaults: the bend is undone");
+        assert!(pin_binds(&mut m, 0));
+        assert!(close(&drawn(&m), &OFF), "pinning moves nothing");
+        assert!(edit::rotate_rotation_at(&mut m, 0, 0, 30.0));
+        assert!(!close(&drawn(&m), &OFF));
+    }
+
+    #[test]
+    fn moving_a_bone_alone_keeps_its_mesh_where_it_was() {
+        let mut m = one_bone();
+        auto_weights(&mut m, 0, &[0], 0.5, &[]).unwrap();
+        assert!(edit::rotate_rotation_at(&mut m, 0, 0, 20.0));
+        let bent = drawn(&m);
+        let before = m.clone();
+        assert!(edit::rotate_rotation_at(&mut m, 0, 0, 35.0));
+        assert!(edit::move_rotation_origin_in(&mut m, 0, 0, 0.5, -0.25));
+        assert!(keep_bound(&before, &mut m, &[0.0], 0));
+        assert!(close(&drawn(&m), &bent), "{:?} {bent:?}", drawn(&m));
+        // and it bends from there
+        assert!(edit::rotate_rotation_at(&mut m, 0, 0, 10.0));
+        assert!(!close(&drawn(&m), &bent));
+        // Set Bind Pose: the mesh shows its own shape in this pose
+        assert!(set_bind_pose(&mut m, 0, &[0.0]));
+        assert!(close(&drawn(&m), &OFF));
+    }
+
+    #[test]
+    fn binds_follow_deletes_and_new_strokes() {
+        let mut m = model(
+            vec![warp("W"), bone("A", None, (0.0, 0.0), 1.5), bone("B", Some(1), (0.0, 1.5), 1.5)],
+            vec![mesh(None, OFF.to_vec())],
+        );
+        auto_weights(&mut m, 0, &[1, 2], 0.5, &[]).unwrap();
+        assert!(edit::rotate_rotation_at(&mut m, 2, 0, 40.0));
+        let bent = drawn(&m);
+        assert!(!close(&bent, &OFF));
+        assert!(edit::delete_deformer(&mut m, 0));
+        let skin = m.art_meshes[0].skin.clone().unwrap();
+        assert_eq!(skin.bind_bones, vec![0, 1]);
+        assert!(close(&drawn(&m), &bent), "the bind came along");
+        // the bone gone, its bind goes too
+        assert!(edit::delete_deformer(&mut m, 0));
+        assert_eq!(m.art_meshes[0].skin.as_ref().unwrap().bind_bones, vec![0]);
+        // a first stroke on a bare mesh binds the bone where it is
+        let mut m = one_bone();
+        assert!(edit::rotate_rotation_at(&mut m, 0, 0, 25.0));
+        assert!(paint_weights(&mut m, 0, 0, &[(0, 1.0)], WeightBrush::Add, 1.0, &[]).unwrap());
+        assert!(m.art_meshes[0].skin.as_ref().unwrap().bind_of(0).is_some());
+        assert!(close(&drawn(&m), &OFF));
     }
 
     #[test]

@@ -1313,6 +1313,12 @@ pub fn set_parent(model: &mut Model, child: Child, new_parent: Option<usize>) ->
             Child::Mesh(i) => {
                 if let Some(m) = model.art_meshes.get_mut(i) {
                     m.parent_deformer = np;
+                    // binds are in the old parent's space: the bones are
+                    // bound again where they sit at rest
+                    if let Some(s) = &mut m.skin {
+                        s.bind_bones.clear();
+                        s.bind_maps.clear();
+                    }
                 }
             }
             Child::Deformer(i) => {

@@ -1392,6 +1392,8 @@
   "Add key": "添加关键帧",
   "Delete IK": "删除 IK",
   "Remove weights": "移除权重",
+  "Set bind pose": "设置绑定姿势",
+  "Bind the mesh to its bones as they sit now, so it shows its own shape in this pose": "按骨骼现在的位置重新绑定网格，使它在这个姿势下显示自身原本的形状",
   "The mesh follows its parent deformer alone again": "网格重新只跟随其父变形器",
   "Experimental features": "实验性功能",
   "Turns every feature below on or off at once": "一次开启或关闭下面的所有功能",

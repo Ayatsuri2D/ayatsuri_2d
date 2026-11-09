@@ -479,7 +479,9 @@ pub(super) fn bone_rows(ui: &mut Ui, s: &mut Session, bone: usize) {
             let now = at.and_then(|k| bone_edit::bone_field(s.puppet.model(), bone, k, field));
             match (at, now) {
                 (Some(k), Some(mut v)) => edit_value(ui, s, &mut v, speed, suffix, |m, v| {
-                    bone_edit::set_bone_field(m, bone, k, field, v)
+                    // its weighted meshes bend with it and stay bent
+                    let pinned = bone_edit::pin_binds(m, bone);
+                    bone_edit::set_bone_field(m, bone, k, field, v) || pinned
                 }),
                 _ => {
                     ui.add_enabled(false, egui::DragValue::new(&mut 0.0f32))
@@ -627,6 +629,18 @@ pub(super) fn weight_rows(ui: &mut Ui, s: &mut Session, mesh: usize) {
             && s.edit(|m| bone_edit::remove_weights(m, mesh))
         {
             log::info!("mesh {mesh}: weights removed");
+        }
+        if ui
+            .button(tr("Set bind pose"))
+            .on_hover_text(tr(
+                "Bind the mesh to its bones as they sit now, so it shows its own shape in this pose",
+            ))
+            .clicked()
+        {
+            let values = values(s);
+            if s.edit(|m| bone_edit::set_bind_pose(m, mesh, &values)) {
+                log::info!("mesh {mesh}: bind pose set");
+            }
         }
     });
 }

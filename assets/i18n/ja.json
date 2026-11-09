@@ -1392,6 +1392,8 @@
   "Add key": "キーを追加",
   "Delete IK": "IKを削除",
   "Remove weights": "ウェイトを外す",
+  "Set bind pose": "バインドポーズを設定",
+  "Bind the mesh to its bones as they sit now, so it shows its own shape in this pose": "今のボーンの位置でメッシュをバインドし直し、このポーズでメッシュ本来の形が見えるようにします",
   "The mesh follows its parent deformer alone again": "メッシュは再び親デフォーマーだけに従います",
   "Experimental features": "試験的機能",
   "Turns every feature below on or off at once": "下のすべての機能をまとめてオン・オフします",

@@ -939,9 +939,11 @@ impl EditorUi {
                 && let Some(mi) = mesh
             {
                 let smooth = self.tool_opts.bones.smoothness;
+                let values: Vec<f32> =
+                    (0..s.puppet.model().parameters.len()).map(|p| s.puppet.value(p)).collect();
                 let mut failed = None;
                 if s.edit(|m| {
-                    match ayatsuri_core::bone_edit::auto_weights(m, mi, &picked, smooth) {
+                    match ayatsuri_core::bone_edit::auto_weights(m, mi, &picked, smooth, &values) {
                         Ok(()) => true,
                         Err(e) => {
                             failed = Some(e);
