@@ -12293,10 +12293,12 @@ impl EditorUi {
                 Some(bones::BoneAct::Paint { mesh, bone, hits }) => {
                     let brush = self.tool_opts.bones.brush;
                     let value = self.tool_opts.bones.value;
+                    let values: Vec<f32> =
+                        (0..s.puppet.model().parameters.len()).map(|p| s.puppet.value(p)).collect();
                     let mut failed = None;
                     if s.edit(|m| {
                         match ayatsuri_core::bone_edit::paint_weights(
-                            m, mesh, bone, &hits, brush, value,
+                            m, mesh, bone, &hits, brush, value, &values,
                         ) {
                             Ok(changed) => changed,
                             Err(e) => {
@@ -14117,6 +14119,14 @@ impl EditorUi {
                                 *v = base;
                                 s.dirty = true;
                             }
+                            // meshes weighted to bones under it: without Ctrl
+                            // they bend and stay bent, so their bones are
+                            // bound where they were read from so far; with
+                            // Ctrl they are bound again where they now sit
+                            if !d.keep {
+                                s.amend(|m| ayatsuri_core::bone_edit::pin_binds(m, di));
+                            }
+                            let keep_from = d.keep.then(|| s.puppet.model().clone());
                             let deg = d.turn(ui.input(|i| i.modifiers.shift));
                             if d.scaling {
                                 let (dfm, f) = (d.deformer, d.factor);
@@ -14215,6 +14225,19 @@ impl EditorUi {
                                     None => log::warn!(
                                         "the parameters are between keys: move them onto a key to move this pivot"
                                     ),
+                                }
+                            }
+                            // Ctrl: the weighted art stays where it was, in
+                            // the same undo step as the move
+                            if let Some(before) = keep_from {
+                                let values: Vec<f32> = (0..s.puppet.model().parameters.len())
+                                    .map(|i| s.puppet.value(i))
+                                    .collect();
+                                if s.edit(|m| {
+                                    ayatsuri_core::bone_edit::keep_bound(&before, m, &values, di)
+                                }) {
+                                    s.join_last_edit();
+                                    log::debug!("deformer {di} moved alone: its meshes rebound");
                                 }
                             }
                         }

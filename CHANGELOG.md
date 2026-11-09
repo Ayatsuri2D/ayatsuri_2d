@@ -60,8 +60,12 @@
   brushes one bone's weights over a heat map (blue none, red all) with
   Add, Subtract, Smooth and Replace, a radius, a strength and pen
   pressure; each stroke is one undo step and keeps every point's weights
-  adding up. The Inspector lists a weighted mesh's bones and can remove
-  its weights. Add IK makes one or two picked bones reach for the bone
+  adding up. Turning or moving a bone bends the meshes weighted to it,
+  and they stay bent after you let go, whether or not the bone has keys;
+  hold Ctrl to move a bone without bending them. The Inspector lists a
+  weighted mesh's bones, can remove its weights, and has Set bind pose,
+  which makes the mesh show its own shape with the bones as they sit
+  now. Add IK makes one or two picked bones reach for the bone
   picked last, with its mix and bend direction keyed over parameters in
   the Inspector. Deleting, wrapping or reordering deformers keeps every
   mesh's weights and IK on the right bones; a deleted bone's weight goes

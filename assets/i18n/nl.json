@@ -1392,6 +1392,8 @@
   "Add key": "Sleutel toevoegen",
   "Delete IK": "IK verwijderen",
   "Remove weights": "Gewichten verwijderen",
+  "Set bind pose": "Bindpose instellen",
+  "Bind the mesh to its bones as they sit now, so it shows its own shape in this pose": "Bind de mesh aan zijn botten zoals ze nu staan, zodat hij in deze pose zijn eigen vorm toont",
   "The mesh follows its parent deformer alone again": "De mesh volgt weer alleen zijn ouderdeformer",
   "Experimental features": "Experimentele functies",
   "Turns every feature below on or off at once": "Zet alle functies hieronder in één keer aan of uit",
