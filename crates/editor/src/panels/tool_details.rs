@@ -147,6 +147,8 @@ impl EditorUi {
                 Tool::BrushSelect | Tool::DeformBrush => self.td_brush(ui),
                 Tool::ArtPath => self.td_artpath(ui),
                 Tool::TempDeform => self.td_temp_deform(ui),
+                Tool::Bone => self.td_bones(ui),
+                Tool::WeightPaint => self.td_weights(ui),
                 Tool::TextureAtlas => {
                     section(
                         ui,
@@ -894,6 +896,164 @@ impl EditorUi {
         }
         if ui.button(crate::i18n::tr("Create…")).clicked() {
             self.pending_create = Some((warp, None));
+        }
+    }
+
+    fn td_bones(&mut self, ui: &mut Ui) {
+        section(
+            ui,
+            crate::i18n::tr("Bones"),
+            "Drag on the canvas to draw a bone from its joint to its tip. Start the drag on the selected bone's tip to draw its child, and keep going for a chain. A bone drawn elsewhere goes under the selected warp or rotation deformer, or at the top. Click a bone to pick it; Ctrl or Shift+click picks more.\n\nWith the arrow, drag a bone to turn it and its joint to move it, in the keyform the parameters sit on. Settings > Experimental > Bones turns these tools off.",
+        );
+        let Some(s) = &mut self.session else { return };
+        let model = s.puppet.model();
+        let mesh = self.bones.mesh_index(model);
+        let picked = self.bones.bones(model);
+        let names: Vec<String> = picked.iter().map(|&b| s.deformer_name(b)).collect();
+        let mesh_name = mesh.map_or_else(|| "-".to_string(), |m| s.mesh_name(m));
+        section(
+            ui,
+            crate::i18n::tr("Weights"),
+            "Auto weights binds the selected mesh to the picked bones by distance: each point follows the bones nearest it, and Smoothness blends further from each bone. The mesh moves under the deformer its bones need, keeping its place.\n\nAdd IK takes one or two picked bones (a bone and its child) as the chain and the bone picked last as the target the chain reaches for.",
+        );
+        grid(ui, "td-bones", |ui| {
+            row(ui, crate::i18n::tr("Mesh"), |ui| {
+                ui.label(&mesh_name);
+            });
+            row(ui, crate::i18n::tr("Bones"), |ui| {
+                ui.label(if names.is_empty() { "-".to_string() } else { names.join(", ") });
+            });
+            row(ui, crate::i18n::tr("Smoothness"), |ui| {
+                ui.add(
+                    egui::Slider::new(&mut self.tool_opts.bones.smoothness, 0.0..=1.0)
+                        .custom_formatter(|v, _| format!("{:.0}%", v * 100.0)),
+                );
+            });
+        });
+        ui.horizontal(|ui| {
+            let can_bind = mesh.is_some() && !picked.is_empty();
+            if ui
+                .add_enabled(can_bind, egui::Button::new(crate::i18n::tr("Auto weights")))
+                .on_disabled_hover_text(crate::i18n::tr("Select a mesh, then pick its bones"))
+                .clicked()
+                && let Some(mi) = mesh
+            {
+                let smooth = self.tool_opts.bones.smoothness;
+                let mut failed = None;
+                if s.edit(|m| {
+                    match ayatsuri_core::bone_edit::auto_weights(m, mi, &picked, smooth) {
+                        Ok(()) => true,
+                        Err(e) => {
+                            failed = Some(e);
+                            false
+                        }
+                    }
+                }) {
+                    log::info!("mesh {mi} weighted to {} bone(s)", picked.len());
+                }
+                if let Some(e) = failed {
+                    super::set_notice(&mut self.notice, super::bones::bind_message(e));
+                }
+            }
+            let can_ik = (2..=3).contains(&picked.len());
+            if ui
+                .add_enabled(can_ik, egui::Button::new(crate::i18n::tr("Add IK")))
+                .on_disabled_hover_text(crate::i18n::tr(
+                    "Pick one or two bones for the chain, then the target bone last.",
+                ))
+                .clicked()
+                && let Some((&target, chain)) = picked.split_last()
+            {
+                let mut failed = None;
+                if s.edit(|m| match ayatsuri_core::bone_edit::add_ik(m, chain, target) {
+                    Ok(_) => true,
+                    Err(e) => {
+                        failed = Some(e);
+                        false
+                    }
+                }) {
+                    log::info!("IK on {chain:?} reaching for bone {target}");
+                    // the target may have moved ahead of the chain
+                    self.bones.pick.clear();
+                    self.selected = None;
+                }
+                if let Some(e) = failed {
+                    super::set_notice(&mut self.notice, super::bones::ik_message(e));
+                }
+            }
+        });
+    }
+
+    fn td_weights(&mut self, ui: &mut Ui) {
+        use ayatsuri_core::bone_edit::WeightBrush;
+        section(
+            ui,
+            crate::i18n::tr("Weight Paint"),
+            "Select the mesh, then pick the bone to paint here or click it on the canvas. Red is all of the bone's weight, blue none. Add and Subtract raise and lower it, Smooth evens it out with the points around, Replace moves it toward Value.\n\nAfter each stroke every point's weights add up again: what one bone gains the others lose. A point with only this bone keeps what was painted, the rest following the mesh's parent deformer. One stroke is one undo step.",
+        );
+        ui.horizontal_wrapped(|ui| {
+            ui.spacing_mut().item_spacing.x = 2.0;
+            for (brush, glyph, tip) in [
+                (WeightBrush::Add, ph::PLUS_CIRCLE, "Add: raise the bone's weight"),
+                (WeightBrush::Subtract, ph::MINUS_CIRCLE, "Subtract: lower the bone's weight"),
+                (WeightBrush::Smooth, ph::DROP_HALF, "Smooth: even it out with the points around"),
+                (WeightBrush::Replace, ph::EQUALS, "Replace: move it toward Value"),
+            ] {
+                let on = self.tool_opts.bones.brush == brush;
+                if icon(ui, on, true, glyph, tip).clicked() {
+                    self.tool_opts.bones.brush = brush;
+                }
+            }
+        });
+        let Some(s) = &self.session else { return };
+        let model = s.puppet.model();
+        let mesh = self.bones.mesh_index(model);
+        let bones: Vec<(usize, String)> = (0..model.deformers.len())
+            .filter(|&d| model.deformers.get(d).is_some_and(|x| x.kind.is_bone()))
+            .map(|d| (d, s.deformer_name(d)))
+            .collect();
+        let mesh_name = mesh.map_or_else(|| "-".to_string(), |m| s.mesh_name(m));
+        let o = &mut self.tool_opts.bones;
+        let active = &mut self.bones.active;
+        grid(ui, "td-weights", |ui| {
+            row(ui, crate::i18n::tr("Mesh"), |ui| {
+                ui.label(&mesh_name);
+            });
+            row(ui, crate::i18n::tr("Bone"), |ui| {
+                let shown = bones
+                    .iter()
+                    .find(|b| Some(b.0) == *active)
+                    .map_or_else(|| "-".to_string(), |b| b.1.clone());
+                egui::ComboBox::from_id_salt("td-weight-bone").selected_text(shown).show_ui(
+                    ui,
+                    |ui| {
+                        for (d, name) in &bones {
+                            ui.selectable_value(active, Some(*d), name);
+                        }
+                    },
+                );
+            });
+            row(ui, crate::i18n::tr("Radius"), |ui| {
+                ui.add(
+                    egui::Slider::new(&mut o.radius, 2.0..=400.0).logarithmic(true).suffix(" px"),
+                );
+            });
+            row(ui, crate::i18n::tr("Strength"), |ui| {
+                ui.add(
+                    egui::Slider::new(&mut o.strength, 0.01..=1.0)
+                        .custom_formatter(|v, _| format!("{:.0}%", v * 100.0)),
+                );
+            });
+            row(ui, crate::i18n::tr("Value"), |ui| {
+                ui.add_enabled(
+                    o.brush == WeightBrush::Replace,
+                    egui::Slider::new(&mut o.value, 0.0..=1.0)
+                        .custom_formatter(|v, _| format!("{:.0}%", v * 100.0)),
+                );
+            });
+        });
+        if mesh.is_none() || self.bones.active.is_none() {
+            ui.weak(crate::i18n::tr("Select a mesh and a bone to paint."));
         }
     }
 
