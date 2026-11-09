@@ -1438,7 +1438,7 @@
   "Off: the points and edges the stroke mesh covers are removed": "Uit: de punten en randen die de streekmesh bedekt worden verwijderd",
   "Repeated density": "Herhaaldichtheid",
   "Stroke mesh-mapping": "Streek-mesh-mapping",
-  "Stroke mesh-mapping (experimental): drag to build a mesh along a stroke. Shift+E confirms, Delete cancels": "Streek-mesh-mapping (experimenteel): sleep om een mesh langs een streek te bouwen. Shift+E bevestigt, Delete annuleert",
+  "Stroke mesh-mapping: drag to build a mesh along a stroke. Shift+E confirms, Delete cancels": "Streek-mesh-mapping: sleep om een mesh langs een streek te bouwen. Shift+E bevestigt, Delete annuleert",
   "With 2 vertices across: flip the diagonal of the first and last cells": "Met 2 hoekpunten in de breedte: de diagonaal van de eerste en laatste cel omdraaien",
   "TEXTURE ATLAS": "TEXTUURATLAS",
   "Repack when a mesh outgrows its art": "Opnieuw indelen als een mesh buiten zijn tekening groeit",
