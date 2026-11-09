@@ -30,7 +30,9 @@
   bones, and art meshes weighted to them, with up to four bones per
   vertex. A bone turns, moves and scales over its parameters like a
   rotation deformer, and anything placed under it without weights follows
-  it the same way. A weighted mesh bends smoothly between the bones it is
+  it the same way. A bone can also scale its two axes by different
+  amounts and shear them, keyed over parameters like its angle, and a
+  bone under such a bone takes on its whole shape. A weighted mesh bends smoothly between the bones it is
   weighted to, and sits exactly where it was drawn when every parameter
   is at its default. Such models load and play in the runtime and in the
   editor's viewport. Creating bones and painting weights in the editor,

@@ -482,6 +482,9 @@ pub fn has_bones(model: &Model) -> bool {
 
 /// Serialize the model as a `.moc3` of the chosen revision.
 pub fn to_moc3(model: &Model, version: ExportVersion) -> Result<Vec<u8>, ImportError> {
+    // the bake will go here: a plain bone becomes a rotation deformer, but
+    // one that shears or scales its axes unevenly has no rotation deformer
+    // to become, so it and what it holds rigidly bake to a warp instead
     if has_bones(model) {
         return Err(err(BONES_NOT_EXPORTED));
     }

@@ -201,6 +201,9 @@ mod tests {
                     reflect_y: vec![false],
                 },
                 length: 2.5,
+                scales_y: vec![0.5],
+                shears_x: vec![10.0],
+                shears_y: vec![-5.0],
             }),
             multiply: Vec::new(),
             screen: Vec::new(),
@@ -246,6 +249,10 @@ mod tests {
         let back = crate::read::read(&crate::writer::write(&with).unwrap()).unwrap();
         let DeformerKind::Bone(b) = &back.model.deformers[0].kind else { panic!("bone") };
         assert_eq!(b.length, 2.5);
+        assert_eq!(
+            (b.scales_y.clone(), b.shears_x.clone(), b.shears_y.clone()),
+            (vec![0.5], vec![10.0], vec![-5.0])
+        );
         assert_eq!(b.rotation.angles, vec![15.0]);
         assert_eq!((b.rotation.origins_x[0], b.rotation.origins_y[0]), (0.5, 0.25));
         assert_eq!(back.model.art_meshes[0].skin, with.model.art_meshes[0].skin);
@@ -278,6 +285,31 @@ mod tests {
         let m = &back.model.art_meshes[0];
         assert!(m.skin.is_none());
         assert_eq!(m.positions, vec![0.0, 0.0, 1.0, 0.0, 0.0, 1.0]);
+    }
+
+    #[test]
+    fn a_bone_from_before_shear_reads_as_unsheared() {
+        use crate::model::{BoneData, RotationData};
+        // the bone as first written: no y scale, no shear
+        #[derive(serde::Serialize)]
+        struct First {
+            rotation: RotationData,
+            length: f32,
+        }
+        let rotation = RotationData {
+            base_angle: 0.0,
+            opacities: vec![1.0],
+            angles: vec![0.0],
+            origins_x: vec![0.0],
+            origins_y: vec![0.0],
+            scales: vec![2.0],
+            reflect_x: vec![false],
+            reflect_y: vec![false],
+        };
+        let bytes = rmp_serde::to_vec_named(&First { rotation, length: 1.0 }).unwrap();
+        let b: BoneData = rmp_serde::from_slice(&bytes).unwrap();
+        assert_eq!(b.length, 1.0);
+        assert!(b.scales_y.is_empty() && b.shears_x.is_empty() && b.shears_y.is_empty());
     }
 
     #[test]

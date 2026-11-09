@@ -253,12 +253,29 @@ pub struct RotationData {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BoneData {
     /// Origin (the joint), angle, scale and reflection, per keyform, in
-    /// the parent's space.
+    /// the parent's space. Its `scales` scale the bone's x axis.
     pub rotation: RotationData,
     /// Rest length from the joint along the bone's local y axis, in the
-    /// bone's own units. Only drawing and weight painting read it.
+    /// bone's own units. Only drawing, weight painting and IK read it.
     #[serde(default)]
     pub length: f32,
+    /// All per keyform, or empty. The y axis's scale; empty scales it as
+    /// the x axis.
+    #[serde(default)]
+    pub scales_y: Vec<f32>,
+    /// Shear in degrees: how far the x axis and the y axis turn on their
+    /// own, past the bone's angle. Empty is no shear.
+    #[serde(default)]
+    pub shears_x: Vec<f32>,
+    #[serde(default)]
+    pub shears_y: Vec<f32>,
+}
+
+impl BoneData {
+    /// A bone with only a rotation deformer's keyforms.
+    pub fn new(rotation: RotationData, length: f32) -> Self {
+        Self { rotation, length, scales_y: Vec::new(), shears_x: Vec::new(), shears_y: Vec::new() }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

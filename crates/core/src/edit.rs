@@ -189,8 +189,19 @@ pub(crate) fn with_object<R>(
                         Channel::F32 { elems, data: &mut w.positions },
                     ]
                 }
-                DeformerKind::Rotation(r) | DeformerKind::Bone(BoneData { rotation: r, .. }) => {
-                    vec![
+                DeformerKind::Rotation(r) => vec![
+                    Channel::F32 { elems: 1, data: &mut r.opacities },
+                    Channel::F32 { elems: 1, data: &mut r.angles },
+                    Channel::F32 { elems: 1, data: &mut r.origins_x },
+                    Channel::F32 { elems: 1, data: &mut r.origins_y },
+                    Channel::F32 { elems: 1, data: &mut r.scales },
+                    Channel::Bool { data: &mut r.reflect_x },
+                    Channel::Bool { data: &mut r.reflect_y },
+                ],
+                DeformerKind::Bone(BoneData {
+                    rotation: r, scales_y, shears_x, shears_y, ..
+                }) => {
+                    let mut v = vec![
                         Channel::F32 { elems: 1, data: &mut r.opacities },
                         Channel::F32 { elems: 1, data: &mut r.angles },
                         Channel::F32 { elems: 1, data: &mut r.origins_x },
@@ -198,7 +209,14 @@ pub(crate) fn with_object<R>(
                         Channel::F32 { elems: 1, data: &mut r.scales },
                         Channel::Bool { data: &mut r.reflect_x },
                         Channel::Bool { data: &mut r.reflect_y },
-                    ]
+                    ];
+                    // a bone's own pools, when it has them
+                    for data in [scales_y, shears_x, shears_y] {
+                        if !data.is_empty() {
+                            v.push(Channel::F32 { elems: 1, data });
+                        }
+                    }
+                    v
                 }
             };
             colour_channels(&mut channels, multiply, screen);

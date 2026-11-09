@@ -10,7 +10,7 @@
 
 use ayatsuri_format::model::{Model, SKIN_SLOTS};
 
-use crate::deform::{Affine, Rotation, resolve_under, rotation_point};
+use crate::deform::{Affine, Bone, Parent, Resolved, Vec2, resolve_bone, resolve_under};
 
 /// Every joint any mesh reads, and which joint each weight slot reads.
 #[derive(Default)]
@@ -32,17 +32,39 @@ pub(crate) struct Skinning {
     pub mesh_bones: Vec<Vec<u32>>,
 }
 
-/// A chain of rotations, outermost first, each in the space of the one
-/// before, brought out into the first one's parent space.
-pub(crate) fn chain(locals: impl Iterator<Item = Rotation>) -> Option<Rotation> {
-    let mut acc: Option<Rotation> = None;
-    for mut r in locals {
-        if let Some(parent) = acc {
-            resolve_under(&mut r, -10.0, parent.scale, |q| rotation_point(&parent, q));
-        }
-        acc = Some(r);
+/// A chain of rotation deformers and bones, outermost first, each in the
+/// space of the one before, brought out into the first one's parent space
+/// the way the evaluator resolves them; `local` gives each one's own state
+/// (None when it is hidden). Allocates nothing.
+pub(crate) fn chain(
+    model: &Model,
+    path: &[u32],
+    local: impl Fn(usize) -> Option<Bone>,
+) -> Option<Affine> {
+    // the last link: whether it is a bone, and how it resolved
+    let mut prev: Option<(bool, Resolved)> = None;
+    for &di in path {
+        let own = local(di as usize)?;
+        let is_bone = model.deformers.get(di as usize)?.kind.is_bone();
+        let above = prev.map(|(_, r)| r);
+        let map = |q: Vec2| above.unwrap_or_default().map.apply_v(q);
+        let res = if is_bone {
+            let parent = match prev {
+                None => Parent::Root,
+                Some((true, r)) => Parent::Bone { world: r.map, plain: r.plain, scale: r.scale },
+                Some((false, r)) => Parent::Probe { map: &map, dir: -10.0, scale: r.scale },
+            };
+            resolve_bone(&own, parent)
+        } else {
+            let mut rot = own.rotation();
+            if let Some(r) = above {
+                resolve_under(&mut rot, -10.0, r.scale, map);
+            }
+            Resolved { map: Affine::of(&rot), plain: false, scale: rot.scale, rotation: rot }
+        };
+        prev = Some((is_bone, res));
     }
-    acc
+    prev.map(|(_, r)| r.map)
 }
 
 /// The deformers from just under `top` (None: the root) down to `bone`,
@@ -72,7 +94,7 @@ fn path_to(model: &Model, bone: u32, top: Option<u32>) -> Option<Vec<u32>> {
 impl Skinning {
     /// Check every mesh's weights and make the joints they read. `rest`
     /// gives a rotation deformer's or bone's local state at rest.
-    pub(crate) fn new(model: &Model, rest: impl Fn(usize) -> Option<Rotation>) -> Skinning {
+    pub(crate) fn new(model: &Model, rest: impl Fn(usize) -> Option<Bone>) -> Skinning {
         let mut s = Skinning::default();
         // (bone, mesh parent) of each joint, to share joints between meshes
         let mut keys: Vec<(u32, Option<u32>)> = Vec::new();
@@ -98,10 +120,7 @@ impl Skinning {
                         Some(j) => j,
                         None => {
                             let path = path_to(model, b, m.parent_deformer)?;
-                            let rests: Vec<Rotation> =
-                                path.iter().map(|&di| rest(di as usize)).collect::<Option<_>>()?;
-                            let at_rest = chain(rests.into_iter())?;
-                            let rest_inv = Affine::of(&at_rest).inverse()?;
+                            let rest_inv = chain(model, &path, &rest)?.inverse()?;
                             keys.push(key);
                             s.bone.push(b);
                             s.span.push((s.path.len(), path.len()));
@@ -177,7 +196,7 @@ mod tests {
                 curves: Vec::new(),
             },
             kind: if bone {
-                DeformerKind::Bone(BoneData { rotation, length: 1.0 })
+                DeformerKind::Bone(BoneData::new(rotation, 1.0))
             } else {
                 DeformerKind::Rotation(rotation)
             },
@@ -416,5 +435,112 @@ mod tests {
             pose(&mut q, [0.5, 0.5, 0.5]);
             assert_eq!(drawn(&p, 0), drawn(&q, 0));
         }
+    }
+
+    /// Set a bone's y scale and shears in every keyform.
+    fn shape_bone(d: &mut Deformer, scale_y: f32, shear_x: f32, shear_y: f32) {
+        let DeformerKind::Bone(b) = &mut d.kind else { panic!("bone") };
+        let n = b.rotation.scales.len();
+        b.scales_y = vec![scale_y; n];
+        b.shears_x = vec![shear_x; n];
+        b.shears_y = vec![shear_y; n];
+    }
+
+    #[test]
+    fn a_bone_scales_each_axis_and_shears() {
+        let mut bone = turner(true, None, 0, (1.0, 2.0), 90.0);
+        shape_bone(&mut bone, 0.5, 0.0, 0.0);
+        let mut p = Puppet::new(model(vec![bone.clone()], vec![mesh(Some(0), TRI.to_vec(), None)]));
+        p.update();
+        // at rest: x as is, y halved, then moved to the origin
+        let want: Vec<f32> = TRI.chunks(2).flat_map(|v| [1.0 + v[0], 2.0 + 0.5 * v[1]]).collect();
+        assert!(close(&drawn(&p, 0), &want));
+
+        // a 90 degree shear of x leaves the x axis along y
+        shape_bone(&mut bone, 1.0, 90.0, 0.0);
+        let mut p = Puppet::new(model(vec![bone], vec![mesh(Some(0), TRI.to_vec(), None)]));
+        p.update();
+        let want: Vec<f32> = TRI.chunks(2).flat_map(|v| [1.0, 2.0 + v[0] + v[1]]).collect();
+        assert!(close(&drawn(&p, 0), &want), "{:?}", drawn(&p, 0));
+    }
+
+    #[test]
+    fn a_bone_under_a_sheared_bone_takes_its_whole_map() {
+        let mut parent = turner(true, None, 0, (0.3, -0.2), 30.0);
+        shape_bone(&mut parent, 0.6, 15.0, -10.0);
+        let child = turner(true, Some(0), 1, (0.5, 1.0), 45.0);
+        let m = model(
+            vec![parent, child],
+            vec![mesh(Some(1), TRI.to_vec(), None), mesh(Some(0), TRI.to_vec(), None)],
+        );
+        let mut p = Puppet::new(m);
+        for v in POSES {
+            pose(&mut p, v);
+            // the child's own map at this pose, then the parent's
+            let turn = 45.0 * v[1];
+            let (s, c) = turn.to_radians().sin_cos();
+            let local: Vec<f32> = TRI
+                .chunks(2)
+                .flat_map(|q| [0.5 + c * q[0] - s * q[1], 1.0 + s * q[0] + c * q[1]])
+                .collect();
+            // mesh 1 is TRI through the parent: read the parent's map off it
+            let m = fit(&TRI, &drawn(&p, 1));
+            let want: Vec<f32> = local
+                .chunks(2)
+                .flat_map(|q| [m[0] * q[0] + m[1] * q[1] + m[4], m[2] * q[0] + m[3] * q[1] + m[5]])
+                .collect();
+            assert!(close(&drawn(&p, 0), &want), "{v:?}");
+        }
+    }
+
+    /// The affine map taking three points `from` to `to`: m00, m01, m10,
+    /// m11, tx, ty.
+    fn fit(from: &[f32], to: &[f32]) -> [f32; 6] {
+        let (x0, y0, x1, y1, x2, y2) = (from[0], from[1], from[2], from[3], from[4], from[5]);
+        let (ax, ay, bx, by) = (x1 - x0, y1 - y0, x2 - x0, y2 - y0);
+        let det = ax * by - ay * bx;
+        let row = |u0: f32, u1: f32, u2: f32| {
+            let (du, dv) = (u1 - u0, u2 - u0);
+            let m0 = (du * by - dv * ay) / det;
+            let m1 = (dv * ax - du * bx) / det;
+            (m0, m1, u0 - m0 * x0 - m1 * y0)
+        };
+        let (m00, m01, tx) = row(to[0], to[2], to[4]);
+        let (m10, m11, ty) = row(to[1], to[3], to[5]);
+        [m00, m01, m10, m11, tx, ty]
+    }
+
+    #[test]
+    fn a_plain_bone_still_matches_a_rotation_with_empty_or_even_pools() {
+        // pools saying scale y = scale and no shear are a rotation deformer
+        let made = |bone: bool| {
+            let mut d = vec![
+                turner(bone, None, 0, (0.2, 0.1), 30.0),
+                turner(bone, Some(0), 1, (0.0, 1.0), 45.0),
+            ];
+            if bone {
+                shape_bone(&mut d[1], 1.0, 0.0, 0.0);
+            }
+            model(d, vec![mesh(Some(1), TRI.to_vec(), None)])
+        };
+        let (mut bones, mut rotations) = (Puppet::new(made(true)), Puppet::new(made(false)));
+        for v in POSES {
+            pose(&mut bones, v);
+            pose(&mut rotations, v);
+            assert!(same_bits(&drawn(&bones, 0), &drawn(&rotations, 0)), "{v:?}");
+        }
+    }
+
+    #[test]
+    fn adding_a_key_keeps_a_bones_own_pools_in_step() {
+        use crate::edit::{self, Target};
+        let mut bone = turner(true, None, 0, (0.0, 0.0), 30.0);
+        shape_bone(&mut bone, 0.5, 10.0, -10.0);
+        let mut m = model(vec![bone], vec![mesh(Some(0), TRI.to_vec(), None)]);
+        assert!(edit::add_keys(&mut m, Target::Deformer(0), 2, &[-1.0, 1.0]));
+        let DeformerKind::Bone(b) = &m.deformers[0].kind else { panic!("bone") };
+        let n = b.rotation.angles.len();
+        assert_eq!(n, 6);
+        assert_eq!((b.scales_y.len(), b.shears_x.len(), b.shears_y.len()), (n, n, n));
     }
 }

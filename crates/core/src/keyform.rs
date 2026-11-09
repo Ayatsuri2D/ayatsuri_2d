@@ -92,14 +92,30 @@ fn channels(model: &mut Model, target: Target) -> Option<(Binding, Vec<Chan<'_>>
                         Chan { data: &mut w.opacities, elems: 1, kind: Kind::Plain },
                     ]
                 }
-                DeformerKind::Rotation(r) | DeformerKind::Bone(BoneData { rotation: r, .. }) => {
-                    vec![
+                DeformerKind::Rotation(r) => vec![
+                    Chan { data: &mut r.angles, elems: 1, kind: Kind::Angle },
+                    Chan { data: &mut r.origins_x, elems: 1, kind: Kind::OriginX },
+                    Chan { data: &mut r.origins_y, elems: 1, kind: Kind::OriginY },
+                    Chan { data: &mut r.scales, elems: 1, kind: Kind::Plain },
+                    Chan { data: &mut r.opacities, elems: 1, kind: Kind::Plain },
+                ],
+                DeformerKind::Bone(BoneData {
+                    rotation: r, scales_y, shears_x, shears_y, ..
+                }) => {
+                    let mut v = vec![
                         Chan { data: &mut r.angles, elems: 1, kind: Kind::Angle },
                         Chan { data: &mut r.origins_x, elems: 1, kind: Kind::OriginX },
                         Chan { data: &mut r.origins_y, elems: 1, kind: Kind::OriginY },
                         Chan { data: &mut r.scales, elems: 1, kind: Kind::Plain },
                         Chan { data: &mut r.opacities, elems: 1, kind: Kind::Plain },
-                    ]
+                    ];
+                    // a bone's own pools, when it has them
+                    for data in [scales_y, shears_x, shears_y] {
+                        if !data.is_empty() {
+                            v.push(Chan { data, elems: 1, kind: Kind::Plain });
+                        }
+                    }
+                    v
                 }
             };
             colour_chans(&mut chans, multiply, screen);

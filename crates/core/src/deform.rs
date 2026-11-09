@@ -298,17 +298,26 @@ pub fn resolve_under(
     parent_scale: f32,
     to_parent: impl Fn(Vec2) -> Vec2,
 ) {
-    let t_origin = to_parent(rot.origin);
+    let (t_origin, angle_adj) = probe(rot.origin, dir_delta, to_parent);
+    rot.angle += angle_adj;
+    rot.origin = t_origin;
+    rot.scale *= parent_scale;
+}
+
+/// Where `origin` maps to, and how far (degrees) the map turns a short
+/// vertical step there: the probe `resolve_under` uses.
+pub fn probe(origin: Vec2, dir_delta: f32, to_parent: impl Fn(Vec2) -> Vec2) -> (Vec2, f32) {
+    let t_origin = to_parent(origin);
     let mut direction = v2(0.0, 0.0);
     let mut probe = 1.0f32;
     for _ in 0..16 {
-        let tt = to_parent(v2(rot.origin.x, rot.origin.y + probe * dir_delta));
+        let tt = to_parent(v2(origin.x, origin.y + probe * dir_delta));
         let dxy = tt.sub(t_origin);
         if dxy.x != 0.0 || dxy.y != 0.0 {
             direction = dxy;
             break;
         }
-        let tt = to_parent(v2(rot.origin.x, rot.origin.y - probe * dir_delta));
+        let tt = to_parent(v2(origin.x, origin.y - probe * dir_delta));
         let dxy = tt.sub(t_origin);
         if dxy.x != 0.0 || dxy.y != 0.0 {
             direction = v2(-dxy.x, -dxy.y);
@@ -317,16 +326,131 @@ pub fn resolve_under(
         probe *= 0.1;
     }
     let angle_adj = signed_angle(v2(0.0, dir_delta), direction) * -180.0 / core::f32::consts::PI;
-    rot.angle += angle_adj;
-    rot.origin = t_origin;
-    rot.scale *= parent_scale;
+    (t_origin, angle_adj)
 }
 
-/// A rotation's map as a point: what `rotation_transform` does to it.
-pub fn rotation_point(r: &Rotation, p: Vec2) -> Vec2 {
-    let mut io = [p.x, p.y];
-    rotation_transform(r, &mut io);
-    v2(io[0], io[1])
+/// A bone's own state: a rotation deformer's, plus a scale per axis and a
+/// shear per axis (degrees each axis turns past `angle`).
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
+pub struct Bone {
+    pub origin: Vec2,
+    pub angle: f32,
+    pub scale_x: f32,
+    pub scale_y: f32,
+    pub shear_x: f32,
+    pub shear_y: f32,
+    pub reflect_x: bool,
+    pub reflect_y: bool,
+}
+
+impl Bone {
+    /// A rotation deformer's state as a bone.
+    pub fn of(r: &Rotation) -> Bone {
+        Bone {
+            origin: r.origin,
+            angle: r.angle,
+            scale_x: r.scale,
+            scale_y: r.scale,
+            shear_x: 0.0,
+            shear_y: 0.0,
+            reflect_x: r.reflect_x,
+            reflect_y: r.reflect_y,
+        }
+    }
+
+    /// The rotation deformer this bone is, scale y and shear aside.
+    pub fn rotation(&self) -> Rotation {
+        Rotation {
+            origin: self.origin,
+            angle: self.angle,
+            scale: self.scale_x,
+            reflect_x: self.reflect_x,
+            reflect_y: self.reflect_y,
+        }
+    }
+
+    /// Turns and scales evenly, with no shear and no reflection: what it
+    /// does to its children a rotation deformer does too.
+    pub fn is_plain(&self) -> bool {
+        self.shear_x == 0.0
+            && self.shear_y == 0.0
+            && self.scale_x == self.scale_y
+            && !self.reflect_x
+            && !self.reflect_y
+    }
+}
+
+/// What a bone resolves under.
+pub enum Parent<'a> {
+    /// Nothing: its own state is its map.
+    Root,
+    /// A rotation deformer or a warp, measured the way a rotation deformer
+    /// measures its parent: where the joint lands, the turn of a short
+    /// vertical step there (`dir`, as in `resolve_under`) and the parent's
+    /// scale.
+    Probe { map: &'a dyn Fn(Vec2) -> Vec2, dir: f32, scale: f32 },
+    /// Another bone, resolved.
+    Bone { world: Affine, plain: bool, scale: f32 },
+}
+
+/// A bone brought out of its parent's space.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct Resolved {
+    pub map: Affine,
+    /// Turns and scales evenly with no shear or reflection all the way up.
+    pub plain: bool,
+    /// What a rotation deformer under it multiplies its scale by.
+    pub scale: f32,
+    /// The closest rotation deformer state, for overlays.
+    pub rotation: Rotation,
+}
+
+/// Bring a bone out of its parent's space. Under a plain bone, a rotation
+/// deformer or a warp it resolves exactly as a rotation deformer does
+/// (`resolve_under`), so a plain bone matches one bit for bit; under a
+/// bone that shears, scales unevenly or reflects, the parent's map is
+/// composed in whole.
+pub fn resolve_bone(local: &Bone, parent: Parent<'_>) -> Resolved {
+    let at = |parent_scale: f32, map: &dyn Fn(Vec2) -> Vec2, dir: f32| {
+        let mut r = local.rotation();
+        resolve_under(&mut r, dir, parent_scale, map);
+        let scale_y =
+            if local.scale_y == local.scale_x { r.scale } else { local.scale_y * parent_scale };
+        Bone { origin: r.origin, angle: r.angle, scale_x: r.scale, scale_y, ..*local }
+    };
+    let world = match parent {
+        Parent::Root => *local,
+        Parent::Probe { map, dir, scale } => at(scale, map, dir),
+        Parent::Bone { world, plain: true, scale } => at(scale, &|q| world.apply_v(q), -10.0),
+        Parent::Bone { world, plain: false, .. } => {
+            let own = Affine::bone(&Bone { origin: v2(0.0, 0.0), ..*local });
+            let t = world.apply_v(local.origin);
+            let mut map = world.linear().after(&own);
+            map.tx = t.x;
+            map.ty = t.y;
+            return Resolved::exact(map);
+        }
+    };
+    let map = Affine::bone(&world);
+    let scale = if world.scale_x == world.scale_y { world.scale_x } else { map.scale() };
+    Resolved { map, plain: world.is_plain(), scale, rotation: world.rotation() }
+}
+
+impl Resolved {
+    fn exact(map: Affine) -> Resolved {
+        Resolved {
+            map,
+            plain: false,
+            scale: map.scale(),
+            rotation: Rotation {
+                origin: v2(map.tx, map.ty),
+                angle: map.m10.atan2(map.m00).to_degrees(),
+                scale: map.scale(),
+                reflect_x: false,
+                reflect_y: false,
+            },
+        }
+    }
 }
 
 /// A 2D affine map: `x' = m00 x + m01 y + tx`, `y' = m10 x + m11 y + ty`.
@@ -352,17 +476,44 @@ impl Affine {
 
     /// The map `rotation_transform` applies.
     pub fn of(r: &Rotation) -> Affine {
-        let (sin_a, cos_a) = r.angle.to_radians().sin_cos();
-        let rx = if r.reflect_x { -1.0 } else { 1.0 };
-        let ry = if r.reflect_y { -1.0 } else { 1.0 };
+        Affine::bone(&Bone::of(r))
+    }
+
+    /// A bone's map: its x axis turned by angle plus shear x and scaled by
+    /// scale x, its y axis the same with its own, each flipped by its
+    /// reflect flag, then moved to the origin. With no shear and equal
+    /// scales it is exactly what `rotation_transform` applies.
+    pub fn bone(b: &Bone) -> Affine {
+        let (sin_a, cos_a) = b.angle.to_radians().sin_cos();
+        let turned = |shear: f32| {
+            if shear == 0.0 { (sin_a, cos_a) } else { (b.angle + shear).to_radians().sin_cos() }
+        };
+        let (sin_x, cos_x) = turned(b.shear_x);
+        let (sin_y, cos_y) = turned(b.shear_y);
+        let rx = if b.reflect_x { -1.0 } else { 1.0 };
+        let ry = if b.reflect_y { -1.0 } else { 1.0 };
         Affine {
-            m00: r.scale * cos_a * rx,
-            m01: r.scale * -sin_a * ry,
-            m10: r.scale * sin_a * rx,
-            m11: r.scale * cos_a * ry,
-            tx: r.origin.x,
-            ty: r.origin.y,
+            m00: b.scale_x * cos_x * rx,
+            m01: b.scale_y * -sin_y * ry,
+            m10: b.scale_x * sin_x * rx,
+            m11: b.scale_y * cos_y * ry,
+            tx: b.origin.x,
+            ty: b.origin.y,
         }
+    }
+
+    /// The linear part alone.
+    pub fn linear(&self) -> Affine {
+        Affine { tx: 0.0, ty: 0.0, ..*self }
+    }
+
+    pub fn det(&self) -> f32 {
+        self.m00 * self.m11 - self.m01 * self.m10
+    }
+
+    /// The even scale with the same area.
+    pub fn scale(&self) -> f32 {
+        self.det().abs().sqrt()
     }
 
     /// `self` after `first`: maps a point through `first`, then `self`.
@@ -396,9 +547,26 @@ impl Affine {
         })
     }
 
+    /// In `rotation_transform`'s order, so a rotation's map matches it bit
+    /// for bit.
     #[inline]
     pub fn apply(&self, x: f32, y: f32) -> (f32, f32) {
-        (self.m00 * x + self.m01 * y + self.tx, self.m10 * x + self.m11 * y + self.ty)
+        (self.tx + self.m00 * x + self.m01 * y, self.ty + self.m10 * x + self.m11 * y)
+    }
+
+    #[inline]
+    pub fn apply_v(&self, p: Vec2) -> Vec2 {
+        let (x, y) = self.apply(p.x, p.y);
+        v2(x, y)
+    }
+
+    /// Map xy pairs in place.
+    pub fn apply_all(&self, io: &mut [f32]) {
+        let (pts, _) = io.as_chunks_mut::<2>();
+        for p in pts {
+            let (x, y) = self.apply(p[0], p[1]);
+            *p = [x, y];
+        }
     }
 }
 
