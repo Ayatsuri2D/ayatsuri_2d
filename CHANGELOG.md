@@ -43,11 +43,29 @@
   meshes included, moves with it. A weighted mesh bends smoothly between the bones it is
   weighted to, and sits exactly where it was drawn when every parameter
   is at its default. Such models load and play in the runtime and in the
-  editor's viewport. Creating bones and painting weights in the editor,
-  and moc3 export of models with bones, come next; for now a moc3 or cmo3
-  export of a model with bones stops with a message saying so.
-  The editor tools will sit behind Settings > Experimental > Bones,
-  which is off by default.
+  editor's viewport. moc3 export of models with bones comes next; for now
+  a moc3 or cmo3 export of a model with bones stops with a message saying
+  so.
+- **Bone tools in the editor**, behind Settings > Experimental > Bones,
+  which is off by default. The Bone tool draws a bone by dragging from
+  its joint to its tip; starting a drag on the selected bone's tip draws
+  its child, so a chain is drawn one joint after another. Bones show in
+  the viewport as tapered shapes and in the Deformer palette like
+  rotation deformers, and take keys on parameters the same way: drag a
+  bone with the arrow to turn it, its joint to move it, and set its
+  angle, origin, scale on each axis, shear, length and what it takes from
+  its parent in the Inspector. Auto weights binds a mesh to the picked
+  bones by distance, with a Smoothness setting, and moves the mesh under
+  the deformer the bones need without moving it on screen. Weight Paint
+  brushes one bone's weights over a heat map (blue none, red all) with
+  Add, Subtract, Smooth and Replace, a radius, a strength and pen
+  pressure; each stroke is one undo step and keeps every point's weights
+  adding up. The Inspector lists a weighted mesh's bones and can remove
+  its weights. Add IK makes one or two picked bones reach for the bone
+  picked last, with its mix and bend direction keyed over parameters in
+  the Inspector. Deleting, wrapping or reordering deformers keeps every
+  mesh's weights and IK on the right bones; a deleted bone's weight goes
+  to the other bones of each point.
 
 ### Fixed
 
