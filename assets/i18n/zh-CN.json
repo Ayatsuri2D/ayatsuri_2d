@@ -1642,5 +1642,6 @@
   "Its bones move to the top level": "其中的骨骼移到顶层",
   "New Folder…": "新建文件夹…",
   "IK chain: reaches for {bone}": "IK 链：伸向 {bone}",
-  "Top level": "顶层"
+  "Top level": "顶层",
+  "Show bones in this palette": "在此面板中显示骨骼"
 }

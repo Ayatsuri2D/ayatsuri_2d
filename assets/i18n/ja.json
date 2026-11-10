@@ -1642,5 +1642,6 @@
   "Its bones move to the top level": "中のボーンは最上位に移動します",
   "New Folder…": "新規フォルダ…",
   "IK chain: reaches for {bone}": "IKチェーン：{bone}に向かって伸びます",
-  "Top level": "最上位"
+  "Top level": "最上位",
+  "Show bones in this palette": "このパレットにボーンを表示"
 }

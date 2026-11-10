@@ -1642,5 +1642,6 @@
   "Its bones move to the top level": "안의 본은 최상위로 이동합니다",
   "New Folder…": "새 폴더…",
   "IK chain: reaches for {bone}": "IK 체인: {bone}을(를) 향해 뻗습니다",
-  "Top level": "최상위"
+  "Top level": "최상위",
+  "Show bones in this palette": "이 팔레트에 본 표시"
 }

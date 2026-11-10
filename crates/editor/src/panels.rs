@@ -9915,7 +9915,23 @@ impl EditorUi {
             ui.weak(crate::i18n::tr("No model loaded."));
             return;
         };
-        search_box(ui, &mut self.def_search, crate::i18n::tr("Search deformers and meshes"));
+        // with Bones on, bones can stay in the Bones palette only
+        let bones_on = self.prefs.bones_on();
+        ui.horizontal(|ui| {
+            if bones_on {
+                let shown = !self.prefs.def_bones_off;
+                if ui
+                    .selectable_label(shown, egui_phosphor::regular::BONE)
+                    .on_hover_text(crate::i18n::tr("Show bones in this palette"))
+                    .clicked()
+                {
+                    self.prefs.def_bones_off = shown;
+                    self.prefs.save();
+                }
+            }
+            search_box(ui, &mut self.def_search, crate::i18n::tr("Search deformers and meshes"));
+        });
+        let hide_bones = bones_on && self.prefs.def_bones_off;
         let query = self.def_search.trim().to_lowercase();
         let searching = !query.is_empty();
         // hierarchy: deformers under their parents, meshes under deformers
@@ -9938,9 +9954,39 @@ impl EditorUi {
         } else {
             (vec![true; nd], vec![true; model.art_meshes.len()])
         };
+        // bones hidden: those with only bones under them (and no meshes)
+        let mut holds_more = vec![false; nd];
+        if hide_bones {
+            let mut mark = |mut at: Option<u32>| {
+                let mut hops = 0;
+                while let Some(p) = at.map(|p| p as usize) {
+                    let Some(h) = holds_more.get_mut(p) else { break };
+                    *h = true;
+                    at = model.deformers.get(p).and_then(|d| d.parent_deformer);
+                    hops += 1;
+                    if hops > nd {
+                        break;
+                    }
+                }
+            };
+            for m in &model.art_meshes {
+                mark(m.parent_deformer);
+            }
+            for d in model.deformers.iter().filter(|d| !d.kind.is_bone()) {
+                mark(d.parent_deformer);
+            }
+        }
+        let bone_hidden = |i: usize| {
+            hide_bones
+                && model.deformers.get(i).is_some_and(|d| d.kind.is_bone())
+                && !holds_more.get(i).copied().unwrap_or(true)
+        };
         let mut children: Vec<Vec<usize>> = vec![Vec::new(); nd];
         let mut roots: Vec<usize> = Vec::new();
         for (i, d) in model.deformers.iter().enumerate() {
+            if bone_hidden(i) {
+                continue;
+            }
             match d.parent_deformer {
                 Some(p) if (p as usize) < nd => {
                     if let Some(c) = children.get_mut(p as usize) {
