@@ -11215,7 +11215,17 @@ impl EditorUi {
                     &mut self.color_pick,
                     &mut self.color_picked,
                 );
-                if bone_rows {
+                // several bones picked: only what is simple to set on all
+                let many: Vec<usize> = def_group(self.selected, &self.def_pick)
+                    .into_iter()
+                    .filter(|&b| {
+                        s.puppet.model().deformers.get(b).is_some_and(|x| x.kind.is_bone())
+                    })
+                    .collect();
+                if bone_rows && many.len() > 1 {
+                    ui.separator();
+                    bones::multi_rows(ui, s, &many);
+                } else if bone_rows {
                     ui.separator();
                     bones::bone_rows(ui, s, i);
                     bones::ik_rows(ui, s, i, self.sel_param);
@@ -12203,8 +12213,15 @@ impl EditorUi {
                 Some(Sel::Mesh(m)) => Some(m),
                 _ => None,
             };
-            self.bones.follow(s.puppet.model(), sel_mesh, sel_def);
+            let group = def_group(self.selected, &self.def_pick);
+            let nothing = self.selected.is_none();
+            self.bones.follow(s.puppet.model(), nothing, sel_mesh, sel_def, &group);
             let mut segs = bones::segments(s, bview);
+            // several picked bones dragged with Ctrl: the same, for all of them
+            let shift = ui.input(|i| i.modifiers.shift);
+            if bones::ctrl_preview(&self.bones, &mut segs, bview, shift) {
+                ui.ctx().request_repaint();
+            }
             // Ctrl on a bone's handle: the bone (and the bones under it)
             // turn or scale alone, so the art stays; nothing in the model
             // moves until the release, so show the new pose here
@@ -12285,7 +12302,35 @@ impl EditorUi {
                 act = Some(bones::BoneAct::Pick { bone: Some(b), add: mods.command || mods.shift });
                 bone_click = true;
             }
+            // the arrow's marquee picks bones: from empty canvas, with
+            // nothing or only bones selected (else the drag belongs to the
+            // selection's own points and box)
+            let on_bones = match self.selected {
+                None => true,
+                Some(Sel::Deformer(_)) => !group.is_empty() && group.iter().all(|&d| is_bone(d)),
+                _ => false,
+            };
+            if free && self.tool == Tool::Arrow && act.is_none() {
+                let busy = self.rot_drag.is_some();
+                let start_ok =
+                    |p: Pos2| on_bones && !busy && bones::off_bones(&segs, &picked, ROT_RING, p);
+                act = bones::marquee(ui, &vp, &resp, &mut self.bones, &segs, start_ok);
+            }
             match act {
+                Some(bones::BoneAct::PickMany { bones, add }) => {
+                    let pick = &mut self.bones.pick;
+                    if !add {
+                        pick.clear();
+                    }
+                    for b in bones {
+                        if !pick.contains(&b) {
+                            pick.push(b);
+                        }
+                    }
+                    self.selected = pick.last().copied().map(Sel::Deformer);
+                    self.def_pick = pick.clone();
+                    self.multi_sel.clear();
+                }
                 Some(bones::BoneAct::Pick { bone, add }) => {
                     let pick = &mut self.bones.pick;
                     match (bone, add) {
@@ -12798,6 +12843,15 @@ impl EditorUi {
         // overlays for whatever is selected
         let mut warp_hot = false;
         let mut group_live = false;
+        let many_bones = self.prefs.bones_on() && self.mesh_edit.is_none() && {
+            let group = def_group(self.selected, &self.def_pick);
+            let model = s.puppet.model();
+            group.len() > 1
+                && group.iter().all(|&d| model.deformers.get(d).is_some_and(|x| x.kind.is_bone()))
+        };
+        if !many_bones {
+            self.bones.drop_multi(s);
+        }
         match self.selected {
             Some(Sel::Mesh(_)) if self.multi_sel.len() > 1 => {
                 let group: Vec<usize> = self
@@ -13253,6 +13307,30 @@ impl EditorUi {
                     if editable {
                         point_edit::draw_overlay(&self.pts, &vp, &pts, true, 0.0, grab_hot);
                     }
+                }
+            }
+            Some(Sel::Deformer(_)) if many_bones => {
+                // several bones picked: they turn, slide and scale together
+                // with the arrow, each about its own joint (see multi_drag)
+                let picked: Vec<usize> = def_group(self.selected, &self.def_pick)
+                    .into_iter()
+                    .filter(|d| !self.def_locked.contains(d))
+                    .collect();
+                if self.tool == Tool::Arrow && !space && !picked.is_empty() {
+                    let bview = bones::View { origin, scale, canvas: c };
+                    bones::multi_drag(
+                        ui,
+                        &vp,
+                        &resp,
+                        &mut self.bones,
+                        s,
+                        bview,
+                        &picked,
+                        ROT_RING,
+                        self.disp.rotation_color,
+                    );
+                } else {
+                    self.bones.drop_multi(s);
                 }
             }
             Some(Sel::Deformer(_)) if def_group(self.selected, &self.def_pick).len() > 1 => {

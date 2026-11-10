@@ -1631,5 +1631,8 @@
   "Scale every piece up (or down) as far as they all still fit one page": "Schaal alle stukken zo ver op (of af) als ze samen nog op één pagina passen",
   "Turn a quarter left": "Kwartslag naar links",
   "Turn a quarter right": "Kwartslag naar rechts",
-  "Drag to turn a quarter at a time; click to turn right": "Sleep om per kwartslag te draaien; klik om rechtsom te draaien"
+  "Drag to turn a quarter at a time; click to turn right": "Sleep om per kwartslag te draaien; klik om rechtsom te draaien",
+  "{count} bones": "{count} botten",
+  "Mixed": "Gemengd",
+  "What every picked bone takes from its parent": "Wat elk gekozen bot van zijn ouder overneemt"
 }
