@@ -48,8 +48,8 @@
   so.
 - **Bone tools in the editor**, behind Settings > Experimental > Bones,
   which is off by default. The Bone tool draws a bone by dragging from
-  its joint to its tip; starting a drag on the selected bone's tip draws
-  its child, so a chain is drawn one joint after another. Bones show in
+  its joint to its tip; starting a drag on any bone's tip or joint dot
+  starts there and draws its child, so a chain is drawn one joint after another. Bones show in
   the viewport as tapered shapes and in the Deformer palette like
   rotation deformers, and take keys on parameters the same way: drag a
   bone with the arrow to turn it, its joint to move it, and set its
@@ -62,7 +62,8 @@
   pressure; each stroke is one undo step and keeps every point's weights
   adding up. Turning or moving a bone bends the meshes weighted to it,
   and they stay bent after you let go, whether or not the bone has keys;
-  hold Ctrl to move a bone without bending them. The Inspector lists a
+  hold Ctrl to move a bone without bending them (the bone shows its new
+  pose while it is dragged). The Inspector lists a
   weighted mesh's bones, can remove its weights, and has Set bind pose,
   which makes the mesh show its own shape with the bones as they sit
   now. Add IK makes one or two picked bones reach for the bone
@@ -119,12 +120,13 @@
 - CONTRIBUTING.md: AI tools may be used for code too. Every contribution
   is reviewed, can be turned down, and should say which parts an AI tool
   wrote.
-- Deform paths bend the whole mesh along the path, as Temporary Path
-  does, instead of holding the points near the dragged control point
-  rigid; the width and hardness settings are gone. Ctrl+drag moves a
-  control point without bending the mesh, and Shift+drag moves it
-  straight. The art now bends while the control point is dragged,
-  not only when it is let go.
+- Deform paths bend smoothly. Inside the path width the mesh keeps its
+  spacing and bends gently, instead of the points near the dragged
+  control point turning as one stiff piece with a kink at the edge of the
+  circle; a small width or 0% hardness follows the path freely, as
+  Temporary Path does. Ctrl+drag moves a control point without bending
+  the mesh, Shift+drag moves it straight, and the art bends while the
+  point is dragged, not only when it is let go.
 - The app's publisher, package maintainer and copyright now read
   Ayatsuri2D, and the Linux app id is `io.github.Ayatsuri2D.Ayatsuri2D`. The
   Linux installer removes the menu entry an older install left under the

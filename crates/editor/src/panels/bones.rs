@@ -1,6 +1,7 @@
 // Bones in the editor, behind Settings > Experimental > Bones. The Bone
-// tool drags a bone from joint to tip; a drag that starts on the selected
-// bone's tip makes its child, so a chain is drawn joint after joint. A
+// tool drags a bone from joint to tip; a drag that starts on any bone's
+// tip or joint starts there and makes a child of that bone, so a chain is
+// drawn joint after joint. A
 // click picks a bone, Ctrl or Shift+click adds one to the pick. Weight
 // Paint brushes one bone's weights on a mesh over a heat map (blue none,
 // red all), one undo step per stroke. The Inspector edits a bone's keyed
@@ -244,15 +245,30 @@ pub(super) fn bone_tool(
 ) -> Option<BoneAct> {
     let ptr = ui.ctx().input(|i| i.pointer.latest_pos());
     let mods = ui.ctx().input(|i| i.modifiers);
-    let tip_of = |d: usize| segs.iter().find(|s| s.0 == d).map(|s| s.2);
-    let on_tip =
-        |p: Pos2| selected.and_then(|d| tip_of(d).filter(|t| t.distance(p) < 9.0).map(|t| (d, t)));
-    if let Some(p) = ptr
-        && st.drag.is_none()
-        && let Some((_, t)) = on_tip(p)
-    {
-        vp.circle_stroke(t, 6.0, Stroke::new(1.5, theme::pal().accent));
-        ui.ctx().set_cursor_icon(egui::CursorIcon::Crosshair);
+    // any bone's end or start under the pointer: a drag from it starts
+    // there and makes a child of that bone; a tip wins over a joint on
+    // the same spot (the next bone of a chain), the selected bone first
+    let on_tip = |p: Pos2| {
+        let near = |q: Pos2| q.distance(p) < 9.0;
+        let order = segs.iter().filter(|g| Some(g.0) == selected).chain(segs.iter());
+        let ends: Vec<_> = order.collect();
+        ends.iter()
+            .find(|g| near(g.2))
+            .map(|g| (g.0, g.2))
+            .or_else(|| ends.iter().find(|g| near(g.1)).map(|g| (g.0, g.1)))
+    };
+    if st.drag.is_none() {
+        // the ends a chain can grow from
+        for g in segs {
+            vp.circle_filled(g.2, 2.5, theme::pal().accent.gamma_multiply(0.6));
+        }
+        if let Some(p) = ptr
+            && resp.hovered()
+            && let Some((_, t)) = on_tip(p)
+        {
+            vp.circle_stroke(t, 6.0, Stroke::new(1.5, theme::pal().accent));
+            ui.ctx().set_cursor_icon(egui::CursorIcon::Crosshair);
+        }
     }
     let mut act = None;
     if resp.clicked()

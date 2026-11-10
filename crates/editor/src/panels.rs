@@ -916,6 +916,8 @@ pub struct EditorUi {
     notice: Option<(String, Option<f64>)>,
     /// Path width in canvas pixels (the red circle) and the share of it that
     /// keeps its shape fully (the blue circle).
+    path_width: f32,
+    path_hardness: f32,
 
     /// Grid point picking and the transform box for the selected warp.
     pts: point_edit::PointState,
@@ -1972,6 +1974,8 @@ impl Default for EditorUi {
             pick_alpha: AlphaPages::default(),
             last_pick: None,
             notice: None,
+            path_width: 80.0,
+            path_hardness: 0.5,
 
             pts: point_edit::PointState::default(),
             warp_bezier: true,
@@ -12200,7 +12204,41 @@ impl EditorUi {
                 _ => None,
             };
             self.bones.follow(s.puppet.model(), sel_mesh, sel_def);
-            let segs = bones::segments(s, bview);
+            let mut segs = bones::segments(s, bview);
+            // Ctrl on a bone's handle: the bone (and the bones under it)
+            // turn or scale alone, so the art stays; nothing in the model
+            // moves until the release, so show the new pose here
+            if let Some(d) = self.rot_drag.as_ref().filter(|d| d.keep && !d.handle_only) {
+                let shift = ui.input(|i| i.modifiers.shift);
+                let model = s.puppet.model();
+                let under = |mut b: usize| loop {
+                    if b == d.deformer {
+                        break true;
+                    }
+                    match model.deformers.get(b).and_then(|x| x.parent_deformer) {
+                        Some(p) => b = p as usize,
+                        None => break false,
+                    }
+                };
+                let pivot = segs.iter().find(|g| g.0 == d.deformer).map(|g| g.1);
+                if let Some(o) = pivot {
+                    let (sin, cos) = if d.turning && !d.scaling {
+                        d.turn(shift).to_radians().sin_cos()
+                    } else {
+                        (0.0, 1.0)
+                    };
+                    let k = if d.scaling { d.factor } else { 1.0 };
+                    let carry = |p: Pos2| {
+                        let v = (p - o) * k;
+                        o + vec2(v.x * cos - v.y * sin, v.x * sin + v.y * cos)
+                    };
+                    for g in segs.iter_mut().filter(|g| under(g.0)) {
+                        g.1 = carry(g.1);
+                        g.2 = carry(g.2);
+                    }
+                    ui.ctx().request_repaint();
+                }
+            }
             let free = !space && !eyedropping;
             let mut act = None;
             if free && self.tool == Tool::WeightPaint {
@@ -12951,15 +12989,19 @@ impl EditorUi {
                             && let (Some(cp), Some(start)) = (near_cp, probe)
                             && let Some(local) = s.puppet.mesh_local_positions(mi)
                         {
-                            let bind = point_edit::bind_path(&path_s, &pts);
-                            let control = ui.ctx().input(|i| i.modifiers.command);
+                            let bind = point_edit::bind_path(
+                                &path_s,
+                                &pts,
+                                self.path_width * scale,
+                                self.path_hardness,
+                            );
                             self.path_grab = Some(PathGrab {
                                 mesh: mi,
                                 point: cp,
                                 start,
                                 ptr: start,
                                 bind: Some(bind),
-                                control,
+                                control: ui.ctx().input(|i| i.modifiers.command),
                                 verts: pts.clone(),
                                 local,
                             });
@@ -12985,7 +13027,7 @@ impl EditorUi {
                             let offs = if gp.control {
                                 Vec::new()
                             } else {
-                                point_edit::follow_path(bind, &gp.verts, &moved)
+                                point_edit::follow_path(bind, &gp.verts, &moved, gp.point)
                             };
                             for &(vi, d) in &offs {
                                 if let (Some(p), Some(v)) = (pts.get_mut(vi), gp.verts.get(vi)) {
@@ -13200,7 +13242,13 @@ impl EditorUi {
                     }
                     draw_weights(&vp, &pts, self.brush_w.get(&(1, mi)), self.disp.weight_color);
                     if !path_s.is_empty() {
-                        draw_path(&vp, &path_s, near_cp);
+                        draw_path(
+                            &vp,
+                            &path_s,
+                            self.path_width * scale,
+                            self.path_hardness,
+                            near_cp,
+                        );
                     }
                     if editable {
                         point_edit::draw_overlay(&self.pts, &vp, &pts, true, 0.0, grab_hot);
@@ -14781,7 +14829,7 @@ impl EditorUi {
                         vp.line_segment([b, c2], stroke);
                         vp.line_segment([c2, a], stroke);
                     }
-                    draw_path(&vp, &path_s, near);
+                    draw_path(&vp, &path_s, self.path_width * scale, self.path_hardness, near);
                     if near.is_some() {
                         ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
                     } else {
@@ -17136,7 +17184,7 @@ fn nearest_within(pts: &[Pos2], p: Pos2, reach: f32) -> Option<usize> {
 
 /// A deform path: the line, control points, and around each point the red
 /// width circle with the blue hardness circle inside, as in Cubism.
-fn draw_path(vp: &egui::Painter, pts: &[Pos2], hot: Option<usize>) {
+fn draw_path(vp: &egui::Painter, pts: &[Pos2], width: f32, hardness: f32, hot: Option<usize>) {
     // the curve the mesh follows, not straight lines between the points
     if pts.len() > 1 {
         let ctrl: Vec<Vec2> = pts.iter().map(|p| p.to_vec2()).collect();
@@ -17145,6 +17193,12 @@ fn draw_path(vp: &egui::Painter, pts: &[Pos2], hot: Option<usize>) {
         vp.add(egui::Shape::line(curve, Stroke::new(1.6, theme::pal().warp_green)));
     }
     for (i, &p) in pts.iter().enumerate() {
+        vp.circle_stroke(p, width, Stroke::new(1.0, theme::pal().rotation_red.gamma_multiply(0.5)));
+        vp.circle_stroke(
+            p,
+            width * hardness.clamp(0.0, 1.0),
+            Stroke::new(1.0, Color32::from_rgb(0x4E, 0x8F, 0xD9).gamma_multiply(0.6)),
+        );
         let r = if hot == Some(i) { 5.0 } else { 3.6 };
         vp.circle(p, r, theme::pal().warp_green, Stroke::new(1.0, Color32::WHITE));
     }

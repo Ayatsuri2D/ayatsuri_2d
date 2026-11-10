@@ -624,30 +624,82 @@ pub fn draw_overlay(
     }
 }
 
-/// Deform path follow, as the Temporary Path tool does it: every vertex
-/// rides the smooth path, keeping its place along and across it. Built
-/// once when the grab starts.
+/// Deform path follow, as Cubism's: every vertex rides the smooth path,
+/// keeping its place along and across it. Around the control point being
+/// dragged the points also keep their spacing: each one's move eases toward
+/// the moves of the points near it, so the mesh bends gently there instead
+/// of folding over. That holds fully inside `width * hardness` and fades
+/// out by `width`; a small width (or hardness 0) leaves the plain ride, as
+/// the Temporary Path tool does. Built once when the grab starts.
 pub struct PathBind {
     /// vertex and its tie to the path as it was
     pub ties: Vec<(usize, crate::bend_path::Tie)>,
     pub path: Vec<Pos2>,
+    width: f32,
+    hardness: f32,
 }
 
-pub fn bind_path(path: &[Pos2], verts: &[Pos2]) -> PathBind {
+pub fn bind_path(path: &[Pos2], verts: &[Pos2], width: f32, hardness: f32) -> PathBind {
     let ctrl: Vec<Vec2> = path.iter().map(|p| p.to_vec2()).collect();
     let curve = crate::bend_path::Curve::new(&ctrl);
     let ties = verts.iter().enumerate().map(|(vi, v)| (vi, curve.tie(v.to_vec2()))).collect();
-    PathBind { ties, path: path.to_vec() }
+    PathBind { ties, path: path.to_vec(), width, hardness: hardness.clamp(0.0, 1.0) }
 }
 
-/// Where each vertex goes now that the path is `moved`. Returns (vertex,
-/// screen offset) pairs.
-pub fn follow_path(bind: &PathBind, verts: &[Pos2], moved: &[Pos2]) -> Vec<(usize, Vec2)> {
-    let now = crate::bend_path::Curve::new(&moved.iter().map(|p| p.to_vec2()).collect::<Vec<_>>());
-    let mut out = Vec::with_capacity(bind.ties.len());
-    for (vi, tie) in &bind.ties {
+/// Where each vertex goes now that control point `grabbed` has moved and
+/// the path is `moved`. Returns (vertex, screen offset) pairs.
+pub fn follow_path(
+    bind: &PathBind,
+    verts: &[Pos2],
+    moved: &[Pos2],
+    grabbed: usize,
+) -> Vec<(usize, Vec2)> {
+    use crate::bend_path::Curve;
+    let now = Curve::new(&moved.iter().map(|p| p.to_vec2()).collect::<Vec<_>>());
+    // every vertex rides the path
+    let ride: Vec<(usize, Vec2)> = bind
+        .ties
+        .iter()
+        .filter_map(|(vi, tie)| Some((*vi, now.place(tie).to_pos2() - *verts.get(*vi)?)))
+        .collect();
+    let Some(&c0) = bind.path.get(grabbed) else {
+        return ride;
+    };
+    let width = bind.width;
+    if width <= 1e-3 || bind.hardness <= 0.0 {
+        return ride;
+    }
+    // near the dragged point, ease each move toward a smooth average of the
+    // moves around it (a gaussian over the width), which keeps the spacing
+    let inner = width * bind.hardness;
+    let inv = 1.0 / (2.0 * (width * 0.4).powi(2));
+    let mut out = ride.clone();
+    for (vi, d) in &mut out {
         let Some(&v) = verts.get(*vi) else { continue };
-        out.push((*vi, now.place(tie).to_pos2() - v));
+        let dist = v.distance(c0);
+        if dist >= width {
+            continue;
+        }
+        let w = if dist <= inner {
+            1.0
+        } else {
+            let x = 1.0 - (dist - inner) / (width - inner).max(1e-3);
+            x * x * (3.0 - 2.0 * x)
+        } * bind.hardness;
+        let (mut sum, mut weight) = (Vec2::ZERO, 0.0);
+        for (vj, dj) in &ride {
+            let Some(&u) = verts.get(*vj) else { continue };
+            let r2 = (u - v).length_sq();
+            if r2 > width * width {
+                continue;
+            }
+            let g = (-r2 * inv).exp();
+            sum += *dj * g;
+            weight += g;
+        }
+        if weight > 0.0 {
+            *d += (sum / weight - *d) * w;
+        }
     }
     out
 }
@@ -912,16 +964,30 @@ mod tests {
     fn path_carries_vertices() {
         let path = [pos2(0.0, 0.0), pos2(10.0, 0.0)];
         let verts = [pos2(10.0, 2.0), pos2(30.0, 3.0)];
-        let bind = bind_path(&path, &verts);
+        let bind = bind_path(&path, &verts, 5.0, 1.0);
         // every vertex rides the path, not only those inside the width
         assert_eq!(bind.ties.len(), 2);
         // swing the end point down: the vertex by it turns with it, and the
         // one past the end carries on along the new direction
         let moved = [pos2(0.0, 0.0), pos2(0.0, 10.0)];
-        let off = follow_path(&bind, &verts, &moved);
+        let off = follow_path(&bind, &verts, &moved, 1);
         let to = |i: usize| off.iter().find(|o| o.0 == i).map(|o| verts[i] + o.1).unwrap();
         assert!(to(0).distance(pos2(-2.0, 10.0)) < 1e-2, "{:?}", to(0));
         assert!(to(1).distance(pos2(-3.0, 30.0)) < 1e-2, "{:?}", to(1));
+    }
+
+    #[test]
+    fn a_wide_path_holds_the_shape_by_the_dragged_point() {
+        let path = [pos2(0.0, 0.0), pos2(50.0, 0.0), pos2(100.0, 0.0)];
+        // two vertices across the path by the middle point
+        let verts = [pos2(50.0, -5.0), pos2(50.0, 5.0)];
+        let moved = [pos2(0.0, 0.0), pos2(50.0, 30.0), pos2(100.0, 0.0)];
+        let gap = |w: f32| {
+            let off = follow_path(&bind_path(&path, &verts, w, 1.0), &verts, &moved, 1);
+            (verts[0] + off[0].1).distance(verts[1] + off[1].1)
+        };
+        // wide: the piece moves whole, 10 apart as it was
+        assert!((gap(40.0) - 10.0).abs() < 1e-3);
     }
 
     #[test]
