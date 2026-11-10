@@ -6,6 +6,8 @@
 // several) and the canvas follows; an IK chain's first bone shows a target.
 // Folders live in the session beside the deformer names and are saved in
 // the .aom; like the Parameter palette's folders they take no undo step.
+// The Deformer palette shows the same folders as armature rows, through
+// the helpers and commands here.
 
 use std::collections::HashMap;
 
@@ -36,9 +38,13 @@ struct FolderDialog {
 #[derive(Clone, Copy)]
 struct Dragged(usize);
 
-/// What the palette was asked to do this frame.
-enum BoneCmd {
-    Pick(usize),
+/// What the palette (or an armature row in the Deformer palette) was
+/// asked to do this frame.
+pub(super) enum BoneCmd {
+    /// A bone row clicked, with Shift and Ctrl.
+    Pick(usize, bool, bool),
+    /// Every bone filed in a folder, with Ctrl (add, or take out).
+    PickFolder(usize, bool),
     /// These bones' chains into a folder (None: the top level).
     Move(Vec<usize>, Option<usize>),
     NewFolder(Vec<usize>),
@@ -70,6 +76,25 @@ pub(super) fn chain_root(model: &Model, bone: usize) -> usize {
         }
     }
     at
+}
+
+/// Each filed root bone's folder; a bone listed twice goes to the first.
+pub(super) fn filed(folders: &[BoneFolder]) -> HashMap<usize, usize> {
+    let mut out = HashMap::new();
+    for (fi, f) in folders.iter().enumerate() {
+        for &b in &f.bones {
+            out.entry(b).or_insert(fi);
+        }
+    }
+    out
+}
+
+/// Every bone of the chains `roots` start, in deformer order (parents
+/// first).
+pub(super) fn chain_bones(model: &Model, roots: &[usize]) -> Vec<usize> {
+    (0..model.deformers.len())
+        .filter(|&b| is_bone(model, b) && roots.contains(&chain_root(model, b)))
+        .collect()
 }
 
 /// Keep each folder to root bones, each in one folder only: a bone that
@@ -165,12 +190,7 @@ fn rows(s: &Session, folded: &std::collections::HashSet<usize>, query: &str) -> 
         }
     };
     let mut out = Vec::new();
-    let mut filed: HashMap<usize, usize> = HashMap::new();
-    for (fi, f) in s.bone_folders.iter().enumerate() {
-        for &b in &f.bones {
-            filed.entry(b).or_insert(fi);
-        }
-    }
+    let filed = filed(&s.bone_folders);
     for (fi, f) in s.bone_folders.iter().enumerate() {
         let shown: Vec<usize> = f.bones.iter().copied().filter(|r| roots.contains(r)).collect();
         if searching && !shown.iter().any(|&r| keep.get(r).copied().unwrap_or(false)) {
@@ -349,7 +369,9 @@ impl EditorUi {
                                 ));
                         }
                         if resp.clicked() {
-                            cmds.push(BoneCmd::Pick(i));
+                            let (shift, ctrl) =
+                                ui.input(|k| (k.modifiers.shift, k.modifiers.command));
+                            cmds.push(BoneCmd::Pick(i, shift, ctrl));
                         }
                         resp.context_menu(|ui| {
                             if ui
@@ -443,19 +465,21 @@ impl EditorUi {
             painter.galley(card.min + vec2(6.0, 4.0), galley, accent);
         }
         for cmd in cmds {
-            self.run_bone_cmd(ui, cmd, &order);
+            self.run_bone_cmd(cmd, &order);
         }
     }
 
-    fn run_bone_cmd(&mut self, ui: &Ui, cmd: BoneCmd, order: &[usize]) {
+    /// Run a palette command; `order` is the bone rows top to bottom, for
+    /// a Shift run.
+    pub(super) fn run_bone_cmd(&mut self, cmd: BoneCmd, order: &[usize]) {
         match cmd {
-            BoneCmd::Pick(i) => {
-                let (shift, ctrl) = ui.ctx().input(|i| (i.modifiers.shift, i.modifiers.command));
+            BoneCmd::Pick(i, shift, ctrl) => {
                 self.pick_def_rows(i, shift, ctrl, order);
                 if !shift {
                     self.def_row_anchor = Some((true, i));
                 }
             }
+            BoneCmd::PickFolder(fi, ctrl) => self.pick_folder(fi, ctrl),
             BoneCmd::Move(bones, to) => {
                 if let Some(s) = &mut self.session {
                     move_chains(s, &bones, to);
@@ -499,6 +523,36 @@ impl EditorUi {
             BoneCmd::Rename(i) => self.open_def_rename(i),
             BoneCmd::Delete(i) => self.run_def_cmd(DefCmd::Delete(i)),
         }
+    }
+
+    /// Pick every bone filed in folder `fi`, whole chains, the way the
+    /// canvas's marquee picks bones (not `pick_def_rows`, whose top-level
+    /// rule would leave the children out). Ctrl adds them to the pick, or
+    /// takes them out when all of them are in it already.
+    fn pick_folder(&mut self, fi: usize, ctrl: bool) {
+        let Some(s) = &self.session else { return };
+        let Some(f) = s.bone_folders.get(fi) else { return };
+        let bones = chain_bones(s.puppet.model(), &f.bones);
+        if bones.is_empty() {
+            return;
+        }
+        let mut pick = if ctrl { def_group(self.selected, &self.def_pick) } else { Vec::new() };
+        if ctrl && bones.iter().all(|b| pick.contains(b)) {
+            pick.retain(|b| !bones.contains(b));
+        } else {
+            for &b in &bones {
+                if !pick.contains(&b) {
+                    pick.push(b);
+                }
+            }
+        }
+        log::debug!("bone folder {}: {} bone(s) picked", f.name, pick.len());
+        self.selected = pick.first().copied().map(Sel::Deformer);
+        self.def_anchor = pick.first().copied();
+        self.bones.pick = pick.clone();
+        self.def_pick = pick;
+        self.multi_sel.clear();
+        self.part_pick.clear();
     }
 
     /// New Folder and Rename Folder for the Bones palette.
@@ -608,5 +662,101 @@ mod tests {
         let folded = [0usize].into_iter().collect();
         assert_eq!(shown(&rows(&s, &folded, "")), vec![(Some(0), 0, 0), (None, 2, 0)]);
         assert_eq!(shown(&rows(&s, &folded, "b")).len(), 2);
+    }
+
+    /// A warp holding bone W (with child X), filed in "hair" with A, and
+    /// C loose.
+    fn with_warp() -> Session {
+        let mut s = session();
+        s.edit(|m| {
+            let kind = ayatsuri_core::edit::NewDeformer::Warp { rows: 1, cols: 1 };
+            let w = ayatsuri_core::edit::create_deformer(
+                m,
+                kind,
+                &[],
+                None,
+                (0.0, 0.0, 1.0, 1.0),
+                None,
+                "Warp".into(),
+            )
+            .unwrap();
+            let b = create_bone(m, Some(w), None, (0.2, 0.2), (0.2, 0.8), "W".into()).unwrap();
+            create_bone(m, Some(b), None, (0.2, 0.8), (0.2, 0.9), "X".into()).is_some()
+        });
+        let id = |s: &Session, id: &str| {
+            s.puppet.model().deformers.iter().position(|d| d.id == id).unwrap()
+        };
+        let (a, w) = (id(&s, "A"), id(&s, "W"));
+        s.bone_folders[0].bones = vec![a, w];
+        s
+    }
+
+    fn tree(s: &Session, open: &[bool], query_hits: Option<&[bool]>) -> Vec<String> {
+        let model = s.puppet.model();
+        let shown = query_hits.map_or_else(|| vec![true; model.deformers.len()], <[bool]>::to_vec);
+        super::super::deformer_tree(
+            model,
+            &filed(&s.bone_folders),
+            open,
+            &|_| false,
+            &shown,
+            &Default::default(),
+            query_hits.is_some(),
+        )
+        .into_iter()
+        .map(|r| match r {
+            super::super::TreeRow::Def(i, depth, ..) => {
+                format!("{}{}", "  ".repeat(depth), model.deformers[i].id)
+            }
+            super::super::TreeRow::Armature(fi, depth, ..) => {
+                format!("{}[{}]", "  ".repeat(depth), s.bone_folders[fi].name)
+            }
+        })
+        .collect()
+    }
+
+    #[test]
+    fn an_armature_row_shows_under_each_parent_its_chains_hang_from() {
+        let s = with_warp();
+        assert_eq!(
+            tree(&s, &[true], None),
+            vec!["[hair]", "  A", "    B", "C", "Warp", "  [hair]", "    W", "      X"]
+        );
+        // closed, the folder hides its chains in every place it shows
+        assert_eq!(tree(&s, &[false], None), vec!["[hair]", "C", "Warp", "  [hair]"]);
+    }
+
+    #[test]
+    fn a_search_opens_the_armature_over_a_matching_bone() {
+        let s = with_warp();
+        let m = s.puppet.model();
+        let hits: Vec<bool> = m.deformers.iter().map(|d| d.id == "Warp" || d.id == "W").collect();
+        assert_eq!(tree(&s, &[false], Some(&hits)), vec!["Warp", "  [hair]", "    W"]);
+    }
+
+    #[test]
+    fn an_armature_row_picks_every_bone_filed_in_it() {
+        let mut ed = EditorUi::new();
+        ed.session = Some(session());
+        ed.run_def_cmd(DefCmd::Bones(BoneCmd::PickFolder(0, false)));
+        assert_eq!(ed.def_pick, vec![0, 1]);
+        assert_eq!(ed.selected, Some(Sel::Deformer(0)));
+        // Ctrl adds the folder to the pick, and a second Ctrl takes it out
+        ed.selected = Some(Sel::Deformer(2));
+        ed.def_pick = vec![2];
+        ed.run_def_cmd(DefCmd::Bones(BoneCmd::PickFolder(0, true)));
+        assert_eq!(ed.def_pick, vec![2, 0, 1]);
+        ed.run_def_cmd(DefCmd::Bones(BoneCmd::PickFolder(0, true)));
+        assert_eq!(ed.def_pick, vec![2]);
+    }
+
+    #[test]
+    fn a_bone_dropped_on_an_armature_row_files_its_chain() {
+        let mut ed = EditorUi::new();
+        ed.session = Some(session());
+        ed.run_def_cmd(DefCmd::Bones(BoneCmd::Move(vec![2], Some(0))));
+        assert_eq!(ed.session.as_ref().unwrap().bone_folders[0].bones, vec![0, 2]);
+        ed.run_def_cmd(DefCmd::Bones(BoneCmd::DeleteFolder(0)));
+        assert!(ed.session.as_ref().unwrap().bone_folders.is_empty());
     }
 }
