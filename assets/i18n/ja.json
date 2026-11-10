@@ -1631,5 +1631,8 @@
   "Scale every piece up (or down) as far as they all still fit one page": "すべてのピースが1ページに収まる範囲で、まとめて拡大（または縮小）します",
   "Turn a quarter left": "左に90°回転",
   "Turn a quarter right": "右に90°回転",
-  "Drag to turn a quarter at a time; click to turn right": "ドラッグで90°ずつ回転、クリックで右に回転"
+  "Drag to turn a quarter at a time; click to turn right": "ドラッグで90°ずつ回転、クリックで右に回転",
+  "{count} bones": "ボーン{count}個",
+  "Mixed": "混在",
+  "What every picked bone takes from its parent": "選んだ各ボーンが親から受け継ぐもの"
 }

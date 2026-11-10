@@ -2,7 +2,10 @@
 // tool drags a bone from joint to tip; a drag that starts on any bone's
 // tip or joint starts there and makes a child of that bone, so a chain is
 // drawn joint after joint. A
-// click picks a bone, Ctrl or Shift+click adds one to the pick. Weight
+// click picks a bone, Ctrl or Shift+click adds one to the pick or takes it
+// out, and the arrow's marquee from empty canvas picks every bone it
+// touches. Several picked bones turn, slide and scale together, each
+// about its own joint (see `multi_drag`). Weight
 // Paint brushes one bone's weights on a mesh over a heat map (blue none,
 // red all), one undo step per stroke. The Inspector edits a bone's keyed
 // values, its length and what it takes from its parent, its IK, and a
@@ -52,6 +55,10 @@ pub(super) struct BoneState {
     pub(super) active: Option<usize>,
     drag: Option<NewBone>,
     stroke: Option<PaintStroke>,
+    /// The arrow's marquee: where it started.
+    marquee: Option<Pos2>,
+    /// Several picked bones being dragged with the arrow.
+    multi: Option<MultiDrag>,
 }
 
 /// A bone being dragged out.
@@ -74,6 +81,14 @@ impl BoneState {
         model.art_meshes.iter().position(|m| m.id == id)
     }
 
+    /// A multi-bone drag cut short (the pick or the tool changed): its
+    /// live pose goes back and nothing is edited.
+    pub(super) fn drop_multi(&mut self, s: &mut Session) {
+        if let Some(d) = self.multi.take() {
+            put_back(s, &d.live);
+        }
+    }
+
     /// The picked bones that still are bones.
     pub(super) fn bones(&self, model: &Model) -> Vec<usize> {
         let mut out: Vec<usize> = Vec::new();
@@ -86,12 +101,29 @@ impl BoneState {
     }
 
     /// Follow the selection: a picked mesh becomes the weights' mesh, a
-    /// bone selected elsewhere (the palette) the pick when it is not in it.
-    pub(super) fn follow(&mut self, model: &Model, mesh: Option<usize>, deformer: Option<usize>) {
+    /// bone selected elsewhere (the palette) the pick when it is not in it,
+    /// several bones picked there (`group`) the pick, and nothing selected
+    /// clears it.
+    pub(super) fn follow(
+        &mut self,
+        model: &Model,
+        nothing: bool,
+        mesh: Option<usize>,
+        deformer: Option<usize>,
+        group: &[usize],
+    ) {
         if let Some(m) = mesh.and_then(|m| model.art_meshes.get(m)) {
             self.mesh = Some(m.id.clone());
         }
-        if let Some(d) = deformer.filter(|&d| is_bone(model, d))
+        if nothing {
+            self.pick.clear();
+        }
+        let many: Vec<usize> = group.iter().copied().filter(|&d| is_bone(model, d)).collect();
+        if many.len() > 1 {
+            if many != self.pick {
+                self.pick = many;
+            }
+        } else if let Some(d) = deformer.filter(|&d| is_bone(model, d))
             && !self.pick.contains(&d)
         {
             self.pick = vec![d];
@@ -219,6 +251,11 @@ pub(super) enum BoneAct {
         bone: Option<usize>,
         add: bool,
     },
+    /// The bones a marquee caught: the pick, or added to it.
+    PickMany {
+        bones: Vec<usize>,
+        add: bool,
+    },
     Create {
         parent: Option<usize>,
         joint: (f32, f32),
@@ -300,6 +337,408 @@ pub(super) fn bone_tool(
         });
     }
     act
+}
+
+/// Whether a press at `p` is on no bone and on no handle of a picked
+/// one, so the arrow's marquee may start there.
+pub(super) fn off_bones(
+    segs: &[(usize, Pos2, Pos2)],
+    picked: &[usize],
+    ring: f32,
+    p: Pos2,
+) -> bool {
+    bone_at(segs, p).is_none()
+        && !segs.iter().any(|g| g.1.distance(p) < 9.0 || g.2.distance(p) < 9.0)
+        && !segs
+            .iter()
+            .filter(|g| picked.contains(&g.0))
+            .any(|g| (g.1.distance(p) - ring).abs() < 6.0)
+}
+
+/// The arrow's marquee over bones: a drag that starts where `start_ok`
+/// says draws a box, and on release the bones it touches are picked; Ctrl
+/// or Shift adds them to the pick.
+pub(super) fn marquee(
+    ui: &Ui,
+    vp: &Painter,
+    resp: &Response,
+    st: &mut BoneState,
+    segs: &[(usize, Pos2, Pos2)],
+    start_ok: impl Fn(Pos2) -> bool,
+) -> Option<BoneAct> {
+    let ptr = ui.ctx().input(|i| i.pointer.latest_pos());
+    if resp.drag_started()
+        && let Some(p) = ui.ctx().input(|i| i.pointer.press_origin()).or(ptr)
+        && start_ok(p)
+    {
+        st.marquee = Some(p);
+    }
+    let a = st.marquee?;
+    let r = egui::Rect::from_two_pos(a, ptr.unwrap_or(a));
+    let accent = theme::pal().accent;
+    vp.rect_filled(r, 0.0, accent.gamma_multiply(0.08));
+    vp.rect_stroke(r, 0.0, Stroke::new(1.0, accent), egui::StrokeKind::Middle);
+    let down = ui.ctx().input(|i| i.pointer.any_down());
+    if !resp.drag_stopped() && down {
+        return None;
+    }
+    st.marquee = None;
+    // a bone is caught when any of it is inside the box
+    let touches = |j: Pos2, t: Pos2| (0..=16).any(|i| r.contains(j.lerp(t, i as f32 / 16.0)));
+    let bones: Vec<usize> = segs.iter().filter(|g| touches(g.1, g.2)).map(|g| g.0).collect();
+    let mods = ui.ctx().input(|i| i.modifiers);
+    Some(BoneAct::PickMany { bones, add: mods.command || mods.shift })
+}
+
+/// What a drag on several picked bones holds.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Grab {
+    Turn,
+    Joint,
+    Scale,
+}
+
+/// Several picked bones dragged together with the arrow.
+pub(super) struct MultiDrag {
+    grab: Grab,
+    /// The grabbed bone: the turn and the ring go round its joint.
+    bone: usize,
+    /// That joint on screen at the press.
+    pivot: Pos2,
+    /// Ctrl when the drag began: every picked bone moves alone.
+    keep: bool,
+    /// The picked bones.
+    bones: Vec<usize>,
+    degrees: f32,
+    last: Pos2,
+    /// The joint drag so far, in model units.
+    wx: f32,
+    wy: f32,
+    scale_from: f32,
+    factor: f32,
+    /// Without Ctrl: each moving bone as it was, for the live preview,
+    /// put back before the edit.
+    live: Vec<LiveBone>,
+}
+
+struct LiveBone {
+    bone: usize,
+    keyform: usize,
+    angle: Option<f32>,
+    scale: Option<f32>,
+    origin: Option<(f32, f32)>,
+    /// Its origin in its parent's space at the press.
+    local: (f32, f32),
+    parent: Option<u32>,
+}
+
+impl MultiDrag {
+    /// The turn so far; Shift holds it to 45 degree steps.
+    fn turn(&self, shift: bool) -> f32 {
+        if shift { (self.degrees / 45.0).round() * 45.0 } else { self.degrees }
+    }
+}
+
+/// With Ctrl nothing in the model moves until the release, so the bone
+/// overlay shows the new pose: each picked bone alone turned or scaled
+/// about its own joint, or its joint slid. Bones under them that are not
+/// picked stay where they are, as the edit keeps them. True while it
+/// shows.
+pub(super) fn ctrl_preview(
+    st: &BoneState,
+    segs: &mut [(usize, Pos2, Pos2)],
+    view: View,
+    shift: bool,
+) -> bool {
+    let Some(d) = st.multi.as_ref().filter(|d| d.keep) else { return false };
+    let v = vec2(d.wx, d.wy) * (view.scale * view.canvas.pixels_per_unit);
+    let (sin, cos) = match d.grab {
+        Grab::Turn => d.turn(shift).to_radians().sin_cos(),
+        _ => (0.0, 1.0),
+    };
+    let k = if d.grab == Grab::Scale { d.factor } else { 1.0 };
+    for g in segs.iter_mut().filter(|g| d.bones.contains(&g.0)) {
+        if d.grab == Grab::Joint {
+            g.1 += v;
+            g.2 += v;
+        } else {
+            let t = (g.2 - g.1) * k;
+            g.2 = g.1 + vec2(t.x * cos - t.y * sin, t.x * sin + t.y * cos);
+        }
+    }
+    true
+}
+
+/// The live bones back as they were before the drag.
+fn put_back(s: &mut Session, live: &[LiveBone]) {
+    for l in live {
+        let k = l.keyform;
+        if let (Some(v), Some(a)) =
+            (l.angle, s.puppet.rotation_angles_mut(l.bone).and_then(|a| a.get_mut(k)))
+        {
+            *a = v;
+        }
+        if let (Some(v), Some(x)) =
+            (l.scale, s.puppet.rotation_scales_mut(l.bone).and_then(|a| a.get_mut(k)))
+        {
+            *x = v;
+        }
+        if let (Some((bx, by)), Some((x, y))) = (l.origin, s.puppet.rotation_origin_mut(l.bone, k))
+        {
+            (*x, *y) = (bx, by);
+        }
+    }
+    s.dirty = true;
+}
+
+/// The arrow on several picked bones: drag any picked bone's body to turn
+/// them all by the same angle (Shift in 45 degree steps), its joint to
+/// slide every joint by the same screen distance, or the ring round its
+/// joint to scale them, each about its own joint. Without Ctrl the art
+/// bends live and each bone changes in the keyform the parameters sit on;
+/// a picked bone under another picked one rides along with it instead of
+/// turning twice, and one between keys is left alone with a warning. With
+/// Ctrl every picked bone moves alone in every keyform and its weighted
+/// meshes are bound again where they sit. Either way one undo step.
+#[allow(clippy::too_many_arguments)]
+pub(super) fn multi_drag(
+    ui: &Ui,
+    vp: &Painter,
+    resp: &Response,
+    st: &mut BoneState,
+    s: &mut Session,
+    view: View,
+    picked: &[usize],
+    ring: f32,
+    line: Color32,
+) {
+    let ends: Vec<(usize, Pos2, Pos2)> = picked
+        .iter()
+        .filter_map(|&b| {
+            let (j, t) = bone_edit::bone_ends(&s.puppet, b)?;
+            Some((b, view.screen(j), view.screen(t)))
+        })
+        .collect();
+    let ptr = ui.ctx().input(|i| i.pointer.latest_pos());
+    let press = ui.ctx().input(|i| i.pointer.press_origin());
+    let at = if resp.drag_started() { press.or(ptr) } else { ptr };
+    let idle = st.multi.is_none() && st.marquee.is_none();
+    let on_joint = at.filter(|_| idle).and_then(|p| ends.iter().find(|g| g.1.distance(p) < 9.0));
+    let on_body = at
+        .filter(|_| idle && on_joint.is_none())
+        .and_then(|p| ends.iter().find(|g| g.2.distance(p) < 9.0 || near_segment(p, g.1, g.2)));
+    let on_ring = at
+        .filter(|_| idle && on_joint.is_none() && on_body.is_none())
+        .and_then(|p| ends.iter().find(|g| (p.distance(g.1) - ring).abs() < 5.0));
+    let k_unit = view.scale * view.canvas.pixels_per_unit;
+    let k_unit = if k_unit.abs() < 1e-9 { 1e-9 } else { k_unit };
+    let shift = ui.input(|i| i.modifiers.shift);
+    if resp.drag_started()
+        && let Some(start) = press.or(ptr)
+        && let Some((grab, g)) = on_joint
+            .map(|g| (Grab::Joint, g))
+            .or(on_body.map(|g| (Grab::Turn, g)))
+            .or(on_ring.map(|g| (Grab::Scale, g)))
+    {
+        let keep = ui.input(|i| i.modifiers.command);
+        let mut live = Vec::new();
+        if !keep {
+            let values = values(s);
+            let model = s.puppet.model();
+            for b in bone_edit::top_bones(model, picked) {
+                let Some(k) =
+                    ayatsuri_core::keyform::keyform_at(model, Target::Deformer(b), &values)
+                else {
+                    continue;
+                };
+                let Some(local) = s.puppet.rotation_local_origin(b) else { continue };
+                let r = model.deformers.get(b).and_then(|d| d.kind.rotation());
+                live.push(LiveBone {
+                    bone: b,
+                    keyform: k,
+                    angle: r.and_then(|r| r.angles.get(k).copied()),
+                    scale: r.and_then(|r| r.scales.get(k).copied()),
+                    origin: r.and_then(|r| Some((*r.origins_x.get(k)?, *r.origins_y.get(k)?))),
+                    local,
+                    parent: model.deformers.get(b).and_then(|d| d.parent_deformer),
+                });
+            }
+        }
+        // the way already come before the drag started, less this frame's
+        // step, which the drag adds
+        let ahead = (ptr.unwrap_or(start) - start) - resp.drag_delta();
+        let joint = grab == Grab::Joint;
+        st.multi = Some(MultiDrag {
+            grab,
+            bone: g.0,
+            pivot: g.1,
+            keep,
+            bones: picked.to_vec(),
+            degrees: 0.0,
+            last: start,
+            wx: if joint { ahead.x / k_unit } else { 0.0 },
+            wy: if joint { ahead.y / k_unit } else { 0.0 },
+            scale_from: (start - g.1).length().max(1.0),
+            factor: 1.0,
+            live,
+        });
+    }
+    if resp.dragged()
+        && let Some(p) = ptr
+        && let Some(d) = &mut st.multi
+    {
+        match d.grab {
+            Grab::Turn => {
+                let (prev, cur) = (d.last - d.pivot, p - d.pivot);
+                if prev.length() > 2.0 && cur.length() > 2.0 {
+                    let mut diff = cur.y.atan2(cur.x) - prev.y.atan2(prev.x);
+                    while diff > std::f32::consts::PI {
+                        diff -= std::f32::consts::TAU;
+                    }
+                    while diff < -std::f32::consts::PI {
+                        diff += std::f32::consts::TAU;
+                    }
+                    d.degrees += diff.to_degrees();
+                }
+                d.last = p;
+            }
+            Grab::Scale => d.factor = ((p - d.pivot).length() / d.scale_from).clamp(0.05, 20.0),
+            Grab::Joint => {
+                let delta = resp.drag_delta();
+                d.wx += delta.x / k_unit;
+                d.wy += delta.y / k_unit;
+            }
+        }
+        // without Ctrl the art follows live, in the keyform each bone's
+        // parameters sit on
+        let turn = d.turn(shift);
+        for l in &d.live {
+            let k = l.keyform;
+            match d.grab {
+                Grab::Turn => {
+                    if let (Some(v), Some(a)) =
+                        (l.angle, s.puppet.rotation_angles_mut(l.bone).and_then(|a| a.get_mut(k)))
+                    {
+                        *a = v + turn;
+                    }
+                }
+                Grab::Scale => {
+                    if let (Some(v), Some(x)) =
+                        (l.scale, s.puppet.rotation_scales_mut(l.bone).and_then(|a| a.get_mut(k)))
+                    {
+                        *x = v * d.factor;
+                    }
+                }
+                Grab::Joint => {
+                    let (dx, dy) =
+                        super::parent_delta(&s.puppet, l.parent, l.local.0, l.local.1, d.wx, d.wy);
+                    if let (Some((bx, by)), Some((x, y))) =
+                        (l.origin, s.puppet.rotation_origin_mut(l.bone, k))
+                    {
+                        (*x, *y) = (bx + dx, by + dy);
+                    }
+                }
+            }
+        }
+        if !d.live.is_empty() {
+            s.dirty = true;
+        }
+        ui.ctx().request_repaint();
+    }
+    let down = ui.ctx().input(|i| i.pointer.any_down());
+    if (resp.drag_stopped() || !down)
+        && let Some(d) = st.multi.take()
+    {
+        put_back(s, &d.live);
+        commit(s, &d, picked, shift);
+    }
+    // the joints and their scale rings
+    let active = st.multi.as_ref();
+    for g in &ends {
+        let held = active.filter(|d| d.bone == g.0);
+        let scaling = held.filter(|d| d.grab == Grab::Scale);
+        let hot = on_ring.is_some_and(|h| h.0 == g.0) || scaling.is_some();
+        let stroke =
+            if hot { Stroke::new(2.2, theme::pal().accent) } else { Stroke::new(1.2, line) };
+        vp.circle_stroke(g.1, ring * scaling.map_or(1.0, |d| d.factor), stroke);
+        let dot = on_joint.is_some_and(|h| h.0 == g.0);
+        vp.circle_filled(g.1, if dot { 4.5 } else { 3.0 }, theme::pal().accent);
+    }
+    if on_joint.is_some() || on_body.is_some() {
+        ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+    } else if on_ring.is_some() {
+        ui.ctx().set_cursor_icon(egui::CursorIcon::ResizeNwSe);
+    }
+}
+
+/// The release: one edit, one undo step, for every picked bone.
+fn commit(s: &mut Session, d: &MultiDrag, picked: &[usize], shift: bool) {
+    let values = values(s);
+    let deg = d.turn(shift);
+    let (wx, wy) = (d.wx, d.wy);
+    let moved = match d.grab {
+        Grab::Turn => deg.abs() > 1e-3,
+        Grab::Scale => (d.factor - 1.0).abs() > 1e-4,
+        Grab::Joint => wx != 0.0 || wy != 0.0,
+    };
+    if !moved {
+        return;
+    }
+    let n = picked.len();
+    if d.keep {
+        // Ctrl: each bone alone; a joint slide moves each bone's pivot
+        let mut pivots: Vec<bone_edit::Pivot> = Vec::new();
+        let mut between = 0;
+        if d.grab == Grab::Joint {
+            for &b in picked {
+                match super::pivot_move(&s.puppet, b, wx, wy) {
+                    Some((deltas, child)) => pivots.push((b, deltas, child)),
+                    None => between += 1,
+                }
+            }
+        }
+        let mv = match d.grab {
+            Grab::Turn => bone_edit::BonesMove::Turn(deg),
+            Grab::Scale => bone_edit::BonesMove::Scale(d.factor),
+            Grab::Joint => bone_edit::BonesMove::Pivots(&pivots),
+        };
+        if s.edit(|m| bone_edit::move_bones_alone(m, picked, &values, mv)) {
+            log::debug!("{n} bones moved alone: their meshes rebound");
+        }
+        if between > 0 {
+            log::warn!(
+                "the parameters are between keys: move them onto a key to move the pivot of {between} picked bone(s)"
+            );
+        }
+        return;
+    }
+    let joints: Vec<(usize, f32, f32)> = d
+        .live
+        .iter()
+        .map(|l| {
+            let (dx, dy) = super::parent_delta(&s.puppet, l.parent, l.local.0, l.local.1, wx, wy);
+            (l.bone, dx, dy)
+        })
+        .collect();
+    let mv = match d.grab {
+        Grab::Turn => bone_edit::BonesMove::Turn(deg),
+        Grab::Scale => bone_edit::BonesMove::Scale(d.factor),
+        Grab::Joint => bone_edit::BonesMove::Joints(&joints),
+    };
+    let mut skipped = Vec::new();
+    if s.edit(|m| {
+        let (changed, left) = bone_edit::move_bones(m, picked, &values, mv);
+        skipped = left;
+        changed
+    }) {
+        log::debug!("{n} bones moved together");
+    }
+    if !skipped.is_empty() {
+        log::warn!(
+            "the parameters are between keys: move them onto a key to move {} picked bone(s)",
+            skipped.len()
+        );
+    }
 }
 
 /// Blue at 0 through green to red at 1.
@@ -532,6 +971,52 @@ pub(super) fn bone_rows(ui: &mut Ui, s: &mut Session, bone: usize) {
             .on_hover_text(tr("What the bone takes from its parent"));
         if pick != inherit && s.edit(|m| bone_edit::set_bone_inherit(m, bone, pick)) {
             log::info!("bone {bone} inherits {pick:?}");
+        }
+    });
+}
+
+/// The Inspector with several bones picked: how many, and what they take
+/// from their parents, set on all of them at once.
+pub(super) fn multi_rows(ui: &mut Ui, s: &mut Session, bones: &[usize]) {
+    ui.label(egui::RichText::new(trf("{count} bones", &[("count", &bones.len())])).size(11.5));
+    let model = s.puppet.model();
+    let modes: Vec<Inherit> = bones
+        .iter()
+        .filter_map(|&b| match model.deformers.get(b).map(|d| &d.kind) {
+            Some(DeformerKind::Bone(x)) => Some(x.inherit),
+            _ => None,
+        })
+        .collect();
+    let Some(&first) = modes.first() else { return };
+    let shared = modes.iter().all(|&m| m == first).then_some(first);
+    ui.horizontal(|ui| {
+        label(ui, tr("Inherit"));
+        let mut pick = shared;
+        egui::ComboBox::from_id_salt("bones-inherit")
+            .selected_text(shared.map_or(tr("Mixed"), inherit_name))
+            .show_ui(ui, |ui| {
+                for i in [
+                    Inherit::Normal,
+                    Inherit::OnlyTranslation,
+                    Inherit::NoRotationOrReflection,
+                    Inherit::NoScale,
+                    Inherit::NoScaleOrReflection,
+                ] {
+                    ui.selectable_value(&mut pick, Some(i), inherit_name(i));
+                }
+            })
+            .response
+            .on_hover_text(tr("What every picked bone takes from its parent"));
+        if let Some(i) = pick.filter(|_| pick != shared)
+            && s.edit(|m| {
+                let mut changed = false;
+                for &b in bones {
+                    changed |= bone_edit::set_bone_inherit(m, b, i);
+                }
+                changed
+            })
+        {
+            log::info!("{} bones inherit {i:?}", bones.len());
         }
     });
 }

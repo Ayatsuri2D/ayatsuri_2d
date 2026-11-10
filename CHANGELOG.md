@@ -63,7 +63,10 @@
   adding up. Turning or moving a bone bends the meshes weighted to it,
   and they stay bent after you let go, whether or not the bone has keys;
   hold Ctrl to move a bone without bending them (the bone shows its new
-  pose while it is dragged). The Inspector lists a
+  pose while it is dragged). Pick several bones at once with Ctrl or
+  Shift+click, a box dragged over them with the arrow, or the Deformer
+  palette, then drag any of them to turn, move or scale them all
+  together, each about its own joint, in one undo step. The Inspector lists a
   weighted mesh's bones, can remove its weights, and has Set bind pose,
   which makes the mesh show its own shape with the bones as they sit
   now. Add IK makes one or two picked bones reach for the bone

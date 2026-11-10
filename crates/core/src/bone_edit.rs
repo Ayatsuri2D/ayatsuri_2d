@@ -545,7 +545,25 @@ fn floats(a: crate::deform::Affine) -> [f32; 6] {
 /// with the inverse of where the bone was and where it is now. True when a
 /// bind changed.
 pub fn keep_bound(before: &Model, after: &mut Model, values: &[f32], deformer: usize) -> bool {
-    let meshes = meshes_on(after, deformer);
+    keep_bound_all(before, after, values, &[deformer])
+}
+
+/// `keep_bound` for several deformers moved alone at once: each mesh
+/// weighted to any of them is bound again once.
+pub fn keep_bound_all(
+    before: &Model,
+    after: &mut Model,
+    values: &[f32],
+    deformers: &[usize],
+) -> bool {
+    let mut meshes: Vec<usize> = Vec::new();
+    for &d in deformers {
+        for mi in meshes_on(after, d) {
+            if !meshes.contains(&mi) {
+                meshes.push(mi);
+            }
+        }
+    }
     if meshes.is_empty() {
         return false;
     }
@@ -573,6 +591,123 @@ pub fn keep_bound(before: &Model, after: &mut Model, values: &[f32], deformer: u
             skin.set_bind(b, floats(affine(old).after(&t_inv).after(&affine(n))));
             changed = true;
         }
+    }
+    changed
+}
+
+/// A Ctrl joint drag on one bone: its origin's shift in every keyform
+/// (parent space) and the shift of what it holds (its own space), as
+/// `edit::move_rotation_pivot` takes them.
+pub type Pivot = (usize, Vec<(f32, f32)>, (f32, f32));
+
+/// How several picked bones move together.
+#[derive(Clone, Copy, Debug)]
+pub enum BonesMove<'a> {
+    /// Each turns by these degrees about its own joint.
+    Turn(f32),
+    /// Each grows by this factor about its own joint.
+    Scale(f32),
+    /// Each joint slides: (bone, dx, dy) in the bone's parent's space.
+    /// For `move_bones`.
+    Joints(&'a [(usize, f32, f32)]),
+    /// Each joint slides without what the bone holds. For
+    /// `move_bones_alone`.
+    Pivots(&'a [Pivot]),
+}
+
+/// The bones of `picked` with no other picked bone above them, in pick
+/// order.
+pub fn top_bones(model: &Model, picked: &[usize]) -> Vec<usize> {
+    let bones: Vec<usize> = picked.iter().copied().filter(|&b| is_bone(model, b)).collect();
+    let mut out: Vec<usize> = Vec::new();
+    for &b in &bones {
+        let above = bones.iter().any(|&o| o != b && edit::deformer_under(model, b, o));
+        if !above && !out.contains(&b) {
+            out.push(b);
+        }
+    }
+    out
+}
+
+/// Several picked bones moved together with the arrow, as one bone is:
+/// only the ones with no picked bone above them move, each in the keyform
+/// the parameters sit on, and the bones under them ride along, so no bone
+/// turns twice. Meshes weighted to them bend and stay bent. Gives whether
+/// anything changed and the bones left alone because their parameters sit
+/// between keys.
+pub fn move_bones(
+    model: &mut Model,
+    picked: &[usize],
+    values: &[f32],
+    mv: BonesMove,
+) -> (bool, Vec<usize>) {
+    let mut todo: Vec<(usize, usize)> = Vec::new();
+    let mut skipped = Vec::new();
+    for b in top_bones(model, picked) {
+        match crate::keyform::keyform_at(model, edit::Target::Deformer(b), values) {
+            Some(k) => todo.push((b, k)),
+            None => skipped.push(b),
+        }
+    }
+    if matches!(mv, BonesMove::Pivots(_)) {
+        return (false, skipped);
+    }
+    // every bind first, so no bone's edit moves into another's bind
+    let mut changed = false;
+    for &(b, _) in &todo {
+        changed |= pin_binds(model, b);
+    }
+    for &(b, k) in &todo {
+        changed |= match mv {
+            BonesMove::Turn(deg) => edit::rotate_rotation_at(model, b, k, deg),
+            BonesMove::Scale(f) => edit::scale_rotation_in(model, b, k, f),
+            BonesMove::Joints(list) => {
+                let mut moved = false;
+                for &(_, dx, dy) in list.iter().filter(|j| j.0 == b) {
+                    moved |= edit::move_rotation_origin_in(model, b, k, dx, dy);
+                }
+                moved
+            }
+            BonesMove::Pivots(_) => false,
+        };
+    }
+    (changed, skipped)
+}
+
+/// Ctrl: every picked bone moves alone, in every keyform, so what it
+/// holds stays on screen; a picked bone under another picked one moves
+/// by the same amount too. Every mesh weighted to them is then bound again
+/// so it stays where it was at `values`. True when anything changed.
+pub fn move_bones_alone(
+    model: &mut Model,
+    picked: &[usize],
+    values: &[f32],
+    mv: BonesMove,
+) -> bool {
+    let before = model.clone();
+    let mut bones: Vec<usize> = Vec::new();
+    for &b in picked {
+        if is_bone(model, b) && !bones.contains(&b) {
+            bones.push(b);
+        }
+    }
+    let mut changed = false;
+    for &b in &bones {
+        changed |= match mv {
+            BonesMove::Turn(deg) => edit::rotate_rotation_keep_children(model, b, deg),
+            BonesMove::Scale(f) => edit::scale_rotation_keep_children(model, b, f),
+            BonesMove::Pivots(list) => {
+                let mut moved = false;
+                for (_, deltas, child) in list.iter().filter(|p| p.0 == b) {
+                    moved |= edit::move_rotation_pivot(model, b, deltas, *child);
+                }
+                moved
+            }
+            BonesMove::Joints(_) => false,
+        };
+    }
+    if changed {
+        keep_bound_all(&before, model, values, &bones);
     }
     changed
 }
@@ -1278,6 +1413,89 @@ mod tests {
         assert!(paint_weights(&mut m, 0, 0, &[(0, 1.0)], WeightBrush::Add, 1.0, &[]).unwrap());
         assert!(m.art_meshes[0].skin.as_ref().unwrap().bind_of(0).is_some());
         assert!(close(&drawn(&m), &OFF));
+    }
+
+    fn angle(m: &Model, b: usize, k: usize) -> f32 {
+        m.deformers[b].kind.rotation().unwrap().angles[k]
+    }
+
+    fn joint(m: &Model, b: usize) -> (f32, f32) {
+        bone_ends(&edit::rest_puppet(m), b).unwrap().0
+    }
+
+    #[test]
+    fn picked_bones_turn_together_each_about_its_own_joint() {
+        let mut m =
+            model(vec![bone("A", None, (0.0, 0.0), 1.0), bone("B", None, (2.0, 0.0), 1.0)], vec![]);
+        let (ja, jb) = (joint(&m, 0), joint(&m, 1));
+        let (changed, skipped) = move_bones(&mut m, &[0, 1], &[0.0], BonesMove::Turn(30.0));
+        assert!(changed && skipped.is_empty());
+        assert_eq!((angle(&m, 0, 0), angle(&m, 1, 0)), (30.0, 30.0));
+        assert!(close(&[ja.0, ja.1, jb.0, jb.1], &{
+            let (a, b) = (joint(&m, 0), joint(&m, 1));
+            [a.0, a.1, b.0, b.1]
+        }));
+        // scaled and slid the same way, each its own
+        let (changed, _) = move_bones(&mut m, &[0, 1], &[0.0], BonesMove::Scale(2.0));
+        assert!(changed);
+        assert_eq!(m.deformers[1].kind.rotation().unwrap().scales[0], 2.0);
+        let shift = [(0, 0.5, 0.0), (1, 0.0, -0.5)];
+        assert!(move_bones(&mut m, &[0, 1], &[0.0], BonesMove::Joints(&shift)).0);
+        assert!(close(&[joint(&m, 0).0, joint(&m, 1).1], &[0.5, -0.5]));
+    }
+
+    #[test]
+    fn a_picked_child_is_not_turned_twice() {
+        let mut m = model(
+            vec![bone("A", None, (0.0, 0.0), 1.0), bone("B", Some(0), (0.0, 1.0), 1.0)],
+            vec![],
+        );
+        assert_eq!(top_bones(&m, &[1, 0]), vec![0]);
+        assert!(move_bones(&mut m, &[1, 0], &[0.0], BonesMove::Turn(40.0)).0);
+        assert_eq!((angle(&m, 0, 0), angle(&m, 1, 0)), (40.0, 0.0), "the child rides along");
+    }
+
+    #[test]
+    fn a_bone_between_keys_is_skipped_and_the_rest_still_move() {
+        let mut m =
+            model(vec![bone("A", None, (0.0, 0.0), 1.0), bone("B", None, (2.0, 0.0), 1.0)], vec![]);
+        assert!(edit::add_keys(&mut m, Target::Deformer(0), 0, &[-1.0, 1.0]));
+        let (changed, skipped) = move_bones(&mut m, &[0, 1], &[0.0], BonesMove::Turn(15.0));
+        assert!(changed);
+        assert_eq!(skipped, vec![0]);
+        assert_eq!(angle(&m, 1, 0), 15.0);
+        assert!(m.deformers[0].kind.rotation().unwrap().angles.iter().all(|&a| a == 0.0));
+    }
+
+    #[test]
+    fn picked_bones_moved_alone_keep_their_mesh_where_it_was() {
+        let mut m = model(
+            vec![bone("A", None, (0.0, 0.0), 1.5), bone("B", Some(0), (0.0, 1.5), 1.5)],
+            vec![mesh(None, OFF.to_vec())],
+        );
+        auto_weights(&mut m, 0, &[0, 1], 0.5, &[]).unwrap();
+        assert!(edit::rotate_rotation_at(&mut m, 1, 0, 20.0));
+        let bent = drawn(&m);
+        let b_before = edit::rest_puppet(&m).rotation_state(1).unwrap().angle;
+        assert!(move_bones_alone(&mut m, &[0, 1], &[0.0], BonesMove::Turn(25.0)));
+        assert!(close(&drawn(&m), &bent), "{:?} {bent:?}", drawn(&m));
+        // both turned on screen by the same amount, the child too
+        let b_now = edit::rest_puppet(&m).rotation_state(1).unwrap().angle;
+        assert!((b_now - b_before - 25.0).abs() < 1e-3, "{b_before} {b_now}");
+        assert!(move_bones_alone(&mut m, &[0, 1], &[0.0], BonesMove::Scale(1.5)));
+        assert!(close(&drawn(&m), &bent));
+        // a bone under a picked one and not picked itself stays where it is
+        let ends = |m: &Model| bone_ends(&edit::rest_puppet(m), 1).unwrap();
+        let child = ends(&m);
+        assert!(move_bones_alone(&mut m, &[0], &[0.0], BonesMove::Turn(30.0)));
+        let now = ends(&m);
+        assert!(close(
+            &[child.0.0, child.0.1, child.1.0, child.1.1],
+            &[now.0.0, now.0.1, now.1.0, now.1.1]
+        ));
+        let pivots: [Pivot; 1] = [(0, vec![(0.25, 0.0)], (-0.25, 0.0))];
+        assert!(move_bones_alone(&mut m, &[0], &[0.0], BonesMove::Pivots(&pivots)));
+        assert!(close(&drawn(&m), &bent));
     }
 
     #[test]
