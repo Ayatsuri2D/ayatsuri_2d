@@ -291,9 +291,8 @@ are now signed.
 
 ### Thanks
 
-- **[@seoriboi](https://github.com/seoriboi)** and
-  **RikaYamano** suggested features
-  and reported bugs for this version. Thank you!
+- **[@seoriboi](https://github.com/seoriboi)** suggested features and
+  reported bugs for this version. Thank you!
 
 ## 0.6.0 (2026-10-29)
 
