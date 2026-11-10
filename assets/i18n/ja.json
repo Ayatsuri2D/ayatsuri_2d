@@ -1634,5 +1634,6 @@
   "Drag to turn a quarter at a time; click to turn right": "ドラッグで90°ずつ回転、クリックで右に回転",
   "{count} bones": "ボーン{count}個",
   "Mixed": "混在",
-  "What every picked bone takes from its parent": "選んだ各ボーンが親から受け継ぐもの"
+  "What every picked bone takes from its parent": "選んだ各ボーンが親から受け継ぐもの",
+  "New Bone": "新規ボーン"
 }

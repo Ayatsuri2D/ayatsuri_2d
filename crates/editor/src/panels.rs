@@ -768,6 +768,9 @@ pub struct EditorUi {
     clip_also: Vec<usize>,
     /// A deformer creation requested from inside a borrow (canvas, tool pane).
     pending_create: Option<(bool, Option<(f32, f32)>)>,
+    /// A bone the Bone tool drew this frame, and its part: New Bone opens
+    /// for it after the canvas lets go of the session.
+    pending_bone: Option<(deformer_dialog::DrawnBone, Option<u32>)>,
     /// The IDs of the parameter and the deformer made last: the next create
     /// dialog starts from them, so a run of similar IDs needs one edit each.
     last_param_id: Option<String>,
@@ -1898,6 +1901,7 @@ impl Default for EditorUi {
             clip_pick: None,
             clip_also: Vec::new(),
             pending_create: None,
+            pending_bone: None,
             last_param_id: None,
             last_def_id: None,
             pending_guide: None,
@@ -4783,6 +4787,9 @@ impl EditorUi {
 
         if let Some((warp, origin)) = self.pending_create.take() {
             self.open_deformer_dialog(warp, origin);
+        }
+        if let Some((drawn, part)) = self.pending_bone.take() {
+            self.open_bone_dialog(drawn, part);
         }
         self.deformer_dialog_window(ui);
 
@@ -12272,6 +12279,13 @@ impl EditorUi {
                 picked = self.bones.active.into_iter().collect();
             }
             bones::draw_bones(&vp, &segs, &picked, hover, self.disp.rotation_color);
+            // the bone New Bone is asking about, until it is made or closed
+            if let Some((j, t)) = self.deformer_dialog.as_ref().and_then(|d| d.drawn_bone()) {
+                let (a, b) = (bview.screen(j), bview.screen(t));
+                let ink = theme::pal().accent;
+                vp.line_segment([a, b], Stroke::new(2.0, ink.gamma_multiply(0.7)));
+                vp.circle_stroke(a, 4.0, Stroke::new(1.5, ink));
+            }
             let model = s.puppet.model();
             let is_bone = |d: usize| model.deformers.get(d).is_some_and(|x| x.kind.is_bone());
             if free && self.tool == Tool::Bone {
@@ -12333,7 +12347,6 @@ impl EditorUi {
                 }
                 Some(bones::BoneAct::Create { parent, joint, tip }) => {
                     let model = s.puppet.model();
-                    let id = ayatsuri_core::bone_edit::free_bone_id(model);
                     // in its parent's part, else the weights' mesh's
                     let part = parent
                         .and_then(|p| model.deformers.get(p))
@@ -12343,22 +12356,10 @@ impl EditorUi {
                             Some(model.art_meshes.get(mi)?.parent_part)
                         })
                         .flatten();
-                    let made = std::cell::Cell::new(None);
-                    if s.edit(|m| {
-                        made.set(ayatsuri_core::bone_edit::create_bone(
-                            m, parent, part, joint, tip, id,
-                        ));
-                        made.get().is_some()
-                    }) && let Some(b) = made.get()
-                    {
-                        log::info!(
-                            "bone {b} made{}",
-                            if parent.is_some() { " as a child" } else { "" }
-                        );
-                        self.bones.pick = vec![b];
-                        self.selected = Some(Sel::Deformer(b));
-                        self.def_pick = vec![b];
-                    }
+                    // the bone is made once New Bone has its name and ID
+                    let mesh = self.bones.mesh.clone();
+                    let drawn = deformer_dialog::DrawnBone { parent, joint, tip, mesh };
+                    self.pending_bone = Some((drawn, part));
                 }
                 Some(bones::BoneAct::Paint { mesh, bone, hits }) => {
                     let brush = self.tool_opts.bones.brush;

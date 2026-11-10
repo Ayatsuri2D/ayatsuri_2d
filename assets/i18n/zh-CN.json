@@ -1634,5 +1634,6 @@
   "Drag to turn a quarter at a time; click to turn right": "拖动按 90° 旋转；单击向右旋转",
   "{count} bones": "{count} 个骨骼",
   "Mixed": "混合",
-  "What every picked bone takes from its parent": "每个选中的骨骼从父级继承的内容"
+  "What every picked bone takes from its parent": "每个选中的骨骼从父级继承的内容",
+  "New Bone": "新建骨骼"
 }

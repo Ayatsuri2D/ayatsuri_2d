@@ -1634,5 +1634,6 @@
   "Drag to turn a quarter at a time; click to turn right": "드래그하면 90°씩 회전, 클릭하면 오른쪽으로 회전",
   "{count} bones": "본 {count}개",
   "Mixed": "혼합",
-  "What every picked bone takes from its parent": "선택한 각 본이 부모에게서 물려받는 것"
+  "What every picked bone takes from its parent": "선택한 각 본이 부모에게서 물려받는 것",
+  "New Bone": "새 본"
 }
