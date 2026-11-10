@@ -107,13 +107,17 @@ coming release for anything a user would notice.
 
 ### AI tools
 
-AI tools (ChatGPT, Claude, Copilot and the like) may be used for
-housekeeping: writing commit messages, pull request descriptions and
-similar chores. You stay responsible for everything you submit:
+AI tools (ChatGPT, Claude, Copilot and the like) are fine to use, for code
+as well as for commit messages, pull request descriptions and other
+chores. The project itself is built with their help. Every change still
+goes through review, and a maintainer may turn down any contribution,
+AI-assisted or not. You stay responsible for everything you submit:
 
 - **No unchecked AI output.** Read, test and understand every line before
-  you open a pull request. Code pasted straight from a tool is not
-  accepted.
+  you open a pull request. Output pasted straight from a tool without
+  that is not accepted.
+- **Say so.** Mention in the pull request which parts were written with an
+  AI tool, so reviewers know where to look closer.
 - **Know your change.** A reviewer may ask how your code works or why you
   made a choice. If your answers show no technical understanding of the
   code, the pull request is rejected.

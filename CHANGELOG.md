@@ -116,6 +116,9 @@
 
 ### Changed
 
+- CONTRIBUTING.md: AI tools may be used for code too. Every contribution
+  is reviewed, can be turned down, and should say which parts an AI tool
+  wrote.
 - Deform paths bend the whole mesh along the path, as Temporary Path
   does, instead of holding the points near the dragged control point
   rigid; the width and hardness settings are gone. Ctrl+drag moves a
