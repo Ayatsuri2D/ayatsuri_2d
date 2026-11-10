@@ -109,9 +109,8 @@ coming release for anything a user would notice.
 
 AI tools (ChatGPT, Claude, Copilot and the like) are fine to use, for code
 as well as for commit messages, pull request descriptions and other
-chores. The project itself is built with their help. Every change still
-goes through review, and a maintainer may turn down any contribution,
-AI-assisted or not. You stay responsible for everything you submit:
+chores. Every change still goes through review, and a maintainer may turn
+down any contribution, AI-assisted or not. You stay responsible for everything you submit:
 
 - **No unchecked AI output.** Read, test and understand every line before
   you open a pull request. Output pasted straight from a tool without
