@@ -817,7 +817,7 @@ impl EditorUi {
         section(
             ui,
             crate::i18n::tr("Deform path edit"),
-            "Click on the selected mesh to add a control point, drag one to move it, Alt+click deletes, Backspace removes the last. Placing a path deforms nothing.\n\nSwitch to the arrow tool and drag a control point: the whole mesh bends along the path, as with Temporary Path. Ctrl+drag moves the control point only, Shift+drag moves straight. Edits go into the keyform the parameters sit on.\n\nEdit levels 2 and 3 each keep their own path for the same mesh (for example opening and closing a mouth); level 1 hides paths.",
+            "Click on the selected mesh to add a control point, drag one to move it, Alt+click deletes, Backspace removes the last. Placing a path deforms nothing.\n\nSwitch to the arrow tool and drag a control point: the mesh bends along the path, and inside the red circle its points keep their spacing so it bends gently instead of folding over, fully inside the blue one. A small width or 0% hardness lets it follow the path freely. Ctrl+drag moves the control point only, Shift+drag moves straight. Edits go into the keyform the parameters sit on.\n\nEdit levels 2 and 3 each keep their own path for the same mesh (for example opening and closing a mouth); level 1 hides paths.",
         );
         let key = match self.selected {
             Some(Sel::Mesh(mi)) => Some((mi, self.edit_level)),
@@ -846,6 +846,21 @@ impl EditorUi {
                 self.deform_paths.remove(&k);
             }
             let _ = icon(ui, false, false, ph::LINE_SEGMENTS, "Fold line");
+        });
+        grid(ui, "td-path", |ui| {
+            row(ui, crate::i18n::tr("Deform path width"), |ui| {
+                ui.add(
+                    egui::Slider::new(&mut self.path_width, 4.0..=600.0)
+                        .logarithmic(true)
+                        .suffix(" px"),
+                );
+            });
+            row(ui, crate::i18n::tr("Hardness"), |ui| {
+                ui.add(
+                    egui::Slider::new(&mut self.path_hardness, 0.0..=1.0)
+                        .custom_formatter(|v, _| format!("{:.0}%", v * 100.0)),
+                );
+            });
         });
         if self.edit_level < 2 {
             ui.weak(crate::i18n::tr("Edit level 1 hides deform paths; press 2 or 3."));
@@ -888,7 +903,7 @@ impl EditorUi {
         section(
             ui,
             crate::i18n::tr("Bones"),
-            "Drag on the canvas to draw a bone from its joint to its tip. Start the drag on the selected bone's tip to draw its child, and keep going for a chain. A bone drawn elsewhere goes under the selected warp or rotation deformer, or at the top. Click a bone to pick it; Ctrl or Shift+click picks more.\n\nWith the arrow, drag a bone to turn it and its joint to move it, in the keyform the parameters sit on. Settings > Experimental > Bones turns these tools off.",
+            "Drag on the canvas to draw a bone from its joint to its tip. Start the drag on any bone's tip or joint dot to begin there and draw a child of that bone, and keep going for a chain. A bone drawn elsewhere goes under the selected warp or rotation deformer, or at the top. Click a bone to pick it; Ctrl or Shift+click picks more.\n\nWith the arrow, drag a bone to turn it and its joint to move it, in the keyform the parameters sit on. Settings > Experimental > Bones turns these tools off.",
         );
         let Some(s) = &mut self.session else { return };
         let model = s.puppet.model();
