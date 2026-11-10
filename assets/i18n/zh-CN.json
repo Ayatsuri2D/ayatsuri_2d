@@ -1634,5 +1634,14 @@
   "Drag to turn a quarter at a time; click to turn right": "拖动按 90° 旋转；单击向右旋转",
   "{count} bones": "{count} 个骨骼",
   "Mixed": "混合",
-  "What every picked bone takes from its parent": "每个选中的骨骼从父级继承的内容"
+  "What every picked bone takes from its parent": "每个选中的骨骼从父级继承的内容",
+  "New Bone": "新建骨骼",
+  "Search bones": "搜索骨骼",
+  "No bones yet. Draw one with the Bone tool.": "还没有骨骼。请用骨骼工具绘制。",
+  "Delete Folder": "删除文件夹",
+  "Its bones move to the top level": "其中的骨骼移到顶层",
+  "New Folder…": "新建文件夹…",
+  "IK chain: reaches for {bone}": "IK 链：伸向 {bone}",
+  "Top level": "顶层",
+  "Show bones in this palette": "在此面板中显示骨骼"
 }

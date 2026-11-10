@@ -1,7 +1,9 @@
 // The New Warp / New Rotation Deformer dialog, laid out like Cubism's:
 // destination part, name, where the deformer goes (as parent of the
 // selection, as child of the selected deformer, or under a parent picked by
-// hand), then Continuous creation / Create / Close.
+// hand), then Continuous creation / Create / Close. A bone drawn with the
+// Bone tool asks here too (New Bone): part, name and ID only, since the
+// drag already said where it goes; Close makes nothing.
 
 use ayatsuri_core::edit::{Child, NewDeformer};
 use ayatsuri_format::model::DeformerKind;
@@ -30,6 +32,28 @@ pub(super) struct DeformerDialog {
     rows: u32,
     /// Where the canvas was clicked, model space (rotation origin).
     click: Option<(f32, f32)>,
+    /// New Bone: the bone the Bone tool drew, made on Create.
+    bone: Option<DrawnBone>,
+    /// The last Create was turned down: the ID is empty or taken.
+    refused: bool,
+}
+
+/// A bone dragged out on the canvas, waiting for its name and ID.
+#[derive(Clone)]
+pub(super) struct DrawnBone {
+    pub(super) parent: Option<usize>,
+    pub(super) joint: (f32, f32),
+    pub(super) tip: (f32, f32),
+    /// The mesh the weights go on when it was drawn, by id: a new root
+    /// bone files into that mesh's folder.
+    pub(super) mesh: Option<String>,
+}
+
+impl DeformerDialog {
+    /// The bone waiting in New Bone: joint and tip, model units.
+    pub(super) fn drawn_bone(&self) -> Option<((f32, f32), (f32, f32))> {
+        self.bone.as_ref().map(|b| (b.joint, b.tip))
+    }
 }
 
 impl EditorUi {
@@ -55,6 +79,32 @@ impl EditorUi {
             cols: self.tool_opts.warp_cols,
             rows: self.tool_opts.warp_rows,
             click,
+            bone: None,
+            refused: false,
+        });
+    }
+
+    /// Ask for the name and ID of a bone just drawn. Drawing another while
+    /// it asks moves the bone and keeps what was typed.
+    pub(super) fn open_bone_dialog(&mut self, drawn: DrawnBone, part: Option<u32>) {
+        let Some(s) = &self.session else { return };
+        if let Some(d) = self.deformer_dialog.as_mut().filter(|d| d.bone.is_some()) {
+            d.bone = Some(drawn);
+            d.part = part;
+            return;
+        }
+        self.deformer_dialog = Some(DeformerDialog {
+            warp: false,
+            name: String::new(),
+            id: ayatsuri_core::bone_edit::free_bone_id(s.puppet.model()),
+            part,
+            placement: Placement::Manual,
+            manual_parent: None,
+            cols: self.tool_opts.warp_cols,
+            rows: self.tool_opts.warp_rows,
+            click: None,
+            bone: Some(drawn),
+            refused: false,
         });
     }
 
@@ -89,7 +139,10 @@ impl EditorUi {
                 .or_else(|| model.parts.get(i).map(|p| p.id.clone()))
                 .unwrap_or_default()
         };
-        let title = if dlg.warp {
+        let is_bone = dlg.bone.is_some();
+        let title = if is_bone {
+            crate::i18n::tr("New Bone")
+        } else if dlg.warp {
             crate::i18n::tr("New Warp Deformer")
         } else {
             crate::i18n::tr("New Rotation Deformer")
@@ -98,7 +151,7 @@ impl EditorUi {
         let (mut create, mut keep_open, mut close) = (false, false, false);
         crate::windows::Dialog::new(title).open(&mut open).show(ui.ctx(), |ui| {
             ui.set_width(330.0);
-            if !has_selection {
+            if !has_selection && !is_bone {
                 // an empty deformer moves nothing until something is under it
                 ui.label(
                     egui::RichText::new(crate::i18n::tr(
@@ -126,17 +179,28 @@ impl EditorUi {
                     });
                 ui.end_row();
                 ui.label(crate::i18n::tr("Name"));
-                ui.add(
+                let name = ui.add(
                     egui::TextEdit::singleline(&mut dlg.name)
                         .desired_width(200.0)
                         .hint_text(dlg.id.clone()),
                 );
                 ui.end_row();
                 ui.label(crate::i18n::tr("ID"));
-                if ui.add(egui::TextEdit::singleline(&mut dlg.id).desired_width(200.0)).changed() {
+                let id = ui.add(egui::TextEdit::singleline(&mut dlg.id).desired_width(200.0));
+                if id.changed() {
                     id_text(&mut dlg.id);
+                    dlg.refused = false;
                 }
                 ui.end_row();
+                if is_bone {
+                    // the name takes the keyboard, and Enter makes the bone,
+                    // so a chain is named as fast as it is drawn
+                    if ui.memory(|m| m.focused().is_none()) {
+                        name.request_focus();
+                    }
+                    let enter = ui.input(|k| k.key_pressed(egui::Key::Enter));
+                    create |= (name.lost_focus() || id.lost_focus()) && enter;
+                }
                 if dlg.warp {
                     ui.label(crate::i18n::tr("Conversion divisions"));
                     ui.horizontal(|ui| {
@@ -146,6 +210,24 @@ impl EditorUi {
                     ui.end_row();
                 }
             });
+            if dlg.refused {
+                ui.colored_label(
+                    crate::theme::pal().rotation_red,
+                    crate::i18n::tr("That ID is empty or already used."),
+                );
+            }
+            if is_bone {
+                ui.separator();
+                ui.horizontal(|ui| {
+                    if ui.button(crate::i18n::tr("Create")).clicked() {
+                        create = true;
+                    }
+                    if ui.button(crate::i18n::tr("Close")).clicked() {
+                        close = true;
+                    }
+                });
+                return;
+            }
             ui.separator();
             ui.horizontal(|ui| {
                 ui.label(crate::i18n::tr("Add"));
@@ -217,7 +299,12 @@ impl EditorUi {
                 }
             });
         });
-        if create {
+        if create && is_bone {
+            // a refused ID keeps the dialog open to fix it
+            if self.create_bone_from_dialog() {
+                self.deformer_dialog = None;
+            }
+        } else if create {
             self.create_from_dialog();
             if keep_open {
                 // next ID, same settings
@@ -241,6 +328,78 @@ impl EditorUi {
         {
             self.tool = super::Tool::Arrow;
         }
+    }
+
+    /// New Bone's Create: the drawn bone with its ID, name and part, one
+    /// undo step. A new root bone drawn for a mesh files into that mesh's
+    /// folder (made when missing); a child goes where its root is. False
+    /// when the ID is turned down, so the dialog stays to fix it.
+    fn create_bone_from_dialog(&mut self) -> bool {
+        let Some(dlg) = &mut self.deformer_dialog else { return true };
+        let Some(drawn) = dlg.bone.clone() else { return true };
+        let mut id = dlg.id.trim().to_string();
+        id_text(&mut id);
+        let label = dlg.name.trim().to_string();
+        let part = dlg.part;
+        let Some(s) = &mut self.session else { return true };
+        if id.is_empty() || s.puppet.model().deformers.iter().any(|d| d.id == id) {
+            log::warn!("New Bone: the ID {id:?} is empty or already used");
+            dlg.refused = true;
+            return false;
+        }
+        let made = std::cell::Cell::new(None);
+        let DrawnBone { parent, joint, tip, mesh } = drawn;
+        s.edit(|m| {
+            made.set(ayatsuri_core::bone_edit::create_bone(
+                m,
+                parent,
+                part,
+                joint,
+                tip,
+                id.clone(),
+            ));
+            made.get().is_some()
+        });
+        let Some(b) = made.get() else {
+            log::warn!("New Bone {id}: could not be made (its parent is gone)");
+            return true;
+        };
+        let model = s.puppet.model();
+        let root =
+            !parent.is_some_and(|p| model.deformers.get(p).is_some_and(|d| d.kind.is_bone()));
+        log::info!("bone {b} made as {id}{}", if root { "" } else { " (a child)" });
+        if !label.is_empty() && label != id {
+            if s.deformer_names.len() <= b {
+                s.deformer_names.resize(b + 1, String::new());
+            }
+            if let Some(slot) = s.deformer_names.get_mut(b) {
+                *slot = label;
+            }
+        }
+        let mesh = mesh.and_then(|id| model.art_meshes.iter().position(|m| m.id == id));
+        if root && let Some(mi) = mesh {
+            let folder = format!("{}_bones", s.mesh_name(mi));
+            let at = match s.bone_folders.iter().position(|f| f.name == folder) {
+                Some(at) => at,
+                None => {
+                    s.bone_folders.push(crate::session::BoneFolder {
+                        name: folder.clone(),
+                        bones: Vec::new(),
+                        open: true,
+                    });
+                    s.bone_folders.len() - 1
+                }
+            };
+            if let Some(f) = s.bone_folders.get_mut(at) {
+                f.bones.push(b);
+            }
+            s.modified = true;
+            log::info!("bone {id} filed in {folder}");
+        }
+        self.bones.pick = vec![b];
+        self.selected = Some(Sel::Deformer(b));
+        self.def_pick = vec![b];
+        true
     }
 
     fn create_from_dialog(&mut self) {
@@ -561,5 +720,95 @@ mod tests {
         assert_eq!(s.deformer_names[di], "Head");
         ed.open_deformer_dialog(true, None);
         assert_eq!(ed.deformer_dialog.as_ref().unwrap().id, "Head_Rotation2");
+    }
+
+    fn bang() -> ayatsuri_format::model::ArtMesh {
+        ayatsuri_format::model::ArtMesh {
+            id: "ArtMesh0".into(),
+            parent_part: None,
+            parent_deformer: None,
+            visible: true,
+            enabled: true,
+            texture: 0,
+            flags: 0,
+            blend: Default::default(),
+            vertex_count: 4,
+            uvs: vec![0.0, 0.0, 1.0, 0.0, 1.0, 1.0, 0.0, 1.0],
+            indices: vec![0, 1, 2, 0, 2, 3],
+            masks: vec![],
+            binding: Default::default(),
+            opacities: vec![1.0],
+            draw_orders: vec![500.0],
+            positions: vec![0.0, 0.0, 1.0, 0.0, 1.0, 1.0, 0.0, 1.0],
+            blend_shapes: Vec::new(),
+            clip_group: None,
+            clip_inherit: false,
+            multiply: Vec::new(),
+            screen: Vec::new(),
+            skin: None,
+        }
+    }
+
+    fn drawn(parent: Option<usize>, joint: (f32, f32), tip: (f32, f32)) -> DrawnBone {
+        DrawnBone { parent, joint, tip, mesh: Some("ArtMesh0".into()) }
+    }
+
+    #[test]
+    fn closing_new_bone_makes_nothing() {
+        let ctx = egui::Context::default();
+        let mut ed = EditorUi::new();
+        ed.session = Some(Session::create(&ctx, "t".into(), String::new(), Model::new()).unwrap());
+        ed.open_bone_dialog(drawn(None, (0.0, 0.0), (0.0, 1.0)), None);
+        assert_eq!(ed.deformer_dialog.as_ref().unwrap().id, "Bone0");
+        ed.deformer_dialog = None;
+        let s = ed.session.as_ref().unwrap();
+        assert!(s.puppet.model().deformers.is_empty());
+        assert!(!s.can_undo());
+    }
+
+    #[test]
+    fn a_new_root_bone_files_into_its_meshs_folder_and_a_child_follows_its_root() {
+        let ctx = egui::Context::default();
+        let mut ed = EditorUi::new();
+        let mut m = Model::new();
+        m.art_meshes.push(bang());
+        let mut s = Session::create(&ctx, "t".into(), String::new(), m).unwrap();
+        s.mesh_names[0] = "front_bang".into();
+        s.edit(|m| {
+            ayatsuri_core::bone_edit::create_bone(
+                m,
+                None,
+                None,
+                (5.0, 5.0),
+                (5.0, 6.0),
+                "Taken".into(),
+            )
+            .is_some()
+        });
+        ed.session = Some(s);
+        ed.open_bone_dialog(drawn(None, (0.0, 0.0), (0.0, 1.0)), None);
+        // a taken ID is turned down and the dialog stays
+        ed.deformer_dialog.as_mut().unwrap().id = "Taken".into();
+        assert!(!ed.create_bone_from_dialog());
+        assert!(ed.deformer_dialog.as_ref().unwrap().refused);
+        if let Some(d) = &mut ed.deformer_dialog {
+            d.id = "Bang Root".into();
+            d.name = "Bang".into();
+        }
+        assert!(ed.create_bone_from_dialog());
+        let s = ed.session.as_ref().unwrap();
+        let root = s.puppet.model().deformers.iter().position(|d| d.id == "Bang_Root").unwrap();
+        assert_eq!(s.deformer_names[root], "Bang");
+        assert_eq!(s.bone_folders.len(), 1);
+        assert_eq!(s.bone_folders[0].name, "front_bang_bones");
+        assert_eq!(s.bone_folders[0].bones, vec![root]);
+        assert_eq!(ed.selected, Some(Sel::Deformer(root)));
+        // its child is made without a folder entry of its own
+        ed.deformer_dialog = None;
+        ed.open_bone_dialog(drawn(Some(root), (0.0, 1.0), (0.0, 2.0)), None);
+        assert!(ed.create_bone_from_dialog());
+        let s = ed.session.as_ref().unwrap();
+        assert_eq!(s.puppet.model().deformers.len(), 3);
+        assert_eq!(s.bone_folders[0].bones, vec![root]);
     }
 }

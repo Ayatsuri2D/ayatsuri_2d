@@ -177,6 +177,9 @@ pub struct Prefs {
     /// Leave the deformer tree off the top of the canvas right-click menu
     /// (Cubism's Show parent-child hierarchy of deformers, cleared).
     pub def_tree_off: bool,
+    /// Leave bones out of the Deformer palette (with Bones on, the Bones
+    /// palette lists them); bones holding meshes or other deformers stay.
+    pub def_bones_off: bool,
     pub guide_snap_off: bool,
     /// Smooth movement while dragging points and objects, and how much
     /// (1 to 100; 0 is the default, 40).

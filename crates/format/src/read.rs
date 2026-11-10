@@ -358,6 +358,52 @@ mod tests {
     }
 
     #[test]
+    fn bone_folders_round_trip_and_older_files_have_none() {
+        use crate::payload::{DisplayInfo, GuideLine};
+        let with = AomPayload {
+            display: Some(DisplayInfo {
+                deformer_names: vec!["Bang".into(), String::new()],
+                bone_folders: vec![("front_bang_bones".into(), vec![0, 3])],
+                ..DisplayInfo::default()
+            }),
+            ..AomPayload::default()
+        };
+        let back = crate::read::read(&crate::writer::write(&with).unwrap()).unwrap();
+        let d = back.display.unwrap();
+        assert_eq!(d.bone_folders, vec![("front_bang_bones".to_string(), vec![0, 3])]);
+        assert_eq!(d.deformer_names, vec!["Bang".to_string(), String::new()]);
+        // the display info as written before bone folders, by name and by
+        // position
+        #[derive(serde::Serialize, Default)]
+        struct Old {
+            param_names: Vec<String>,
+            param_colors: Vec<i32>,
+            groups: Vec<(String, Vec<u32>)>,
+            group_colors: Vec<i32>,
+            key_colors: Vec<(u32, f32, i32)>,
+            part_names: Vec<String>,
+            mesh_names: Vec<String>,
+            deformer_names: Vec<String>,
+            combined: Option<Vec<(u32, u32)>>,
+            model_groups: Option<Vec<(String, String, Vec<String>)>>,
+            guides: Vec<GuideLine>,
+            bezier_nets: Vec<(String, u32, u32, u32, Vec<f32>)>,
+            mesh_colors: Vec<(String, i32)>,
+        }
+        let old = Old {
+            deformer_names: vec!["Bang".into()],
+            mesh_colors: vec![("Hair".into(), 0x123456)],
+            ..Old::default()
+        };
+        for raw in [rmp_serde::to_vec_named(&old).unwrap(), rmp_serde::to_vec(&old).unwrap()] {
+            let d: DisplayInfo = rmp_serde::from_slice(&raw).unwrap();
+            assert_eq!(d.deformer_names, vec!["Bang".to_string()]);
+            assert_eq!(d.mesh_colors, vec![("Hair".to_string(), 0x123456)]);
+            assert!(d.bone_folders.is_empty());
+        }
+    }
+
+    #[test]
     fn rejects_garbage() {
         assert!(crate::read::read(b"not an aom").is_err());
     }
