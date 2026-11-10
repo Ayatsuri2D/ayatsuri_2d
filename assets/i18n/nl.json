@@ -1635,5 +1635,12 @@
   "{count} bones": "{count} botten",
   "Mixed": "Gemengd",
   "What every picked bone takes from its parent": "Wat elk gekozen bot van zijn ouder overneemt",
-  "New Bone": "Nieuw bot"
+  "New Bone": "Nieuw bot",
+  "Search bones": "Botten zoeken",
+  "No bones yet. Draw one with the Bone tool.": "Nog geen botten. Teken er een met het Bot-gereedschap.",
+  "Delete Folder": "Map verwijderen",
+  "Its bones move to the top level": "De botten erin gaan naar het hoogste niveau",
+  "New Folder…": "Nieuwe map…",
+  "IK chain: reaches for {bone}": "IK-keten: reikt naar {bone}",
+  "Top level": "Hoogste niveau"
 }

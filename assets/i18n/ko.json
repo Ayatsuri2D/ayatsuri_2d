@@ -1635,5 +1635,12 @@
   "{count} bones": "본 {count}개",
   "Mixed": "혼합",
   "What every picked bone takes from its parent": "선택한 각 본이 부모에게서 물려받는 것",
-  "New Bone": "새 본"
+  "New Bone": "새 본",
+  "Search bones": "본 검색",
+  "No bones yet. Draw one with the Bone tool.": "아직 본이 없습니다. 본 도구로 그리세요.",
+  "Delete Folder": "폴더 삭제",
+  "Its bones move to the top level": "안의 본은 최상위로 이동합니다",
+  "New Folder…": "새 폴더…",
+  "IK chain: reaches for {bone}": "IK 체인: {bone}을(를) 향해 뻗습니다",
+  "Top level": "최상위"
 }

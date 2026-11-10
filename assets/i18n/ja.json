@@ -1635,5 +1635,12 @@
   "{count} bones": "ボーン{count}個",
   "Mixed": "混在",
   "What every picked bone takes from its parent": "選んだ各ボーンが親から受け継ぐもの",
-  "New Bone": "新規ボーン"
+  "New Bone": "新規ボーン",
+  "Search bones": "ボーンを検索",
+  "No bones yet. Draw one with the Bone tool.": "ボーンはまだありません。ボーンツールで描いてください。",
+  "Delete Folder": "フォルダを削除",
+  "Its bones move to the top level": "中のボーンは最上位に移動します",
+  "New Folder…": "新規フォルダ…",
+  "IK chain: reaches for {bone}": "IKチェーン：{bone}に向かって伸びます",
+  "Top level": "最上位"
 }

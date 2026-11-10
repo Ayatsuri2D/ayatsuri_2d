@@ -1635,5 +1635,12 @@
   "{count} bones": "{count} bene",
   "Mixed": "Gemeng",
   "What every picked bone takes from its parent": "Wat elke gekose been van sy ouer oorneem",
-  "New Bone": "Nuwe been"
+  "New Bone": "Nuwe been",
+  "Search bones": "Soek bene",
+  "No bones yet. Draw one with the Bone tool.": "Nog geen bene nie. Teken een met die Been-gereedskap.",
+  "Delete Folder": "Skrap gids",
+  "Its bones move to the top level": "Sy bene skuif na die boonste vlak",
+  "New Folder…": "Nuwe gids…",
+  "IK chain: reaches for {bone}": "IK-ketting: reik na {bone}",
+  "Top level": "Boonste vlak"
 }

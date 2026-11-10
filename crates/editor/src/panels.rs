@@ -13,6 +13,7 @@ use crate::dock::{self, DockAction, DockNode, PanelKind};
 use crate::point_edit;
 
 mod api_bar;
+mod bone_palette;
 mod bones;
 mod deformer_dialog;
 mod original;
@@ -679,6 +680,10 @@ pub struct EditorUi {
     stroke_edit: Option<stroke_tool::StrokeEdit>,
     /// The bone tools' pick, mesh and strokes.
     bones: bones::BoneState,
+    bone_pal: bone_palette::BonePalette,
+    /// Whether Bones was on last frame: turning it on opens the Bones
+    /// palette beside the Deformer palette.
+    bones_tab_was: bool,
     /// Confirm asked for on the canvas: applied once it lets go.
     stroke_confirm: bool,
     /// The mesh Mesh Edit was on last frame, to notice it closing.
@@ -1738,6 +1743,7 @@ impl Default for EditorUi {
         // tests never touch the saved preferences
         let whats_new = !cfg!(test) && crate::whats_new::first_start(&mut prefs);
         let check_updates = !prefs.update_check_off;
+        let bones_on = prefs.bones_on();
         let ask_ffmpeg = !prefs.ffmpeg_prompt_off;
         crate::i18n::set_language(prefs.language.as_deref().unwrap_or("system"));
         let pending_import = if prefs.reopen_last { prefs.recents.first().cloned() } else { None };
@@ -1869,6 +1875,8 @@ impl Default for EditorUi {
             mesh_art: None,
             stroke_edit: None,
             bones: bones::BoneState::default(),
+            bone_pal: bone_palette::BonePalette::default(),
+            bones_tab_was: bones_on,
             stroke_confirm: false,
             mesh_edit_was: None,
             dev_mesh_logged: false,
@@ -2851,6 +2859,7 @@ impl EditorUi {
         self.api_prompt_window(&ui.ctx().clone());
         self.api_window(ui);
         self.def_rename_window(&ui.ctx().clone());
+        self.bone_folder_window(&ui.ctx().clone());
         if std::mem::take(&mut self.stroke_confirm) {
             self.apply_stroke_mesh();
         }
@@ -4104,6 +4113,9 @@ impl EditorUi {
                     // one checkbox per palette; the menu stays open so several
                     // can be toggled in one go
                     for p in PanelKind::ALL {
+                        if p == PanelKind::Bones && !self.prefs.bones_on() {
+                            continue;
+                        }
                         let was = self.layout.contains(p);
                         let mut open = was;
                         if ui.checkbox(&mut open, crate::i18n::tr(p.title())).changed() {
@@ -4756,6 +4768,15 @@ impl EditorUi {
                 self.physics_page(ui);
             });
         } else {
+            // the Bones palette comes and goes with Settings > Experimental >
+            // Bones: turned on, it opens beside the Deformer palette
+            let bones_on = self.prefs.bones_on();
+            if bones_on && !self.bones_tab_was {
+                self.layout.open_near(PanelKind::Bones, PanelKind::Deformers);
+            } else if !bones_on && self.layout.contains(PanelKind::Bones) {
+                self.layout.close(PanelKind::Bones);
+            }
+            self.bones_tab_was = bones_on;
             CentralPanel::default().frame(Frame::NONE.fill(theme::pal().chrome)).show(ui, |ui| {
                 let rect = ui.available_rect_before_wrap().shrink(dock::theme::GAP);
                 let mut groups = Vec::new();
@@ -5743,6 +5764,7 @@ impl EditorUi {
             PanelKind::Parameters => self.parameters_panel(ui),
             PanelKind::Parts => self.parts_panel(ui),
             PanelKind::Deformers => self.deformers_panel(ui),
+            PanelKind::Bones => self.bones_panel(ui),
             PanelKind::Textures => self.textures_panel(ui),
             PanelKind::Inspector => self.inspector_panel(ui),
             PanelKind::ToolDetails => self.tool_details_panel(ui),
