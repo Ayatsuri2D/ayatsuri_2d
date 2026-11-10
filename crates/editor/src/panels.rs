@@ -28,6 +28,7 @@ use crate::logging;
 use crate::prefs::Prefs;
 use crate::session::{Sel, Session};
 use crate::theme;
+use bone_palette::BoneCmd;
 use param_menu::ParamCmd;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -1536,6 +1537,8 @@ enum DefCmd {
     DeletePath(usize, u8),
     /// Move this object under that deformer (None: under no deformer).
     Reparent(Child, Option<usize>),
+    /// An armature row's command, run as the Bones palette runs it.
+    Bones(BoneCmd),
 }
 
 /// What a native file dialog running on its own thread was opened for;
@@ -9934,14 +9937,38 @@ impl EditorUi {
         let hide_bones = bones_on && self.prefs.def_bones_off;
         let query = self.def_search.trim().to_lowercase();
         let searching = !query.is_empty();
+        // with Bones on, the bone folders show as armature rows; the bone
+        // toggle leaves them out with the bones
+        let armatures = bones_on && !hide_bones;
+        if armatures {
+            bone_palette::tidy(&mut s.bone_folders, s.puppet.model());
+        }
+        let filed = if armatures {
+            bone_palette::filed(&s.bone_folders)
+        } else {
+            std::collections::HashMap::new()
+        };
+        let folder_open: Vec<bool> = s.bone_folders.iter().map(|f| f.open).collect();
         // hierarchy: deformers under their parents, meshes under deformers
         let model = s.puppet.model();
         let nd = model.deformers.len();
         let (def_shown, mesh_shown_by_search) = if searching {
             let parents: Vec<Option<u32>> =
                 model.deformers.iter().map(|d| d.parent_deformer).collect();
-            let hits: Vec<bool> =
-                model.deformers.iter().map(|d| matches_search(&query, &[&d.id])).collect();
+            // a folder's name finds every bone filed in it
+            let folder_hit: Vec<bool> =
+                s.bone_folders.iter().map(|f| matches_search(&query, &[&f.name])).collect();
+            let hits: Vec<bool> = model
+                .deformers
+                .iter()
+                .enumerate()
+                .map(|(i, d)| {
+                    matches_search(&query, &[&d.id])
+                        || filed
+                            .get(&bone_palette::chain_root(model, i))
+                            .is_some_and(|&fi| folder_hit.get(fi).copied().unwrap_or(false))
+                })
+                .collect();
             let leaf_parent: Vec<Option<u32>> =
                 model.art_meshes.iter().map(|m| m.parent_deformer).collect();
             let leaf_hit: Vec<bool> = model
@@ -9981,52 +10008,15 @@ impl EditorUi {
                 && model.deformers.get(i).is_some_and(|d| d.kind.is_bone())
                 && !holds_more.get(i).copied().unwrap_or(true)
         };
-        let mut children: Vec<Vec<usize>> = vec![Vec::new(); nd];
-        let mut roots: Vec<usize> = Vec::new();
-        for (i, d) in model.deformers.iter().enumerate() {
-            if bone_hidden(i) {
-                continue;
-            }
-            match d.parent_deformer {
-                Some(p) if (p as usize) < nd => {
-                    if let Some(c) = children.get_mut(p as usize) {
-                        c.push(i);
-                    }
-                }
-                _ => roots.push(i),
-            }
-        }
-        let mut order: Vec<(usize, usize)> = Vec::new();
-        let mut stack: Vec<(usize, usize)> = roots.into_iter().rev().map(|i| (i, 0)).collect();
-        let mut guard = 0;
-        while let Some((i, depth)) = stack.pop() {
-            if !def_shown.get(i).copied().unwrap_or(true) {
-                continue;
-            }
-            order.push((i, depth));
-            // a search opens every folded row so its matches show
-            if (searching || !self.def_collapsed.contains(&i))
-                && let Some(kids) = children.get(i)
-            {
-                for &k in kids.iter().rev() {
-                    stack.push((k, depth + 1));
-                }
-            }
-            guard += 1;
-            if guard > nd * 2 + 16 {
-                break;
-            }
-        }
-        let rows: Vec<(usize, usize, String, bool, bool)> = order
-            .into_iter()
-            .filter_map(|(i, depth)| {
-                model.deformers.get(i).map(|d| {
-                    let has_kids = children.get(i).is_some_and(|k| !k.is_empty())
-                        || model.art_meshes.iter().any(|m| m.parent_deformer == Some(i as u32));
-                    (i, depth, d.id.clone(), matches!(d.kind, DeformerKind::Warp(_)), has_kids)
-                })
-            })
-            .collect();
+        let rows = deformer_tree(
+            model,
+            &filed,
+            &folder_open,
+            &bone_hidden,
+            &def_shown,
+            &self.def_collapsed,
+            searching,
+        );
 
         // which deformer each mesh hangs from, and each deformer's parent,
         // so a row can find everything it moves for its preview
@@ -10070,7 +10060,97 @@ impl EditorUi {
                     ui.ctx().request_repaint();
                 }
             }
-            for (i, dep, _, is_warp, has_kids) in rows {
+            for row in rows {
+                let (i, dep, is_warp, has_kids) = match row {
+                    TreeRow::Def(i, dep, is_warp, has_kids) => (i, dep, is_warp, has_kids),
+                    TreeRow::Armature(fi, dep, open, roots) => {
+                        // a bone folder, Blender's armature: click picks its
+                        // bones, a bone dropped here files its chain in it
+                        let (rect, resp) = ui
+                            .allocate_exact_size(vec2(ui.available_width(), 18.0), Sense::click());
+                        let all = bone_palette::chain_bones(s.puppet.model(), &roots);
+                        if !all.is_empty() && all.iter().all(|b| picked_defs.contains(b)) {
+                            paint_picked_row(ui, rect);
+                        }
+                        let x = rect.min.x + 48.0 + dep as f32 * 14.0;
+                        let caret = Rect::from_center_size(
+                            pos2(x - 10.0, rect.center().y),
+                            vec2(12.0, 14.0),
+                        );
+                        ui.painter().text(
+                            caret.center(),
+                            Align2::CENTER_CENTER,
+                            if open { "⏷" } else { "⏵" },
+                            FontId::proportional(9.0),
+                            theme::pal().text_faint,
+                        );
+                        let key = roots.first().copied().unwrap_or(fi);
+                        let caret_resp = ui.interact(
+                            caret,
+                            egui::Id::new(("def-armature-caret", fi, key)),
+                            Sense::click(),
+                        );
+                        ui.painter().text(
+                            pos2(x, rect.center().y),
+                            Align2::LEFT_CENTER,
+                            egui_phosphor::regular::BONE,
+                            FontId::proportional(12.0),
+                            theme::pal().rotation_red,
+                        );
+                        let name =
+                            s.bone_folders.get(fi).map(|f| f.name.clone()).unwrap_or_default();
+                        ui.painter().text(
+                            pos2(x + 16.0, rect.center().y),
+                            Align2::LEFT_CENTER,
+                            truncate(&name, 22),
+                            FontId::proportional(11.5),
+                            theme::pal().text,
+                        );
+                        if resp.dnd_hover_payload::<Child>().is_some() {
+                            ui.painter().rect_stroke(
+                                rect.shrink(1.0),
+                                3.0,
+                                Stroke::new(1.0, theme::pal().accent.gamma_multiply(0.6)),
+                                StrokeKind::Inside,
+                            );
+                        }
+                        if let Some(p) = resp.dnd_release_payload::<Child>()
+                            && let Child::Deformer(d) = *p
+                        {
+                            let group = def_group(self.selected, &self.def_pick);
+                            let moving = if group.contains(&d) { group } else { vec![d] };
+                            def_cmd = Some(DefCmd::Bones(BoneCmd::Move(moving, Some(fi))));
+                        }
+                        if caret_resp.clicked() {
+                            def_cmd = Some(DefCmd::Bones(BoneCmd::ToggleFolder(fi)));
+                        } else if resp.double_clicked() {
+                            def_cmd = Some(DefCmd::Bones(BoneCmd::RenameFolder(fi)));
+                        } else if resp.clicked() {
+                            let ctrl = ui.input(|k| k.modifiers.command);
+                            def_cmd = Some(DefCmd::Bones(BoneCmd::PickFolder(fi, ctrl)));
+                        }
+                        resp.context_menu(|ui| {
+                            if ui.button(crate::i18n::tr("Rename Folder")).clicked() {
+                                def_cmd = Some(DefCmd::Bones(BoneCmd::RenameFolder(fi)));
+                                ui.close();
+                            }
+                            if ui
+                                .button(crate::i18n::tr("Delete Folder"))
+                                .on_hover_text(crate::i18n::tr("Its bones move to the top level"))
+                                .clicked()
+                            {
+                                def_cmd = Some(DefCmd::Bones(BoneCmd::DeleteFolder(fi)));
+                                ui.close();
+                            }
+                            ui.separator();
+                            if ui.button(crate::i18n::tr("New Folder…")).clicked() {
+                                def_cmd = Some(DefCmd::Bones(BoneCmd::NewFolder(Vec::new())));
+                                ui.close();
+                            }
+                        });
+                        continue;
+                    }
+                };
                 let (rect, resp) = ui
                     .allocate_exact_size(vec2(ui.available_width(), 18.0), Sense::click_and_drag());
                 if self.selected == Some(Sel::Deformer(i)) || picked_defs.contains(&i) {
@@ -10572,6 +10652,7 @@ impl EditorUi {
             DefCmd::CreateForSelection(warp) => self.pending_create = Some((warp, None)),
             DefCmd::Rename(i) => self.open_def_rename(i),
             DefCmd::RenameMesh(i) => self.open_mesh_rename(i),
+            DefCmd::Bones(c) => self.run_bone_cmd(c, &[]),
             DefCmd::Division(i) => self.open_def_division(i),
             DefCmd::FlipMesh(mi, h) => self.flip_mesh_row(mi, h),
             DefCmd::Flip(i, horizontal, alone) => {
@@ -18286,6 +18367,103 @@ fn opacity_row(
 }
 
 /// A palette search box, with a clear button once something is typed.
+/// A row of the Deformer palette's tree.
+enum TreeRow {
+    /// Deformer, depth, a warp, rows under it.
+    Def(usize, usize, bool, bool),
+    /// Bone folder, depth, open, and the root bones it holds here.
+    Armature(usize, usize, bool, Vec<usize>),
+}
+
+/// A node of that tree: a deformer, or a bone folder under a parent.
+#[derive(Clone, Copy)]
+enum TreeNode {
+    Def(usize),
+    Armature(usize, Option<usize>),
+}
+
+/// The Deformer palette's tree, top to bottom: deformers under their
+/// parents, and each root bone in `filed` under an armature row for its
+/// folder. A folder whose chains hang from different deformers shows once
+/// under each of them, so every bone stays under its real parent; the row
+/// sits where its first chain would. `hidden` leaves deformers out, `shown`
+/// is what a search keeps (a search opens everything), `open` each
+/// folder's open state and `collapsed` the folded deformers.
+fn deformer_tree(
+    model: &Model,
+    filed: &std::collections::HashMap<usize, usize>,
+    open: &[bool],
+    hidden: &dyn Fn(usize) -> bool,
+    shown: &[bool],
+    collapsed: &std::collections::HashSet<usize>,
+    searching: bool,
+) -> Vec<TreeRow> {
+    let nd = model.deformers.len();
+    let mut children: Vec<Vec<TreeNode>> = vec![Vec::new(); nd];
+    let mut roots: Vec<TreeNode> = Vec::new();
+    let mut held: std::collections::HashMap<(usize, Option<usize>), Vec<usize>> =
+        std::collections::HashMap::new();
+    for (i, d) in model.deformers.iter().enumerate() {
+        if hidden(i) {
+            continue;
+        }
+        let parent = d.parent_deformer.map(|p| p as usize).filter(|&p| p < nd);
+        let node = match filed.get(&i) {
+            Some(&fi) => {
+                let bones = held.entry((fi, parent)).or_default();
+                bones.push(i);
+                if bones.len() > 1 {
+                    continue;
+                }
+                TreeNode::Armature(fi, parent)
+            }
+            None => TreeNode::Def(i),
+        };
+        match parent.and_then(|p| children.get_mut(p)) {
+            Some(c) => c.push(node),
+            None => roots.push(node),
+        }
+    }
+    let is_shown = |i: usize| shown.get(i).copied().unwrap_or(true);
+    let mut out = Vec::new();
+    let mut stack: Vec<(TreeNode, usize)> = roots.into_iter().rev().map(|n| (n, 0)).collect();
+    let mut guard = 0;
+    while let Some((node, depth)) = stack.pop() {
+        guard += 1;
+        if guard > nd * 2 + 16 {
+            break;
+        }
+        match node {
+            TreeNode::Def(i) => {
+                if !is_shown(i) {
+                    continue;
+                }
+                let kids = children.get(i).map(Vec::as_slice).unwrap_or_default();
+                let warp =
+                    model.deformers.get(i).is_some_and(|d| matches!(d.kind, DeformerKind::Warp(_)));
+                let meshes = model.art_meshes.iter().any(|m| m.parent_deformer == Some(i as u32));
+                out.push(TreeRow::Def(i, depth, warp, !kids.is_empty() || meshes));
+                // a search opens every folded row so its matches show
+                if searching || !collapsed.contains(&i) {
+                    stack.extend(kids.iter().rev().map(|&k| (k, depth + 1)));
+                }
+            }
+            TreeNode::Armature(fi, parent) => {
+                let bones = held.get(&(fi, parent)).cloned().unwrap_or_default();
+                if !bones.iter().any(|&b| is_shown(b)) {
+                    continue;
+                }
+                let now_open = searching || open.get(fi).copied().unwrap_or(true);
+                if now_open {
+                    stack.extend(bones.iter().rev().map(|&b| (TreeNode::Def(b), depth + 1)));
+                }
+                out.push(TreeRow::Armature(fi, depth, now_open, bones));
+            }
+        }
+    }
+    out
+}
+
 fn search_box(ui: &mut Ui, text: &mut String, hint: &str) -> Option<egui::Response> {
     let mut field = None;
     ui.horizontal(|ui| {
