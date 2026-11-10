@@ -78,6 +78,8 @@
 
 ### Fixed
 
+- The Discord invite in the app, README and code of conduct works again:
+  it points at the new invite, which does not expire.
 - Meshes pasted from another project (or copied before saving and pasted
   after) no longer vanish when the texture atlas is made. The copy took
   the clip box of the mesh after it, so the atlas cut its art away, and

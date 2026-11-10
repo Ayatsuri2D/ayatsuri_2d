@@ -42,7 +42,7 @@ the Discord server, and anywhere you speak as part of the project.
 If someone makes you or anyone else feel unsafe or unwelcome, tell a
 maintainer privately:
 
-- on Discord ([discord.gg/WyzDsXzdnh](https://discord.gg/WyzDsXzdnh)),
+- on Discord ([discord.gg/kwJNG69RAA](https://discord.gg/kwJNG69RAA)),
   in a direct message to a team member;
 - on GitHub, with **Report content** on the comment or issue, or a
   private message to a maintainer.

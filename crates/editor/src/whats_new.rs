@@ -6,7 +6,7 @@
 
 use crate::i18n::{tr, trf};
 
-pub(crate) const DISCORD: &str = "https://discord.gg/WyzDsXzdnh";
+pub(crate) const DISCORD: &str = "https://discord.gg/kwJNG69RAA";
 
 const CHANGELOG: &str = include_str!("../../../CHANGELOG.md");
 
