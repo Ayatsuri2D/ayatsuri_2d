@@ -87,6 +87,16 @@
   named after that mesh, such as `front_bang_bones`. The Deformer palette
   can leave bones out with its bone button. Folders are saved in the
   `.aom`; older files open with every bone at the top level.
+- **Armatures in the Deformer palette**: with Bones on, each bone folder
+  also shows in the Deformer palette as an armature row, where its first
+  chain sits in the tree, with its bones under it. A folder whose chains
+  hang from different deformers shows under each of them, so every bone
+  stays under its real parent. Click an armature to pick all its bones
+  (Ctrl to add them to the pick), drop a bone on it to file its chain
+  there, and double-click or right-click it to rename it; opening and
+  closing it opens and closes the folder in the Bones palette too.
+  Searching for a folder's name shows its bones. The palette's bone
+  button hides armatures along with the bones.
 - **Packaging recipes for Linux distributions**: build recipes for Arch
   Linux, Debian and Ubuntu, and Fedora, all building from source,
   are ready for when the source is public, so Ayatsuri2D can be offered
