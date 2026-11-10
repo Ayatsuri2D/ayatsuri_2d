@@ -74,6 +74,19 @@
   the Inspector. Deleting, wrapping or reordering deformers keeps every
   mesh's weights and IK on the right bones; a deleted bone's weight goes
   to the other bones of each point.
+- **Bones palette** (with Settings > Experimental > Bones on, beside the
+  Deformer palette): every bone as its parent and child tree, filed in
+  folders you name, so a rig with many bones stays easy to find your way
+  around. A folder holds whole chains: drag any bone onto a folder (or
+  use Move to Folder) and its chain goes with it, and deleting a folder
+  moves its bones back to the top level. Rows pick bones the way the
+  Deformer palette does, Ctrl or Shift for several, and the canvas
+  follows; the first bone of an IK chain shows a target mark. Drawing a
+  bone with the Bone tool now asks for its name and ID first (Close makes
+  no bone), and a new chain drawn for a mesh files itself into a folder
+  named after that mesh, such as `front_bang_bones`. The Deformer palette
+  can leave bones out with its bone button. Folders are saved in the
+  `.aom`; older files open with every bone at the top level.
 - **Packaging recipes for Linux distributions**: build recipes for Arch
   Linux, Debian and Ubuntu, and Fedora, all building from source,
   are ready for when the source is public, so Ayatsuri2D can be offered
