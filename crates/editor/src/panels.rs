@@ -12222,21 +12222,10 @@ impl EditorUi {
             if bones::ctrl_preview(&self.bones, &mut segs, bview, shift) {
                 ui.ctx().request_repaint();
             }
-            // Ctrl on a bone's handle: the bone (and the bones under it)
-            // turn or scale alone, so the art stays; nothing in the model
-            // moves until the release, so show the new pose here
+            // Ctrl on a bone's handle: the bone turns or scales alone (the
+            // art and the bones under it stay, as the edit leaves them);
+            // nothing in the model moves until the release, so show it here
             if let Some(d) = self.rot_drag.as_ref().filter(|d| d.keep && !d.handle_only) {
-                let shift = ui.input(|i| i.modifiers.shift);
-                let model = s.puppet.model();
-                let under = |mut b: usize| loop {
-                    if b == d.deformer {
-                        break true;
-                    }
-                    match model.deformers.get(b).and_then(|x| x.parent_deformer) {
-                        Some(p) => b = p as usize,
-                        None => break false,
-                    }
-                };
                 let pivot = segs.iter().find(|g| g.0 == d.deformer).map(|g| g.1);
                 if let Some(o) = pivot {
                     let (sin, cos) = if d.turning && !d.scaling {
@@ -12249,7 +12238,7 @@ impl EditorUi {
                         let v = (p - o) * k;
                         o + vec2(v.x * cos - v.y * sin, v.x * sin + v.y * cos)
                     };
-                    for g in segs.iter_mut().filter(|g| under(g.0)) {
+                    for g in segs.iter_mut().filter(|g| g.0 == d.deformer) {
                         g.1 = carry(g.1);
                         g.2 = carry(g.2);
                     }
