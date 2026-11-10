@@ -916,8 +916,6 @@ pub struct EditorUi {
     notice: Option<(String, Option<f64>)>,
     /// Path width in canvas pixels (the red circle) and the share of it that
     /// keeps its shape fully (the blue circle).
-    path_width: f32,
-    path_hardness: f32,
 
     /// Grid point picking and the transform box for the selected warp.
     pts: point_edit::PointState,
@@ -1581,6 +1579,8 @@ struct PathGrab {
     ptr: Pos2,
     /// Present when the drag deforms (arrow tool): ties fixed at the grab.
     bind: Option<point_edit::PathBind>,
+    /// Ctrl at the start: the control point moves alone, nothing bends.
+    control: bool,
     verts: Vec<Pos2>,
     local: Vec<f32>,
 }
@@ -1972,8 +1972,6 @@ impl Default for EditorUi {
             pick_alpha: AlphaPages::default(),
             last_pick: None,
             notice: None,
-            path_width: 80.0,
-            path_hardness: 0.5,
 
             pts: point_edit::PointState::default(),
             warp_bezier: true,
@@ -12953,18 +12951,15 @@ impl EditorUi {
                             && let (Some(cp), Some(start)) = (near_cp, probe)
                             && let Some(local) = s.puppet.mesh_local_positions(mi)
                         {
-                            let bind = point_edit::bind_path(
-                                &path_s,
-                                &pts,
-                                self.path_width * scale,
-                                self.path_hardness,
-                            );
+                            let bind = point_edit::bind_path(&path_s, &pts);
+                            let control = ui.ctx().input(|i| i.modifiers.command);
                             self.path_grab = Some(PathGrab {
                                 mesh: mi,
                                 point: cp,
                                 start,
                                 ptr: start,
                                 bind: Some(bind),
+                                control,
                                 verts: pts.clone(),
                                 local,
                             });
@@ -12978,17 +12973,37 @@ impl EditorUi {
                             if let Some(p) = inp.ptr {
                                 gp.ptr = p;
                             }
+                            // Shift moves straight: across, up or at 45°
+                            let mut d = gp.ptr - gp.start;
+                            if inp.shift {
+                                d = point_edit::straight(d);
+                            }
                             let mut moved = bind.path.clone();
                             if let Some(cp) = moved.get_mut(gp.point) {
-                                *cp += gp.ptr - gp.start;
+                                *cp += d;
                             }
-                            let offs = point_edit::follow_path(bind, &gp.verts, &moved, gp.point);
+                            let offs = if gp.control {
+                                Vec::new()
+                            } else {
+                                point_edit::follow_path(bind, &gp.verts, &moved)
+                            };
                             for &(vi, d) in &offs {
                                 if let (Some(p), Some(v)) = (pts.get_mut(vi), gp.verts.get(vi)) {
                                     *p = *v + d;
                                 }
                             }
                             path_s = moved.clone();
+                            // live preview: the art bends with the path, not
+                            // just the dots; put back before the commit
+                            live_for(
+                                &mut self.live_drag,
+                                &mut s.puppet,
+                                Some(LiveTarget::Mesh(mi)),
+                            );
+                            if let Some(l) = &self.live_drag {
+                                l.show(&mut s.puppet, &offs, 1.0 / (scale * c.pixels_per_unit));
+                                s.dirty = true;
+                            }
                             if inp.drag_stopped || !inp.any_down {
                                 let to = moved.get(gp.point).copied().unwrap_or(gp.ptr);
                                 finish = Some((gp.point, to, offs, std::mem::take(&mut gp.local)));
@@ -12996,6 +13011,7 @@ impl EditorUi {
                         }
                         if let Some((cp, to, offs, local)) = finish {
                             self.path_grab = None;
+                            live_for(&mut self.live_drag, &mut s.puppet, None);
                             path_busy = false;
                             let parent =
                                 s.puppet.model().art_meshes.get(mi).and_then(|m| m.parent_deformer);
@@ -13184,13 +13200,7 @@ impl EditorUi {
                     }
                     draw_weights(&vp, &pts, self.brush_w.get(&(1, mi)), self.disp.weight_color);
                     if !path_s.is_empty() {
-                        draw_path(
-                            &vp,
-                            &path_s,
-                            self.path_width * scale,
-                            self.path_hardness,
-                            near_cp,
-                        );
+                        draw_path(&vp, &path_s, near_cp);
                     }
                     if editable {
                         point_edit::draw_overlay(&self.pts, &vp, &pts, true, 0.0, grab_hot);
@@ -14729,6 +14739,7 @@ impl EditorUi {
                             start,
                             ptr: start,
                             bind: None,
+                            control: false,
                             verts: Vec::new(),
                             local: Vec::new(),
                         });
@@ -14770,7 +14781,7 @@ impl EditorUi {
                         vp.line_segment([b, c2], stroke);
                         vp.line_segment([c2, a], stroke);
                     }
-                    draw_path(&vp, &path_s, self.path_width * scale, self.path_hardness, near);
+                    draw_path(&vp, &path_s, near);
                     if near.is_some() {
                         ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
                     } else {
@@ -17125,7 +17136,7 @@ fn nearest_within(pts: &[Pos2], p: Pos2, reach: f32) -> Option<usize> {
 
 /// A deform path: the line, control points, and around each point the red
 /// width circle with the blue hardness circle inside, as in Cubism.
-fn draw_path(vp: &egui::Painter, pts: &[Pos2], width: f32, hardness: f32, hot: Option<usize>) {
+fn draw_path(vp: &egui::Painter, pts: &[Pos2], hot: Option<usize>) {
     // the curve the mesh follows, not straight lines between the points
     if pts.len() > 1 {
         let ctrl: Vec<Vec2> = pts.iter().map(|p| p.to_vec2()).collect();
@@ -17134,12 +17145,6 @@ fn draw_path(vp: &egui::Painter, pts: &[Pos2], width: f32, hardness: f32, hot: O
         vp.add(egui::Shape::line(curve, Stroke::new(1.6, theme::pal().warp_green)));
     }
     for (i, &p) in pts.iter().enumerate() {
-        vp.circle_stroke(p, width, Stroke::new(1.0, theme::pal().rotation_red.gamma_multiply(0.5)));
-        vp.circle_stroke(
-            p,
-            width * hardness.clamp(0.0, 1.0),
-            Stroke::new(1.0, Color32::from_rgb(0x4E, 0x8F, 0xD9).gamma_multiply(0.6)),
-        );
         let r = if hot == Some(i) { 5.0 } else { 3.6 };
         vp.circle(p, r, theme::pal().warp_green, Stroke::new(1.0, Color32::WHITE));
     }

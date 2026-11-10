@@ -114,6 +114,12 @@
 
 ### Changed
 
+- Deform paths bend the whole mesh along the path, as Temporary Path
+  does, instead of holding the points near the dragged control point
+  rigid; the width and hardness settings are gone. Ctrl+drag moves a
+  control point without bending the mesh, and Shift+drag moves it
+  straight. The art now bends while the control point is dragged,
+  not only when it is let go.
 - The app's publisher, package maintainer and copyright now read
   Ayatsuri2D, and the Linux app id is `io.github.Ayatsuri2D.Ayatsuri2D`. The
   Linux installer removes the menu entry an older install left under the

@@ -85,11 +85,6 @@ impl Curve {
         (o, tan, vec2(-tan.y, tan.x))
     }
 
-    /// The unit tangent at control point `i`.
-    pub fn tangent_at(&self, i: usize) -> Vec2 {
-        self.tan.get(i * SPAN).or(self.tan.last()).copied().unwrap_or(Vec2::X)
-    }
-
     /// Tie `p` to the nearest place on the curve; past an end it rides the
     /// end's tangent.
     pub fn tie(&self, p: Vec2) -> Tie {
