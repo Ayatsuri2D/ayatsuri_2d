@@ -147,6 +147,10 @@ are now signed.
 
 ### Added
 
+- **Nix flake** (contributed by @Arzumify): `nix run` starts Ayatsuri2D
+  and `nix profile install` installs it, with the desktop entry, file type
+  and icons, and nixpkgs' ffmpeg for video export. `nix develop` gives a
+  shell with everything needed to build it.
 - **Scale and turn pieces in the Texture Atlas**: a selected piece has its
   own scale and quarter-turn buttons, and Scale with Fill page sizes every
   piece together, as far up as they still fit one page (a bigger page no

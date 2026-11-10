@@ -104,12 +104,12 @@
         <p>Requests from Discord testing: texture atlas pieces that scale and turn, copy and paste for deformers, Edit Mesh on several meshes, Breath, wire colours, deleting edges by dragging, and a run of fixes, among them rotation deformers that now turn one keyform at a time. Linux downloads are now signed.</p>
         <p>New:</p>
         <ul>
+          <li>Nix flake</li>
           <li>Scale and turn pieces in the Texture Atlas</li>
           <li>Texture size on moc3 export</li>
           <li>Copy and paste deformers with their layers</li>
           <li>Mirror Edit mirrors new points and strokes</li>
           <li>Wire colours for art meshes</li>
-          <li>Move picked points together in Mesh Edit</li>
         </ul>
       </description>
     </release>
