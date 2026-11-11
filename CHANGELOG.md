@@ -1,6 +1,13 @@
 # Changelog
 
-## Unreleased
+## 0.6.2 (2026-11-11)
+
+Bones, behind Settings > Experimental > Bones: weighted bones with
+painting, auto weights, IK, a Bones palette with folders and armatures in
+the Deformer palette. Also a Unity package, Revert to Original, draw order
+per key, smoother deform paths, the stroke pen out of Experimental,
+packaging recipes for Linux distributions, and a run of export and texture
+atlas fixes.
 
 ### Added
 - **Unity package** (`sdk/unity`, Unity 2022.3 or newer, Built-in and
