@@ -100,8 +100,8 @@
 - **Bones show on the canvas as deformers do**: the Bone and Weight Paint
   tools show every bone; with any other tool only the chains of the
   picked bones show, along with the bones of the picked mesh and of the
-  mesh under the pointer (the bones it is weighted to, or the bone it
-  hangs from).
+  mesh under the pointer (the bones it is weighted to, the bone it hangs
+  from, and the chains in its own `<mesh>_bones` folder).
 - **Packaging recipes for Linux distributions**: build recipes for Arch
   Linux, Debian and Ubuntu, and Fedora, all building from source,
   are ready for when the source is public, so Ayatsuri2D can be offered

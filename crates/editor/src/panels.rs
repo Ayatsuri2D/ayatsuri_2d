@@ -12380,7 +12380,16 @@ impl EditorUi {
                 let model = s.puppet.model();
                 let meshes: Vec<usize> =
                     sel_mesh.into_iter().chain(self.bones.hover_mesh.take()).collect();
-                let keep = bones::shown_bones(model, &self.bones.bones(model), &meshes);
+                // the chains filed in a mesh's own folder ("<mesh>_bones")
+                // show with it too, before any weights tie them to it
+                let mut picked = self.bones.bones(model);
+                for &mi in &meshes {
+                    let folder = format!("{}_bones", s.mesh_name(mi));
+                    if let Some(f) = s.bone_folders.iter().find(|f| f.name == folder) {
+                        picked.extend_from_slice(&f.bones);
+                    }
+                }
+                let keep = bones::shown_bones(model, &picked, &meshes);
                 segs.retain(|g| keep.contains(&g.0));
             }
             // several picked bones dragged with Ctrl: the same, for all of them
