@@ -180,6 +180,22 @@ pub(super) fn segments(s: &Session, view: View) -> Vec<(usize, Pos2, Pos2)> {
         .collect()
 }
 
+/// The bones shown away from the Bone and Weight Paint tools, the way a
+/// deformer shows only while it is picked: the whole chains of the picked
+/// bones, and the bones the picked mesh is weighted to.
+pub(super) fn shown_bones(model: &Model, picked: &[usize], mesh: Option<usize>) -> Vec<usize> {
+    let mut roots: Vec<usize> =
+        picked.iter().map(|&b| super::bone_palette::chain_root(model, b)).collect();
+    if let Some(mi) = mesh {
+        roots.extend(
+            bone_edit::mesh_bones(model, mi)
+                .into_iter()
+                .map(|b| super::bone_palette::chain_root(model, b as usize)),
+        );
+    }
+    super::bone_palette::chain_bones(model, &roots)
+}
+
 fn to_segment(p: Pos2, a: Pos2, b: Pos2) -> f32 {
     let ab = b - a;
     let t = if ab.length_sq() > 1e-6 {

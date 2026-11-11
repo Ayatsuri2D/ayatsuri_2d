@@ -12373,6 +12373,13 @@ impl EditorUi {
             let nothing = self.selected.is_none();
             self.bones.follow(s.puppet.model(), nothing, sel_mesh, sel_def, &group);
             let mut segs = bones::segments(s, bview);
+            // the Bone and Weight Paint tools show every bone; elsewhere only
+            // the picked chains show, as deformers do
+            if !matches!(self.tool, Tool::Bone | Tool::WeightPaint) {
+                let model = s.puppet.model();
+                let keep = bones::shown_bones(model, &self.bones.bones(model), sel_mesh);
+                segs.retain(|g| keep.contains(&g.0));
+            }
             // several picked bones dragged with Ctrl: the same, for all of them
             let shift = ui.input(|i| i.modifiers.shift);
             if bones::ctrl_preview(&self.bones, &mut segs, bview, shift) {
