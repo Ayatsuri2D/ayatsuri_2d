@@ -12374,10 +12374,13 @@ impl EditorUi {
             self.bones.follow(s.puppet.model(), nothing, sel_mesh, sel_def, &group);
             let mut segs = bones::segments(s, bview);
             // the Bone and Weight Paint tools show every bone; elsewhere only
-            // the picked chains show, as deformers do
+            // the picked chains show, as deformers do, and a mesh's bones
+            // show while it is picked or under the pointer
             if !matches!(self.tool, Tool::Bone | Tool::WeightPaint) {
                 let model = s.puppet.model();
-                let keep = bones::shown_bones(model, &self.bones.bones(model), sel_mesh);
+                let meshes: Vec<usize> =
+                    sel_mesh.into_iter().chain(self.bones.hover_mesh.take()).collect();
+                let keep = bones::shown_bones(model, &self.bones.bones(model), &meshes);
                 segs.retain(|g| keep.contains(&g.0));
             }
             // several picked bones dragged with Ctrl: the same, for all of them
@@ -12567,6 +12570,7 @@ impl EditorUi {
             } else {
                 None
             };
+            self.bones.hover_mesh = hovered_mesh;
             if let Some(mi) = hovered_mesh
                 && self.selected != Some(Sel::Mesh(mi))
                 && let Some(g) = s.puppet.mesh_geometry(mi)

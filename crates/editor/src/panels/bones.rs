@@ -53,6 +53,8 @@ pub(super) struct BoneState {
     pub(super) mesh: Option<String>,
     /// The bone Weight Paint paints.
     pub(super) active: Option<usize>,
+    /// The mesh under the pointer last frame, whose bones show with it.
+    pub(super) hover_mesh: Option<usize>,
     drag: Option<NewBone>,
     stroke: Option<PaintStroke>,
     /// The arrow's marquee: where it started.
@@ -182,11 +184,11 @@ pub(super) fn segments(s: &Session, view: View) -> Vec<(usize, Pos2, Pos2)> {
 
 /// The bones shown away from the Bone and Weight Paint tools, the way a
 /// deformer shows only while it is picked: the whole chains of the picked
-/// bones, and the bones the picked mesh is weighted to.
-pub(super) fn shown_bones(model: &Model, picked: &[usize], mesh: Option<usize>) -> Vec<usize> {
+/// bones, and of the bones the picked or hovered meshes are weighted to.
+pub(super) fn shown_bones(model: &Model, picked: &[usize], meshes: &[usize]) -> Vec<usize> {
     let mut roots: Vec<usize> =
         picked.iter().map(|&b| super::bone_palette::chain_root(model, b)).collect();
-    if let Some(mi) = mesh {
+    for &mi in meshes {
         roots.extend(
             bone_edit::mesh_bones(model, mi)
                 .into_iter()
