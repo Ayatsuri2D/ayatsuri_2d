@@ -99,7 +99,8 @@
   button hides armatures along with the bones.
 - **Bones show on the canvas as deformers do**: the Bone and Weight Paint
   tools show every bone; with any other tool only the chains of the
-  picked bones show, along with the bones the picked mesh is weighted to.
+  picked bones show, along with the bones of the picked mesh and of the
+  mesh under the pointer.
 - **Packaging recipes for Linux distributions**: build recipes for Arch
   Linux, Debian and Ubuntu, and Fedora, all building from source,
   are ready for when the source is public, so Ayatsuri2D can be offered
