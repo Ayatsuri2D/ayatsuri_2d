@@ -184,7 +184,8 @@ pub(super) fn segments(s: &Session, view: View) -> Vec<(usize, Pos2, Pos2)> {
 
 /// The bones shown away from the Bone and Weight Paint tools, the way a
 /// deformer shows only while it is picked: the whole chains of the picked
-/// bones, and of the bones the picked or hovered meshes are weighted to.
+/// bones, and of the bones the picked or hovered meshes are weighted to or
+/// hang from.
 pub(super) fn shown_bones(model: &Model, picked: &[usize], meshes: &[usize]) -> Vec<usize> {
     let mut roots: Vec<usize> =
         picked.iter().map(|&b| super::bone_palette::chain_root(model, b)).collect();
@@ -194,6 +195,16 @@ pub(super) fn shown_bones(model: &Model, picked: &[usize], meshes: &[usize]) -> 
                 .into_iter()
                 .map(|b| super::bone_palette::chain_root(model, b as usize)),
         );
+        // a mesh hung from a bone, weighted or not, shows that bone's chain
+        let mut at = model.art_meshes.get(mi).and_then(|m| m.parent_deformer);
+        for _ in 0..=model.deformers.len() {
+            let Some(d) = at.map(|d| d as usize) else { break };
+            if is_bone(model, d) {
+                roots.push(super::bone_palette::chain_root(model, d));
+                break;
+            }
+            at = model.deformers.get(d).and_then(|x| x.parent_deformer);
+        }
     }
     super::bone_palette::chain_bones(model, &roots)
 }
