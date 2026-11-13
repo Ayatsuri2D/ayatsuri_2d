@@ -19,6 +19,16 @@
       let
         # Crane setup
         pkgs = nixpkgs.legacyPackages.${system};
+        appMeta = {
+          description = "Rig, animate and run Live2D-style 2D models";
+          longDesciption = ''
+            Ayatsuri2D is an open, native 2D puppet studio: import artwork from
+            Photoshop or Krita, mesh and rig it with warp and rotation deformers,
+            add physics and expressions, animate it, and export Cubism-compatible
+            moc3 models for apps like VTube Studio.
+            '';
+          license = [pkgs.lib.licenses.gpl3Only pkgs.lib.licenses.mit pkgs.lib.licensesSpdx."Apache-2.0"];
+        };
         craneLib = crane.mkLib pkgs;
         fileFilter = path: _type:
           pkgs.lib.hasSuffix ".xml" path ||
@@ -95,6 +105,8 @@
               install -m644 "./README.md" "$out/share/doc/ayatsuri2d/README.md"
               install -m644 "./assets/credits.tsv" "$out/share/doc/ayatsuri2d/credits.tsv"
             '';
+
+            meta = appMeta;
           }
         );
 
@@ -116,11 +128,16 @@
               mkdir -p "$out/share/doc/libayatsuri"
               install -Dm 755 "./target/release/capi/LICENSE" "$out/share/doc/libayatsuri"
             '';
+
+            meta = {
+              description = "The C ABI of the Ayatsuri2D runtime";
+              license = [pkgs.lib.licenses.mit pkgs.lib.licensesSpdx."Apache-2.0"];
+            };
           }
         );
       in f {
         crates = { inherit ayatsuri libayatsuri; };
-        inherit pkgs craneLib;
+        inherit pkgs craneLib appMeta;
       }
     ));
   in {
@@ -128,10 +145,11 @@
       default = crates.ayatsuri;
     });
 
-    apps = forAllSystems ({crates, ...}: {
+    apps = forAllSystems ({crates, appMeta, ...}: {
       default = {
         type = "app";
         program = "${crates.ayatsuri}";
+        meta = appMeta;
       };
     });
     
