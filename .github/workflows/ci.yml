@@ -40,17 +40,8 @@ jobs:
       - uses: DeterminateSystems/flake-checker-action@main
       - name: Run `nix build`
         run: nix build .#ayatsuri
-        run: nix build .#libayatsuri
-      - uses: actions/upload-artifact@v4
-        with:
-          name: ayatsuri-capi-${{ matrix.os }}
-          path: |
-            result/include/ayatsuri.h
-            result/lib/libayatsuri_capi.*
-            result/lib/ayatsuri_capi.*
-            result/share/doc/libayatsuri/LICENSE
-
-  capi:
+        
+  capi-win:
     name: C ABI ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -70,3 +61,26 @@ jobs:
             target/capi/LICENSE
             target/capi/libayatsuri_capi.*
             target/capi/ayatsuri_capi.*
+
+  capi-nix:
+    name: build nix ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04 macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v6
+      - uses: DeterminateSystems/nix-installer-action@main
+      - uses: DeterminateSystems/magic-nix-cache-action@main
+      - uses: DeterminateSystems/flake-checker-action@main
+      - name: Run `nix build`
+        run: nix build .#libayatsuri
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ayatsuri-capi-${{ matrix.os }}
+          path: |
+            result/include/ayatsuri.h
+            result/lib/libayatsuri_capi.*
+            result/lib/ayatsuri_capi.*
+            result/share/doc/libayatsuri/LICENSE
