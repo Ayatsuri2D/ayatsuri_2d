@@ -55,13 +55,16 @@ fn running_exe() -> Option<PathBuf> {
     candidate.exists().then_some(candidate)
 }
 
-const SYSTEM_PREFIXES: [&str; 6] =
-    ["/usr/", "/opt/", "/bin/", "/sbin/", "/snap/", "/app/"];
+const SYSTEM_PREFIXES: [&str; 6] = ["/usr/", "/opt/", "/bin/", "/sbin/", "/snap/", "/app/"];
 
 /// Work out how this copy was installed.
 pub fn detect() -> Install {
-    if let Some(nix) = std::env::var_os("AYATSURI_NIX") && nix == b"true" {
-        return Install::Elsewhere { why: "this copy is installed via nix: please update your nix configuration" }
+    if let Some(nix) = std::env::var_os("AYATSURI_NIX")
+        && nix.as_encoded_bytes().eq_ignore_ascii_case(b"true")
+    {
+        return Install::Elsewhere {
+            why: "this copy is installed via nix: please update your nix configuration",
+        };
     }
     if let Some(file) = std::env::var_os("APPIMAGE").map(PathBuf::from)
         && file.is_file()
@@ -329,10 +332,12 @@ fn stage_then_rename(target: &Path, bytes: &[u8]) -> Result<(), String> {
 /// Clear the .old files a previous update left beside these programs.
 pub fn sweep_previous() {
     // Don't sweep on nix
-    if let Some(nix) = std::env::var_os("AYATSURI_NIX") && nix == b"true" {
-        log::info!("update: skipped sweep: nix detected")
-        return
-    }
+    if let Some(nix) = std::env::var_os("AYATSURI_NIX")
+        && nix.as_encoded_bytes().eq_ignore_ascii_case(b"true")
+    {
+        log::info!("update: skipped sweep: nix detected");
+        return;
+    };
 
     let Some(exe) = running_exe() else { return };
     let exe_canonical = std::fs::canonicalize(&exe).unwrap_or(exe);
@@ -340,16 +345,16 @@ pub fn sweep_previous() {
 
     // Don't sweep when installed as a system package
     if SYSTEM_PREFIXES.iter().any(|p| text.starts_with(p)) {
-        log::info!("update: skipped sweep: system package detected")
-        return
-    }
+        log::info!("update: skipped sweep: system package detected");
+        return;
+    };
 
     if let Some(file) = std::env::var_os("APPIMAGE").map(PathBuf::from)
         && let Some(old) = previous_beside(&file)
     {
         remove_previous(&old);
-        return
-    }
+        return;
+    };
 
     if let Some(dir) = exe.parent() {
         for name in ["ayatsuri", "ayatsuri-launcher", "ayatsuri.exe", "ayatsuri-launcher.exe"] {
