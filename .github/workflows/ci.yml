@@ -15,7 +15,7 @@ env:
 
 jobs:
   build-win:
-    name: build ${{ matrix.os }}
+    name: build windows
     strategy:
       fail-fast: false
     runs-on: windows-latest
@@ -27,7 +27,7 @@ jobs:
       - run: cargo test --locked --workspace
 
   build-nix:
-    name: build nix ${{ matrix.os }}
+    name: build ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
@@ -42,7 +42,7 @@ jobs:
         run: nix build .#ayatsuri
         
   capi-win:
-    name: C ABI ${{ matrix.os }}
+    name: C ABI windows
     strategy:
       fail-fast: false
     runs-on: windows-latest
@@ -63,7 +63,7 @@ jobs:
             target/capi/ayatsuri_capi.*
 
   capi-nix:
-    name: build nix ${{ matrix.os }}
+    name: C ABI ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
