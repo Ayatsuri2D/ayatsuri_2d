@@ -110,25 +110,28 @@
           }
         );
       in f {
-        packages = { inherit ayatsuri libayatsuri; };
-        inherit craneLib;
+        crates = { inherit ayatsuri libayatsuri; };
+        inherit pkgs craneLib;
       }
     ));
   in {
-    packages = forAllSystems ({packages, ...}: packages // {
-      default = packages.ayatsuri;
+    packages = forAllSystems ({crates, ...}: crates // {
+      default = crates.ayatsuri;
     });
 
-    apps = forAllSystems ({packages, ...}: {
+    apps = forAllSystems ({crates, ...}: {
       default = {
         type = "app";
-        program = "${packages.ayatsuri}";
+        program = "${crates.ayatsuri}";
       };
     });
     
-    devShells = forAllSystems ({craneLib, packages, ...}: {
+    devShells = forAllSystems ({craneLib, pkgs, crates, ...}: {
       default = craneLib.devShell {
-        inputsFrom = [ packages.ayatsuri packages.libayatsuri ];
+        inputsFrom = [ crates.ayatsuri crates.libayatsuri ];
+        packages = with pkgs; [
+          rust-analyzer
+        ];
       };
     });
   };
