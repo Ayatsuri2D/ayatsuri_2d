@@ -72,15 +72,20 @@
               install -Dm755 "./target/release/ayatsuri" "$out/bin/ayatsuri"
               install -Dm755 "./target/release/ayatsuri-launcher" "$out/bin/ayatsuri-launcher"
               strip "$out/bin/ayatsuri" "$out/bin/ayatsuri-launcher" 2>/dev/null || true
+
+              wrapProgram "$out/bin/ayatsuri" --set AYATSURI_NIX "true"
+              wrapProgram "$out/bin/ayatsuri-launcher" --set AYATSURI_NIX "true"
+
               install -Dm644 "${here}/${appID}.desktop" "$out/share/applications/${appID}.desktop"
               install -Dm644 "${here}/${appID}.mime.xml" "$out/share/mime/packages/${appID}.xml"
+
               mkdir -p "$out/share/metainfo"
               sed -e "s/@VERSION@/${version}/g" -e "s/@DATE@/$(date -u +%Y-%m-%d)/g" \
                 "${here}/${appID}.metainfo.xml.in" > "$out/share/metainfo/${appID}.metainfo.xml"
+
               mkdir -p "$out/share/icons"
               cp -R "./assets/app-icon/hicolor" "$out/share/icons/"
 
-              mkdir -p "$out/share/doc/ayatsuri2d"
               install -m644 "./LICENSE" "$out/share/doc/ayatsuri2d/LICENSE"
               install -m644 "./LICENSING.md" "$out/share/doc/ayatsuri2d/LICENSING.md"
               install -m644 "./README.md" "$out/share/doc/ayatsuri2d/README.md"
