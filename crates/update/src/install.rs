@@ -340,8 +340,8 @@ pub fn sweep_previous() {
     };
 
     let Some(exe) = running_exe() else { return };
-    let exe_canonical = std::fs::canonicalize(&exe).unwrap_or(exe);
-    let text = exe_canonical.to_string_lossy().replace('\\', "/");
+    let exe = std::fs::canonicalize(&exe).unwrap_or(exe);
+    let text = exe.to_string_lossy().replace('\\', "/");
 
     // Don't sweep when installed as a system package
     if SYSTEM_PREFIXES.iter().any(|p| text.starts_with(p)) {
