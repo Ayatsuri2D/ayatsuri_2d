@@ -55,43 +55,81 @@
         ayatsuri = craneLib.buildPackage (
           commonArgs // {
             inherit cargoArtifacts;
+            buildInputs = with pkgs; [
+              wayland
+
+              libx11
+              libxcursor
+              libxi
+              
+              vulkan-loader
+              libGL
+              
+              ffmpeg
+            ] ++ commonArgs.buildInputs;
             cargoBuildExtraArgs = "-p ayatsuri -p ayatsuri-launcher";
             installPhaseCommand = ''
-              install -Dm755 "./target/release/ayatsuri" "$out/usr/bin/ayatsuri"
-              install -Dm755 "./target/release/ayatsuri-launcher" "$out/usr/bin/ayatsuri-launcher"
-              strip "$out/usr/bin/ayatsuri" "$out/usr/bin/ayatsuri-launcher" 2>/dev/null || true
-              install -Dm644 "${here}/${appID}.desktop" "$out/usr/share/applications/${appID}.desktop"
-              install -Dm644 "${here}/${appID}.mime.xml" "$out/usr/share/mime/packages/${appID}.xml"
-              mkdir -p "$out/usr/share/metainfo"
+              install -Dm755 "./target/release/ayatsuri" "$out/bin/ayatsuri"
+              install -Dm755 "./target/release/ayatsuri-launcher" "$out/bin/ayatsuri-launcher"
+              strip "$out/bin/ayatsuri" "$out/bin/ayatsuri-launcher" 2>/dev/null || true
+              install -Dm644 "${here}/${appID}.desktop" "$out/share/applications/${appID}.desktop"
+              install -Dm644 "${here}/${appID}.mime.xml" "$out/share/mime/packages/${appID}.xml"
+              mkdir -p "$out/share/metainfo"
               sed -e "s/@VERSION@/${version}/g" -e "s/@DATE@/$(date -u +%Y-%m-%d)/g" \
-                "${here}/${appID}.metainfo.xml.in" > "$out/usr/share/metainfo/${appID}.metainfo.xml"
-              mkdir -p "$out/usr/share/icons"
-              cp -R "./assets/app-icon/hicolor" "$out/usr/share/icons/"
+                "${here}/${appID}.metainfo.xml.in" > "$out/share/metainfo/${appID}.metainfo.xml"
+              mkdir -p "$out/share/icons"
+              cp -R "./assets/app-icon/hicolor" "$out/share/icons/"
 
-              mkdir -p "$out/usr/share/doc/ayatsuri2d"
-              install -m644 "./LICENSE" "$out/usr/share/doc/ayatsuri2d/LICENSE"
-              install -m644 "./LICENSING.md" "$out/usr/share/doc/ayatsuri2d/LICENSING.md"
-              install -m644 "./README.md" "$out/usr/share/doc/ayatsuri2d/README.md"
-              install -m644 "./assets/credits.tsv" "$out/usr/share/doc/ayatsuri2d/credits.tsv"
+              mkdir -p "$out/share/doc/ayatsuri2d"
+              install -m644 "./LICENSE" "$out/share/doc/ayatsuri2d/LICENSE"
+              install -m644 "./LICENSING.md" "$out/share/doc/ayatsuri2d/LICENSING.md"
+              install -m644 "./README.md" "$out/share/doc/ayatsuri2d/README.md"
+              install -m644 "./assets/credits.tsv" "$out/share/doc/ayatsuri2d/credits.tsv"
             '';
           }
         );
-      in f { inherit ayatsuri; }
+
+        libayatsuri = craneLib.buildPackage (
+          commonArgs // {
+            inherit cargoArtifacts;
+
+            nativeBuildInputs = with pkgs; lib.optionals stdenv.isDarwin [
+              fixDarwinDylibNames
+            ] ++ commonArgs.nativeBuildInputs;
+            
+            cargoBuildExtraArgs = "-p capi";
+            installPhaseCommand = ''
+              mkdir -p "$out/include"
+              install -Dm 755 "./target/release/capi/ayatsuri.h" "$out/include/ayatsuri.h"
+              mkdir -p "$out/lib"
+              install -Dm 755 "./target/release/capi/libayatsuri_capi.*" "$out/lib"
+              install -Dm 755 "./target/release/capi/ayatsuri_capi.*" "$out/lib/"
+              mkdir -p "$out/share/doc/libayatsuri"
+              install -Dm 755 "./target/release/capi/LICENSE" "$out/share/doc/libayatsuri"
+            '';
+          }
+        );
+      in f {
+        packages = { inherit ayatsuri libayatsuri; };
+        inherit craneLib;
+      }
     ));
   in {
-    packages = forAllSystems ({ayatsuri, ...}: {
-      default = ayatsuri;
+    packages = forAllSystems ({packages, ...}: packages // {
+      default = packages.ayatsuri;
     });
 
-    apps = forAllSystems ({ayatsuri, ...}: {
+    apps = forAllSystems ({packages, ...}: {
       default = {
         type = "app";
-        program = "${ayatsuri}";
+        program = "${packages.ayatsuri}";
       };
     });
     
-    devShells = forAllSystems ({...}: {
-      default = [];
+    devShells = forAllSystems ({craneLib, packages, ...}: {
+      default = craneLib.devShell {
+        inputsFrom = [ packages.ayatsuri packages.libayatsuri ];
+      };
     });
   };
 }
