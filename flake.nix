@@ -93,7 +93,7 @@
           commonArgs // {
             inherit cargoArtifacts;
 
-            nativeBuildInputs = with pkgs; lib.optionals stdenv.isDarwin [
+            nativeBuildInputs = with pkgs; lib.optionals stdenv.hostPlatform.isDarwin [
               fixDarwinDylibNames
             ] ++ commonArgs.nativeBuildInputs;
             
