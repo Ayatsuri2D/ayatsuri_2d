@@ -116,7 +116,11 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: ${{ matrix.targets || '' }}
+      # one cache per SDK: jobs on the same runner would share one and
+      # bring back each other's target/sdk
       - uses: Swatinem/rust-cache@v2
+        with:
+          key: sdk-${{ matrix.label }}
       - name: Android linker
         if: matrix.label == 'android-arm64'
         shell: bash
@@ -127,13 +131,15 @@ jobs:
           echo "AR_aarch64_linux_android=$BIN/llvm-ar" >> "$GITHUB_ENV"
       - name: Build and pack
         shell: bash
-        run: cargo xtask sdk ${{ matrix.args }} --label ${{ matrix.label }}
+        run: |
+          rm -rf target/sdk
+          cargo xtask sdk ${{ matrix.args }} --label ${{ matrix.label }}
       - name: Archive
         shell: bash
         run: |
           mkdir -p dist/release
           cd target/sdk
-          NAME=$(ls)
+          NAME=$(ls -d *-${{ matrix.label }})
           if [ "${{ runner.os }}" = Windows ]; then
             # Windows' own tar (bsdtar) writes a zip; Git Bash's GNU tar
             # would write a plain tar under the .zip name
