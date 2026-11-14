@@ -107,6 +107,9 @@ coming release for anything a user would notice.
 
 ### AI tools
 
+Ayatsuri2D's maintainers use AI tools (Claude) to help document the
+project, assist with development and clean up code.
+
 AI tools (ChatGPT, Claude, Copilot and the like) are fine to use, for code
 as well as for commit messages, pull request descriptions and other
 chores. Every change still goes through review, and a maintainer may turn
