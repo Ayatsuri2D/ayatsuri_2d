@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.6.2 (2026-11-11)
+## 0.6.2 (2026-11-14)
 
 Bones, behind Settings > Experimental > Bones: weighted bones with
 painting, auto weights, IK, a Bones palette with folders and armatures in
