@@ -2184,7 +2184,10 @@ mod tests {
     /// A puppet with every kind of bone the bake handles: a plain chain, a
     /// sheared bone, a mesh weighted across two bones and an IK arm.
     fn boned() -> Model {
-        use ayatsuri_format::model::{BoneData, IkConstraint, RotationData, Skin};
+        use ayatsuri_format::model::{
+            ArtMesh, BindingAxis, BoneData, Canvas, Deformer, IkConstraint, Parameter,
+            RotationData, Skin,
+        };
         let mut model = Model::new();
         model.canvas =
             Canvas { pixels_per_unit: 100.0, width: 400.0, height: 400.0, ..Canvas::default() };
@@ -2336,6 +2339,8 @@ mod tests {
             }
             eprintln!("moc3 {}: worst {at:.2e} at keys, {between:.2e} between", version.label());
             assert!(at < 1e-4, "{at}");
+            // the arm's target goes out of reach, where the chain
+            // straightens with a kink no curve through the keys follows
             assert!(between < 3e-2, "{between}");
         }
     }

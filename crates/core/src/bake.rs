@@ -31,9 +31,13 @@ pub const MAX_KEYFORMS: usize = 4096;
 
 /// Extended interpolation on the axes a bake samples: rotation-like motion
 /// sampled at keys follows the curve through them, not the chord.
-/// Keyforms a bake may spend on one object to sample its curves more
-/// finely (each curved span is halved once while it fits).
-const SAMPLE_BUDGET: usize = 1024;
+/// How finely a bake samples a curve: (times each curved span may be
+/// halved, keyforms the object may reach doing so). Warps and meshes carry
+/// a grid or a mesh per keyform, so they are split once; an IK chain's
+/// rotations carry a few numbers each and follow a solve that bends hard,
+/// so they are split further.
+const SAMPLING: (usize, usize) = (1, 1024);
+const IK_SAMPLING: (usize, usize) = (3, MAX_KEYFORMS);
 
 const CURVE: CurveKind = CurveKind::Ellipse { points: 4, scale: 1.0 };
 
@@ -293,8 +297,9 @@ fn mesh_world(p: &Puppet, mi: usize) -> Option<Vec<f32>> {
 /// Bring `target`'s binding to `want` (its own keys and those it borrows),
 /// with a middle key on every two-key axis so the curve has three to bend
 /// through, borrowed axes over their parameter's whole range and the curve
-/// on the borrowed axes (and on its own too when `curve_own`). Its keyform
-/// data takes the interpolated values at the new keys.
+/// on the borrowed axes (and on its own too when `curve_own`), their spans
+/// halved up to `passes` times within `budget` keyforms. Its keyform data
+/// takes the interpolated values at the new keys.
 fn widen(
     model: &Model,
     out: &mut Model,
@@ -302,6 +307,7 @@ fn widen(
     name: &str,
     want: &Axes,
     curve_own: bool,
+    (passes, budget): (usize, usize),
 ) -> Result<(), BakeError> {
     let binding = match target {
         Target::Deformer(i) => out.deformers.get(i).map(|d| &d.binding),
@@ -335,26 +341,31 @@ fn widen(
         }
         count = count.saturating_mul(keys.len().max(1));
     }
-    // then halve every curved span while the keyforms stay in budget: the
-    // curve's miss shrinks with the cube of the span
-    for (_, keys, curved) in &mut all {
-        let len = keys.len();
-        if !*curved || len < 2 {
-            continue;
-        }
-        let more = count / len * (2 * len - 1);
-        if more > SAMPLE_BUDGET {
-            continue;
-        }
-        let mut split = Vec::with_capacity(2 * len - 1);
-        for w in keys.windows(2) {
-            if let &[a, b] = w {
-                split.extend_from_slice(&[a, (a + b) * 0.5]);
+    // in parameter order, so objects that borrow the same axes (the two
+    // bones of an IK chain) split them alike
+    all.sort_by_key(|a| a.0);
+    // then halve every curved span while the keyforms stay in budget, up
+    // to `passes` times: the curve's miss shrinks with the cube of the span
+    for _ in 0..passes {
+        for (_, keys, curved) in &mut all {
+            let len = keys.len();
+            if !*curved || len < 2 {
+                continue;
             }
+            let more = count / len * (2 * len - 1);
+            if more > budget {
+                continue;
+            }
+            let mut split = Vec::with_capacity(2 * len - 1);
+            for w in keys.windows(2) {
+                if let &[a, b] = w {
+                    split.extend_from_slice(&[a, (a + b) * 0.5]);
+                }
+            }
+            split.extend(keys.last().copied());
+            *keys = split;
+            count = more;
         }
-        split.extend(keys.last().copied());
-        *keys = split;
-        count = more;
     }
     if count > MAX_KEYFORMS {
         return Err(BakeError::TooManyKeyforms { object: name.to_string(), count });
@@ -458,8 +469,12 @@ pub fn bake_bones(model: &Model) -> Result<(Model, BakeReport), BakeError> {
     }
 
     let mut out = model.clone();
-    // every axis the bake sampled, for the error sweep
+    // the rig's own keys on what the bake touches, for the error sweep
+    // (a key one object samples can sit between another's keys)
     let mut touched: Axes = Vec::new();
+    for c in &model.ik {
+        merge(&mut touched, &own_axes(&c.binding), false);
+    }
 
     for (i, d) in model.deformers.iter().enumerate() {
         let DeformerKind::Bone(b) = &d.kind else { continue };
@@ -470,10 +485,7 @@ pub fn bake_bones(model: &Model) -> Result<(Model, BakeReport), BakeError> {
             report.rotations += 1;
             if in_ik {
                 let want = driving(model, &plans, i);
-                widen(model, &mut out, target, &d.id, &want, false)?;
-                if let Some(od) = out.deformers.get(i) {
-                    merge(&mut touched, &own_axes(&od.binding), false);
-                }
+                widen(model, &mut out, target, &d.id, &want, false, IK_SAMPLING)?;
                 // the solved turn at every key
                 let (binding, count) = match out.deformers.get(i) {
                     Some(od) => (od.binding.clone(), od.binding.keyform_count()),
@@ -511,7 +523,7 @@ pub fn bake_bones(model: &Model) -> Result<(Model, BakeReport), BakeError> {
                 merge(&mut want, &axes_of(model, a), true);
             }
         }
-        widen(model, &mut out, target, &d.id, &want, true)?;
+        widen(model, &mut out, target, &d.id, &want, true, SAMPLING)?;
         let Some(dom) = domains.get(i).copied().flatten() else { continue };
         let (binding, count, opacities) = match out.deformers.get(i) {
             Some(od) => (
@@ -521,7 +533,6 @@ pub fn bake_bones(model: &Model) -> Result<(Model, BakeReport), BakeError> {
             ),
             None => continue,
         };
-        merge(&mut touched, &own_axes(&binding), false);
         let parent = d.parent_deformer.map(|p| p as usize);
         let side = (GRID + 1) as usize;
         let mut positions = Vec::with_capacity(count * side * side * 2);
@@ -697,12 +708,12 @@ pub fn bake_bones(model: &Model) -> Result<(Model, BakeReport), BakeError> {
             }
         }
         let target = Target::ArtMesh(mi);
-        widen(model, &mut out, target, &m.id, &want, false)?;
+        widen(model, &mut out, target, &m.id, &want, false, SAMPLING)?;
         let (binding, count) = match out.art_meshes.get(mi) {
             Some(om) => (om.binding.clone(), om.binding.keyform_count()),
             None => continue,
         };
-        merge(&mut touched, &own_axes(&binding), false);
+        merge(&mut touched, &own_axes(&m.binding), false);
         let len = (m.vertex_count as usize).saturating_mul(2);
         let mut positions = Vec::with_capacity(count.saturating_mul(len));
         for k in 0..count {
@@ -786,7 +797,7 @@ fn sweep(a: &Model, b: &Model, axes: &Axes) -> (f32, f32) {
             .flat_map(|w| {
                 let (lo, hi) =
                     (w.first().copied().unwrap_or(0.0), w.get(1).copied().unwrap_or(0.0));
-                [lo + (hi - lo) * 0.25, lo + (hi - lo) * 0.5, lo + (hi - lo) * 0.75]
+                [lo + (hi - lo) * 0.3, lo + (hi - lo) * 0.45, lo + (hi - lo) * 0.7]
             })
             .collect()
     };
