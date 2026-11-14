@@ -11,6 +11,7 @@
 pub mod anim;
 pub mod artpath;
 pub mod automesh;
+pub mod bake;
 pub mod bezier;
 pub mod blend;
 pub mod blendshape;
