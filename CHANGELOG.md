@@ -50,9 +50,7 @@ atlas fixes.
   meshes included, moves with it. A weighted mesh bends smoothly between the bones it is
   weighted to, and sits exactly where it was drawn when every parameter
   is at its default. Such models load and play in the runtime and in the
-  editor's viewport. moc3 export of models with bones comes next; for now
-  a moc3 or cmo3 export of a model with bones stops with a message saying
-  so.
+  editor's viewport, and export to moc3 and cmo3 (see below).
 - **Bone tools in the editor**, behind Settings > Experimental > Bones,
   which is off by default. The Bone tool draws a bone by dragging from
   its joint to its tip; starting a drag on any bone's tip or joint dot
@@ -81,6 +79,18 @@ atlas fixes.
   the Inspector. Deleting, wrapping or reordering deformers keeps every
   mesh's weights and IK on the right bones; a deleted bone's weight goes
   to the other bones of each point.
+- **Bones export to moc3 and cmo3**: a model with bones, weights and IK
+  now exports, its bones baked into what Cubism's runtimes already read.
+  A bone that turns, moves and scales evenly goes out as a rotation
+  deformer and moves exactly as it did. One that shears, scales its axes
+  apart or takes only part of its parent's frame becomes a warp in its
+  place, exact at every key. A weighted mesh goes under the deepest bone
+  all its bones share, with a keyform at every key of the bones below
+  that one, and an IK chain gets its solved turns as keyforms. Between
+  keys these follow a curve through the keys (extended interpolation, with
+  keys added where an axis has only two). The export dialog says what the
+  bones became and how far the export strays from the editor, at the keys
+  and between them. The model in the editor keeps its bones.
 - **Bones palette** (with Settings > Experimental > Bones on, beside the
   Deformer palette): every bone as its parent and child tree, filed in
   folders you name, so a rig with many bones stays easy to find your way

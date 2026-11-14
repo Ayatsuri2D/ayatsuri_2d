@@ -109,7 +109,7 @@
           <li>Draw order per key</li>
           <li>Bones in the format and the runtime</li>
           <li>Bone tools in the editor</li>
-          <li>Bones palette</li>
+          <li>Bones export to moc3 and cmo3</li>
         </ul>
       </description>
     </release>
