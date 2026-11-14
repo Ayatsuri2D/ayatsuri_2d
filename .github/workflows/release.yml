@@ -25,8 +25,8 @@ env:
 jobs:
   linux:
     name: Linux x86_64 (tar.gz, deb, rpm, AppImage)
-    # oldest supported runner, so the binaries run on newer glibc too
-    runs-on: ubuntu-22.04
+    # the current Ubuntu runner (glibc 2.39): binaries need that glibc or newer
+    runs-on: ubuntu-latest
     environment: release-signing
     steps:
       - uses: actions/checkout@v4
@@ -60,7 +60,7 @@ jobs:
   windows:
     name: Windows x64 (setup.exe, zip)
     # cross-built with mingw, the same way as on a Linux dev box
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
@@ -101,14 +101,14 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - { label: linux-x64, os: ubuntu-22.04, args: "" }
-          - { label: linux-arm64, os: ubuntu-22.04-arm, args: "" }
+          - { label: linux-x64, os: ubuntu-latest, args: "" }
+          - { label: linux-arm64, os: ubuntu-24.04-arm, args: "" }
           # MSVC, what Unity, Unreal and Visual Studio projects link against
           - { label: windows-x64, os: windows-latest, args: "" }
           - { label: macos-universal, os: macos-latest, args: "--target aarch64-apple-darwin --target x86_64-apple-darwin", targets: "aarch64-apple-darwin, x86_64-apple-darwin" }
           # for the Unity package: Android phones and iOS, built with each
           # platform's own toolchain
-          - { label: android-arm64, os: ubuntu-22.04, args: "--target aarch64-linux-android", targets: aarch64-linux-android }
+          - { label: android-arm64, os: ubuntu-latest, args: "--target aarch64-linux-android", targets: aarch64-linux-android }
           - { label: ios-arm64, os: macos-latest, args: "--target aarch64-apple-ios", targets: aarch64-apple-ios }
     runs-on: ${{ matrix.os }}
     steps:

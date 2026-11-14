@@ -10,7 +10,7 @@
 # Formats whose tool is missing are skipped with a note, so a plain dev box still gets the tar.
 # With RPM_SIGNING_KEY set (a file holding the release key's private half) the .rpm is signed;
 # nfpm reads the passphrase from NFPM_RPM_PASSPHRASE.
-# Build on an old distro (CI: Ubuntu 22.04, glibc 2.35) so the binaries run on newer ones.
+# Built on CI's current Ubuntu runner (24.04, glibc 2.39): the binaries need glibc 2.39 or newer.
 set -euo pipefail
 . "$(dirname "${BASH_SOURCE[0]}")/../env.sh"
 HERE="$ROOT/packaging/linux"
