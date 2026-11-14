@@ -108,7 +108,7 @@ then `rpm --checksig` on the file.
 
 | | Minimum | Recommended |
 |---|---|---|
-| **OS** | Windows 10 64-bit, macOS 11, or Linux x86_64 (glibc 2.35+) | same |
+| **OS** | Windows 10 64-bit, macOS 11, or Linux x86_64 (glibc 2.39+) | same |
 | **CPU** | 2 cores, 64-bit | 4 cores or more |
 | **Memory** | 1 GB free | 2 GB or more for very large models |
 | **Graphics** | integrated graphics with OpenGL 3.3, Vulkan, DirectX 12 or Metal | any dedicated GPU |

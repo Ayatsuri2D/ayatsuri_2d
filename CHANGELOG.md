@@ -176,6 +176,9 @@ atlas fixes.
 
 ### Changed
 
+- Linux downloads are built on Ubuntu 24.04 and need glibc 2.39 or newer
+  (Ubuntu 24.04, Debian 13, Fedora 40 and later). Ubuntu 22.04, Mint 21
+  and Debian 12 can build from source.
 - CONTRIBUTING.md: AI tools may be used for code too. Every contribution
   is reviewed, can be turned down, and should say which parts an AI tool
   wrote.
