@@ -108,7 +108,11 @@ pub const VTS_NOTE: &str = "5.3 is not compatible with VTube Studio or OpenVT ye
 pub fn export_warnings(model: &Model, version: ExportVersion) -> Vec<String> {
     let mut out = Vec::new();
     if has_bones(model) {
-        out.push(BONES_NOT_EXPORTED.to_string());
+        // the bake runs here as it will on export, to say how close it is
+        out.push(match ayatsuri_core::bake::bake_bones(model) {
+            Ok((_, report)) => report.line(model.canvas.pixels_per_unit),
+            Err(e) => e.to_string(),
+        });
     }
     if version.max_slot() < 101 {
         let quads = model
@@ -470,36 +474,44 @@ impl Bindings {
     }
 }
 
-/// Why a model with bones does not export yet.
-pub const BONES_NOT_EXPORTED: &str = "bones are not exported to moc3 yet";
+/// A bone the bake left behind, which never happens: the writers refuse it
+/// rather than write something no runtime reads.
+pub const BONE_NOT_BAKED: &str = "a bone was not baked";
 
-/// Whether the model has bones or bone weights, which moc3 and cmo3
-/// export cannot carry yet.
+/// Whether the model has bones, bone weights or IK, which moc3 and cmo3
+/// carry as the native objects `ayatsuri_core::bake` turns them into.
 pub fn has_bones(model: &Model) -> bool {
-    model.deformers.iter().any(|d| d.kind.is_bone())
-        || !model.ik.is_empty()
-        || model.art_meshes.iter().any(|m| m.skin.as_ref().is_some_and(|s| !s.weights.is_empty()))
+    ayatsuri_core::bake::has_bones(model)
+}
+
+/// The model as moc3 and cmo3 export write it: bones baked to native
+/// objects (see `ayatsuri_core::bake`), then extended interpolation as
+/// plain keys along its curve, the way Cubism hands it to the runtime.
+/// None when there is nothing to change.
+pub(crate) fn export_copy(model: &Model) -> Result<Option<Model>, ImportError> {
+    let mut copy = if has_bones(model) {
+        let (m, report) = ayatsuri_core::bake::bake_bones(model).map_err(|e| err(e.to_string()))?;
+        log::info!("export: {}", report.line(model.canvas.pixels_per_unit));
+        for n in &report.notes {
+            log::info!("export: {n}");
+        }
+        Some(m)
+    } else {
+        None
+    };
+    if ayatsuri_core::edit::has_curves(copy.as_ref().unwrap_or(model)) {
+        let m = copy.get_or_insert_with(|| model.clone());
+        ayatsuri_core::edit::bake_curves(m);
+    }
+    Ok(copy)
 }
 
 /// Serialize the model as a `.moc3` of the chosen revision.
 pub fn to_moc3(model: &Model, version: ExportVersion) -> Result<Vec<u8>, ImportError> {
-    // the bake will go here: a plain bone becomes a rotation deformer, but
-    // one that shears or scales its axes unevenly has no rotation deformer
-    // to become, so it and what it holds rigidly bake to a warp instead
-    if has_bones(model) {
-        return Err(err(BONES_NOT_EXPORTED));
-    }
-    // extended interpolation goes out as plain keys along its curve, the
-    // way Cubism hands it to the runtime
-    let baked;
-    let model = if ayatsuri_core::edit::has_curves(model) {
-        let mut m = model.clone();
-        ayatsuri_core::edit::bake_curves(&mut m);
-        baked = m;
-        &baked
-    } else {
-        model
-    };
+    // bones go out as rotation deformers, warps and keyforms, extended
+    // interpolation as plain keys
+    let baked = export_copy(model)?;
+    let model = baked.as_ref().unwrap_or(model);
     let n_params = model.parameters.len();
     let n_parts = model.parts.len();
     let n_deformers = model.deformers.len();
@@ -671,7 +683,7 @@ pub fn to_moc3(model: &Model, version: ExportVersion) -> Result<Vec<u8>, ImportE
         d_kb.push(kb);
         let expected = d.binding.keyform_count();
         match &d.kind {
-            DeformerKind::Bone(_) => return Err(err(BONES_NOT_EXPORTED)),
+            DeformerKind::Bone(_) => return Err(err(BONE_NOT_BAKED)),
             DeformerKind::Warp(w) => {
                 let grid_floats = w.grid_points() * 2;
                 if w.opacities.len() != expected
@@ -755,7 +767,7 @@ pub fn to_moc3(model: &Model, version: ExportVersion) -> Result<Vec<u8>, ImportE
             let one = |v: &Vec<f32>| v.first().copied().unwrap_or(0.0);
             let off;
             match &d.kind {
-                DeformerKind::Bone(_) => return Err(err(BONES_NOT_EXPORTED)),
+                DeformerKind::Bone(_) => return Err(err(BONE_NOT_BAKED)),
                 DeformerKind::Warp(_) => {
                     off = w_opac.len() as i32;
                     for ((g, o), c) in deltas(Channel::Positions)?
@@ -2167,5 +2179,210 @@ mod tests {
         // 5.3's offset table runs to 0x16C0, past what OpenVT will skip
         assert!(ExportVersion::DEFAULT.sot_entries() * 4 + HEADER <= 0x2a0 + 0x1000);
         assert_eq!(ExportVersion::ALL[ExportVersion::default_index()], ExportVersion::V5_00);
+    }
+
+    /// A puppet with every kind of bone the bake handles: a plain chain, a
+    /// sheared bone, a mesh weighted across two bones and an IK arm.
+    fn boned() -> Model {
+        use ayatsuri_format::model::{
+            ArtMesh, BindingAxis, BoneData, Canvas, Deformer, IkConstraint, Parameter,
+            RotationData, Skin,
+        };
+        let mut model = Model::new();
+        model.canvas =
+            Canvas { pixels_per_unit: 100.0, width: 400.0, height: 400.0, ..Canvas::default() };
+        model.parameters = (0..4)
+            .map(|i| Parameter {
+                id: format!("P{i}"),
+                min: -1.0,
+                max: 1.0,
+                default: 0.0,
+                repeat: false,
+                decimals: 3,
+                blend_shape: false,
+            })
+            .collect();
+        let bone =
+            |id: &str, parent: Option<u32>, param: u32, keys: &[f32], at: (f32, f32), turn: f32| {
+                let n = keys.len();
+                Deformer {
+                    id: id.into(),
+                    parent_part: None,
+                    parent_deformer: parent,
+                    visible: true,
+                    enabled: true,
+                    binding: Binding {
+                        axes: vec![BindingAxis { parameter: param, keys: keys.to_vec() }],
+                        curves: Vec::new(),
+                    },
+                    kind: DeformerKind::Bone(BoneData::new(
+                        RotationData {
+                            base_angle: 0.0,
+                            opacities: vec![1.0; n],
+                            angles: keys.iter().map(|k| k * turn).collect(),
+                            origins_x: vec![at.0; n],
+                            origins_y: vec![at.1; n],
+                            scales: vec![1.0; n],
+                            reflect_x: vec![false; n],
+                            reflect_y: vec![false; n],
+                        },
+                        1.0,
+                    )),
+                    multiply: Vec::new(),
+                    screen: Vec::new(),
+                    blend_shapes: Vec::new(),
+                }
+            };
+        let mut sheared = bone("Shear", None, 3, &[-1.0, 1.0], (-1.0, 0.5), 20.0);
+        if let DeformerKind::Bone(b) = &mut sheared.kind {
+            b.shears_x = vec![15.0, -10.0];
+            b.scales_y = vec![0.7, 1.2];
+        }
+        let mut target = bone("Target", None, 2, &[-1.0, 0.0, 1.0], (1.2, 0.5), 0.0);
+        if let DeformerKind::Bone(b) = &mut target.kind {
+            b.rotation.origins_x = vec![0.4, 1.2, 1.4];
+        }
+        model.deformers = vec![
+            bone("Root", None, 0, &[-1.0, 0.0, 1.0], (0.2, 0.1), 30.0),
+            bone("Tip", Some(0), 1, &[-1.0, 1.0], (0.0, 1.0), 45.0),
+            sheared,
+            target,
+            bone("Arm", None, 0, &[-1.0, 0.0, 1.0], (0.0, -1.0), 10.0),
+            bone("Hand", Some(4), 1, &[-1.0, 0.0, 1.0], (0.0, 1.0), 10.0),
+        ];
+        model.ik.push(IkConstraint {
+            id: "IK".into(),
+            bones: vec![4, 5],
+            target: 3,
+            binding: Binding::default(),
+            mix: vec![1.0],
+            bend_positive: vec![true],
+        });
+        let tri = [0.1, 0.2, 0.6, -0.3, -0.4, 0.5];
+        let mesh = |id: &str, parent: Option<u32>, skin: Option<Skin>| ArtMesh {
+            id: id.into(),
+            parent_part: None,
+            parent_deformer: parent,
+            visible: true,
+            enabled: true,
+            texture: 0,
+            flags: 0,
+            blend: Default::default(),
+            vertex_count: 3,
+            uvs: vec![0.0; 6],
+            indices: vec![0, 1, 2],
+            masks: vec![],
+            clip_group: None,
+            clip_inherit: false,
+            binding: Binding::default(),
+            opacities: vec![1.0],
+            draw_orders: vec![500.0],
+            positions: tri.to_vec(),
+            blend_shapes: Vec::new(),
+            multiply: Vec::new(),
+            screen: Vec::new(),
+            skin,
+        };
+        let weights = Skin::from_pairs([&[(1u32, 1.0f32)][..], &[(0, 0.5), (1, 0.5)], &[(0, 1.0)]]);
+        model.art_meshes = vec![
+            mesh("Rigid", Some(1), None),
+            mesh("Weighted", None, Some(weights)),
+            mesh("Sheared", Some(2), None),
+            mesh("Hand", Some(5), None),
+        ];
+        model
+    }
+
+    #[test]
+    fn bones_export_baked_and_read_back_as_they_pose() {
+        let model = boned();
+        let line = export_warnings(&model, ExportVersion::DEFAULT).join(" ");
+        assert!(
+            line.contains("bones baked: 5 to rotation deformers, 1 to warps, 1 weighted"),
+            "{line}"
+        );
+        let look = |m: &Model, v: &[f32]| {
+            let mut p = ayatsuri_core::Puppet::new(m.clone());
+            for (i, &x) in v.iter().enumerate() {
+                p.set_value(i, x);
+            }
+            p.update();
+            (0..m.art_meshes.len())
+                .flat_map(|i| p.mesh_drawn_positions(i).unwrap())
+                .collect::<Vec<f32>>()
+        };
+        let worst = |a: &[f32], b: &[f32]| {
+            a.iter().zip(b).map(|(x, y)| (x - y).abs()).fold(0.0f32, f32::max)
+        };
+        for version in [ExportVersion::V4_00, ExportVersion::V5_00, ExportVersion::V5_03] {
+            let back = crate::moc3::from_moc3(&to_moc3(&model, version).unwrap()).unwrap();
+            assert!(back.deformers.iter().all(|d| !d.kind.is_bone()));
+            let (mut at, mut between) = (0.0f32, 0.0f32);
+            let keys = [-1.0, 0.0, 1.0];
+            let mids = [-0.7, -0.35, 0.2, 0.55, 0.85];
+            for set in [&keys[..], &mids[..]] {
+                for &a in set {
+                    for &b in set {
+                        for &c in set {
+                            for &d in set {
+                                let v = [a, b, c, d];
+                                let e = worst(&look(&model, &v), &look(&back, &v));
+                                if set.len() == 3 {
+                                    at = at.max(e)
+                                } else {
+                                    between = between.max(e)
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            eprintln!("moc3 {}: worst {at:.2e} at keys, {between:.2e} between", version.label());
+            assert!(at < 1e-4, "{at}");
+            // the arm's target goes out of reach, where the chain
+            // straightens with a kink no curve through the keys follows
+            assert!(between < 1.5e-2, "{between}");
+        }
+    }
+
+    /// For the reference core: `AYATSURI_BONES_OUT=/dir cargo test -p
+    /// ayatsuri-import write_the_boned_export -- --ignored` writes the boned
+    /// model as `boned.moc3` (5.0), the poses a probe sets (`poses.txt`,
+    /// one line of parameter values each, the 81 at keys first) and where
+    /// the editor draws every vertex at them (`expected.txt`).
+    #[test]
+    #[ignore]
+    fn write_the_boned_export_for_the_reference_core() {
+        let Ok(dir) = std::env::var("AYATSURI_BONES_OUT") else { return };
+        let dir = std::path::Path::new(&dir);
+        let model = boned();
+        std::fs::write(dir.join("boned.moc3"), to_moc3(&model, ExportVersion::V5_00).unwrap())
+            .unwrap();
+        let (mut poses, mut expected) = (String::new(), String::new());
+        let mut p = ayatsuri_core::Puppet::new(model.clone());
+        for set in [&[-1.0f32, 0.0, 1.0][..], &[-0.7, -0.35, 0.2, 0.55, 0.85][..]] {
+            for &a in set {
+                for &b in set {
+                    for &c in set {
+                        for &d in set {
+                            let v = [a, b, c, d];
+                            for (i, &x) in v.iter().enumerate() {
+                                p.set_value(i, x);
+                            }
+                            p.update();
+                            poses.push_str(&format!("{a} {b} {c} {d}\n"));
+                            for mi in 0..model.art_meshes.len() {
+                                for x in p.mesh_drawn_positions(mi).unwrap() {
+                                    expected.push_str(&format!("{x} "));
+                                }
+                            }
+                            expected.push('\n');
+                        }
+                    }
+                }
+            }
+        }
+        std::fs::write(dir.join("poses.txt"), poses).unwrap();
+        std::fs::write(dir.join("expected.txt"), expected).unwrap();
     }
 }
