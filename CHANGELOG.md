@@ -130,6 +130,11 @@ atlas fixes.
 
 ### Fixed
 
+- Physics made in the editor works in VTube Studio. A new physics rig had
+  no gravity set, and the physics file went out with gravity (0, 0);
+  runtimes that pull pendulums along gravity then held every output at
+  one end, so hair sat swept to the side and never swung. A rig with no
+  gravity now goes out pulling straight down, as Cubism's do.
 - Export as cmo3 works for a model with no physics. The check run on
   every written project wanted a physics setting selected, so a project
   without one was refused before it was saved.
