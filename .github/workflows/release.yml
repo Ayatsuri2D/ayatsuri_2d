@@ -135,7 +135,9 @@ jobs:
           cd target/sdk
           NAME=$(ls)
           if [ "${{ runner.os }}" = Windows ]; then
-            tar -a -c -f "../../dist/release/$NAME.zip" "$NAME"
+            # Windows' own tar (bsdtar) writes a zip; Git Bash's GNU tar
+            # would write a plain tar under the .zip name
+            /c/Windows/System32/tar.exe -a -c -f "../../dist/release/$NAME.zip" "$NAME"
           else
             tar -czf "../../dist/release/$NAME.tar.gz" "$NAME"
           fi
