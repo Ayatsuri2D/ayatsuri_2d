@@ -89,7 +89,9 @@ atlas fixes.
   that one, and an IK chain gets its solved turns as keyforms, sampled
   closely. Between keys the warps and meshes follow a curve through the
   keys (extended interpolation, with keys added where an axis has only
-  two). The export dialog says what the
+  two). Bones keyed on a blend shape parameter move their weighted meshes
+  too: the mesh gets a blend shape on that parameter, exact at the bones'
+  keys, with keys added between them. The export dialog says what the
   bones became and how far the export strays from the editor, at the keys
   and between them. The model in the editor keeps its bones.
 - **Bones palette** (with Settings > Experimental > Bones on, beside the
