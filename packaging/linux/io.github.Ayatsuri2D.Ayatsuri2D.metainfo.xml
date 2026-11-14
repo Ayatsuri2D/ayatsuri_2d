@@ -98,7 +98,7 @@
     <keyword>animation</keyword>
   </keywords>
   <releases>
-    <release version="0.6.2" date="2026-11-11">
+    <release version="0.6.2" date="2026-11-14">
       <url type="details">https://github.com/Ayatsuri2D/ayatsuri_2d/releases/tag/v0.6.2</url>
       <description>
         <p>Bones, behind Settings &gt; Experimental &gt; Bones: weighted bones with painting, auto weights, IK, a Bones palette with folders and armatures in the Deformer palette. Also a Unity package, Revert to Original, draw order per key, smoother deform paths, the stroke pen out of Experimental, packaging recipes for Linux distributions, and a run of export and texture atlas fixes.</p>
