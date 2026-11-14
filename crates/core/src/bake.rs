@@ -31,13 +31,24 @@ pub const MAX_KEYFORMS: usize = 4096;
 
 /// Extended interpolation on the axes a bake samples: rotation-like motion
 /// sampled at keys follows the curve through them, not the chord.
-/// How finely a bake samples a curve: (times each curved span may be
-/// halved, keyforms the object may reach doing so). Warps and meshes carry
-/// a grid or a mesh per keyform, so they are split once; an IK chain's
-/// rotations carry a few numbers each and follow a solve that bends hard,
-/// so they are split further.
-const SAMPLING: (usize, usize) = (1, 1024);
-const IK_SAMPLING: (usize, usize) = (3, MAX_KEYFORMS);
+/// How finely a bake samples: how many times each sampled span may be
+/// halved, and the keyforms export may write for the object doing so.
+/// Warps and meshes carry a grid or a mesh per keyform, so they are split
+/// once and follow the curve between keys; an IK chain's rotations carry a
+/// few numbers each and follow a solve that bends hard, so they are split
+/// further and blend straight between keys exactly sampled instead.
+const SAMPLING: Sampling = Sampling { passes: 1, budget: 1024, curve: true };
+const IK_SAMPLING: Sampling = Sampling { passes: 4, budget: MAX_KEYFORMS, curve: false };
+
+/// See [`SAMPLING`].
+#[derive(Clone, Copy)]
+struct Sampling {
+    passes: usize,
+    budget: usize,
+    /// Extended interpolation on the sampled axes; without it they blend
+    /// straight between keys sampled closely enough not to need it.
+    curve: bool,
+}
 
 const CURVE: CurveKind = CurveKind::Ellipse { points: 4, scale: 1.0 };
 
@@ -297,9 +308,12 @@ fn mesh_world(p: &Puppet, mi: usize) -> Option<Vec<f32>> {
 /// Bring `target`'s binding to `want` (its own keys and those it borrows),
 /// with a middle key on every two-key axis so the curve has three to bend
 /// through, borrowed axes over their parameter's whole range and the curve
-/// on the borrowed axes (and on its own too when `curve_own`), their spans
-/// halved up to `passes` times within `budget` keyforms. Its keyform data
-/// takes the interpolated values at the new keys.
+/// on the borrowed axes (and on its own too when `curve_own`) when `how`
+/// asks for it, their spans
+/// halved up to `passes` times while export writes at most `budget`
+/// keyforms for it. Its keyform data takes the interpolated values at the
+/// new keys. True when some axes had to go without the curve to fit
+/// [`MAX_KEYFORMS`].
 fn widen(
     model: &Model,
     out: &mut Model,
@@ -307,8 +321,8 @@ fn widen(
     name: &str,
     want: &Axes,
     curve_own: bool,
-    (passes, budget): (usize, usize),
-) -> Result<(), BakeError> {
+    how: Sampling,
+) -> Result<bool, BakeError> {
     let binding = match target {
         Target::Deformer(i) => out.deformers.get(i).map(|d| &d.binding),
         Target::ArtMesh(i) => out.art_meshes.get(i).map(|m| &m.binding),
@@ -341,41 +355,63 @@ fn widen(
         }
         count = count.saturating_mul(keys.len().max(1));
     }
+    if count > MAX_KEYFORMS {
+        return Err(BakeError::TooManyKeyforms { object: name.to_string(), count });
+    }
     // in parameter order, so objects that borrow the same axes (the two
     // bones of an IK chain) split them alike
     all.sort_by_key(|a| a.0);
+    // the keyforms export writes: a curve carries `points` more keys in
+    // every span of its axis
+    let written = |all: &Axes| {
+        all.iter().fold(1usize, |acc, (_, keys, curved)| {
+            let len = keys.len().max(1);
+            let len = if how.curve && *curved && len >= 3 {
+                (len - 1).saturating_mul(usize::from(CURVE.points()) + 1) + 1
+            } else {
+                len
+            };
+            acc.saturating_mul(len)
+        })
+    };
+    // too many to carry the curves at all: the longest axes go straight
+    let mut straight = false;
+    while written(&all) > MAX_KEYFORMS {
+        let longest = all.iter_mut().filter(|a| a.2).max_by_key(|a| a.1.len());
+        let Some(a) = longest else { break };
+        a.2 = false;
+        straight = true;
+    }
     // then halve every curved span while the keyforms stay in budget, up
     // to `passes` times: the curve's miss shrinks with the cube of the span
-    for _ in 0..passes {
-        for (_, keys, curved) in &mut all {
-            let len = keys.len();
-            if !*curved || len < 2 {
+    for _ in 0..how.passes {
+        for at in 0..all.len() {
+            let Some((_, keys, true)) = all.get(at) else { continue };
+            if keys.len() < 2 {
                 continue;
             }
-            let more = count / len * (2 * len - 1);
-            if more > budget {
-                continue;
-            }
-            let mut split = Vec::with_capacity(2 * len - 1);
+            let mut split = Vec::with_capacity(2 * keys.len() - 1);
             for w in keys.windows(2) {
                 if let &[a, b] = w {
                     split.extend_from_slice(&[a, (a + b) * 0.5]);
                 }
             }
             split.extend(keys.last().copied());
-            *keys = split;
-            count = more;
+            let mut tried = all.clone();
+            if let Some(slot) = tried.get_mut(at) {
+                slot.1 = split;
+            }
+            if written(&tried) <= how.budget {
+                all = tried;
+            }
         }
-    }
-    if count > MAX_KEYFORMS {
-        return Err(BakeError::TooManyKeyforms { object: name.to_string(), count });
     }
     for (p, keys, borrowed) in &all {
         if keys.is_empty() {
             continue;
         }
         edit::add_keys(out, target, *p as usize, keys);
-        if *borrowed {
+        if *borrowed && how.curve {
             let binding = match target {
                 Target::Deformer(i) => out.deformers.get_mut(i).map(|d| &mut d.binding),
                 Target::ArtMesh(i) => out.art_meshes.get_mut(i).map(|m| &mut m.binding),
@@ -389,7 +425,7 @@ fn widen(
             }
         }
     }
-    Ok(())
+    Ok(straight)
 }
 
 /// A bone a rotation deformer can stand in for: no shear and its y axis
@@ -485,7 +521,11 @@ pub fn bake_bones(model: &Model) -> Result<(Model, BakeReport), BakeError> {
             report.rotations += 1;
             if in_ik {
                 let want = driving(model, &plans, i);
-                widen(model, &mut out, target, &d.id, &want, false, IK_SAMPLING)?;
+                if widen(model, &mut out, target, &d.id, &want, false, IK_SAMPLING)? {
+                    report
+                        .notes
+                        .push(format!("{}: too many keys for the curve on some axes", d.id));
+                }
                 // the solved turn at every key
                 let (binding, count) = match out.deformers.get(i) {
                     Some(od) => (od.binding.clone(), od.binding.keyform_count()),
@@ -523,7 +563,9 @@ pub fn bake_bones(model: &Model) -> Result<(Model, BakeReport), BakeError> {
                 merge(&mut want, &axes_of(model, a), true);
             }
         }
-        widen(model, &mut out, target, &d.id, &want, true, SAMPLING)?;
+        if widen(model, &mut out, target, &d.id, &want, true, SAMPLING)? {
+            report.notes.push(format!("{}: too many keys for the curve on some axes", d.id));
+        }
         let Some(dom) = domains.get(i).copied().flatten() else { continue };
         let (binding, count, opacities) = match out.deformers.get(i) {
             Some(od) => (
@@ -708,7 +750,9 @@ pub fn bake_bones(model: &Model) -> Result<(Model, BakeReport), BakeError> {
             }
         }
         let target = Target::ArtMesh(mi);
-        widen(model, &mut out, target, &m.id, &want, false, SAMPLING)?;
+        if widen(model, &mut out, target, &m.id, &want, false, SAMPLING)? {
+            report.notes.push(format!("{}: too many keys for the curve on some axes", m.id));
+        }
         let (binding, count) = match out.art_meshes.get(mi) {
             Some(om) => (om.binding.clone(), om.binding.keyform_count()),
             None => continue,

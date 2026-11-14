@@ -2341,7 +2341,48 @@ mod tests {
             assert!(at < 1e-4, "{at}");
             // the arm's target goes out of reach, where the chain
             // straightens with a kink no curve through the keys follows
-            assert!(between < 3e-2, "{between}");
+            assert!(between < 1.5e-2, "{between}");
         }
+    }
+
+    /// For the reference core: `AYATSURI_BONES_OUT=/dir cargo test -p
+    /// ayatsuri-import write_the_boned_export -- --ignored` writes the boned
+    /// model as `boned.moc3` (5.0), the poses a probe sets (`poses.txt`,
+    /// one line of parameter values each, the 81 at keys first) and where
+    /// the editor draws every vertex at them (`expected.txt`).
+    #[test]
+    #[ignore]
+    fn write_the_boned_export_for_the_reference_core() {
+        let Ok(dir) = std::env::var("AYATSURI_BONES_OUT") else { return };
+        let dir = std::path::Path::new(&dir);
+        let model = boned();
+        std::fs::write(dir.join("boned.moc3"), to_moc3(&model, ExportVersion::V5_00).unwrap())
+            .unwrap();
+        let (mut poses, mut expected) = (String::new(), String::new());
+        let mut p = ayatsuri_core::Puppet::new(model.clone());
+        for set in [&[-1.0f32, 0.0, 1.0][..], &[-0.7, -0.35, 0.2, 0.55, 0.85][..]] {
+            for &a in set {
+                for &b in set {
+                    for &c in set {
+                        for &d in set {
+                            let v = [a, b, c, d];
+                            for (i, &x) in v.iter().enumerate() {
+                                p.set_value(i, x);
+                            }
+                            p.update();
+                            poses.push_str(&format!("{a} {b} {c} {d}\n"));
+                            for mi in 0..model.art_meshes.len() {
+                                for x in p.mesh_drawn_positions(mi).unwrap() {
+                                    expected.push_str(&format!("{x} "));
+                                }
+                            }
+                            expected.push('\n');
+                        }
+                    }
+                }
+            }
+        }
+        std::fs::write(dir.join("poses.txt"), poses).unwrap();
+        std::fs::write(dir.join("expected.txt"), expected).unwrap();
     }
 }
