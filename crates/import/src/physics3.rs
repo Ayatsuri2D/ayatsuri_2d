@@ -192,6 +192,13 @@ pub fn to_physics3(rig: &ayatsuri_format::model::PhysicsRig) -> Vec<u8> {
             })
         })
         .collect();
+    // runtimes pull every pendulum along gravity and measure output angles
+    // from it: none at all (a rig made with no gravity set) pins the outputs
+    // at an end, so it goes out as Cubism's own straight down
+    let (gx, gy) = match (rig.gravity_x, rig.gravity_y) {
+        (x, y) if x.is_finite() && y.is_finite() && x.hypot(y) > 1e-6 => (x, y),
+        _ => (0.0, -1.0),
+    };
     let doc = json!({
         "Version": 3,
         "Meta": {
@@ -201,7 +208,7 @@ pub fn to_physics3(rig: &ayatsuri_format::model::PhysicsRig) -> Vec<u8> {
             "VertexCount": rig.groups.iter().map(|g| g.nodes.len()).sum::<usize>(),
             "Fps": if rig.fps > 0.0 { rig.fps } else { 60.0 },
             "EffectiveForces": {
-                "Gravity": {"X": rig.gravity_x, "Y": rig.gravity_y},
+                "Gravity": {"X": gx, "Y": gy},
                 "Wind": {"X": rig.wind_x, "Y": rig.wind_y},
             },
             "PhysicsDictionary": rig.groups.iter().map(|g| json!({
@@ -361,5 +368,13 @@ mod cubism_json_tests {
         assert!(!text.contains("\"Weight\": 100.0"), "{text}");
         let first_key = text.find("\"Version\"").unwrap();
         assert!(first_key < text.find("\"Meta\"").unwrap());
+    }
+
+    #[test]
+    fn a_rig_with_no_gravity_goes_out_pulling_down() {
+        let rig = ayatsuri_format::model::PhysicsRig::default();
+        assert_eq!((rig.gravity_x, rig.gravity_y), (0.0, 0.0));
+        let back = from_physics3(&to_physics3(&rig)).unwrap();
+        assert_eq!((back.gravity_x, back.gravity_y), (0.0, -1.0));
     }
 }
