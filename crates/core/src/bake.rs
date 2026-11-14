@@ -17,7 +17,7 @@
 //! Every deformer keeps its index, so nothing that points at one moves.
 
 use ayatsuri_format::model::{
-    AxisCurve, Binding, CurveKind, DeformerKind, Inherit, Model, WarpData,
+    AxisCurve, Binding, BlendShape, CurveKind, DeformerKind, Inherit, Model, WarpData, WeightLimit,
 };
 
 use crate::deform::Affine;
@@ -57,6 +57,10 @@ const CURVE: CurveKind = CurveKind::Ellipse { points: 4, scale: 1.0 };
 /// grid and out, so the grid only needs enough points to bend smoothly
 /// between keys.
 const GRID: u32 = 2;
+
+/// Spans each span of a bone's blend shape is split into when it moves a
+/// weighted mesh: the mesh's blend shape goes straight between its keys.
+const SHAPE_SPLIT: usize = 4;
 
 /// What a bake did, for the export report.
 #[derive(Debug, Clone, Default, PartialEq)]
@@ -511,6 +515,14 @@ pub fn bake_bones(model: &Model) -> Result<(Model, BakeReport), BakeError> {
     for c in &model.ik {
         merge(&mut touched, &own_axes(&c.binding), false);
     }
+    // and the blend shapes on bones, with their base key at 0
+    for d in model.deformers.iter().filter(|d| d.kind.is_bone()) {
+        for s in &d.blend_shapes {
+            let mut keys = s.keys.clone();
+            keys.push(0.0);
+            merge(&mut touched, &vec![(s.parameter, keys, false)], false);
+        }
+    }
 
     for (i, d) in model.deformers.iter().enumerate() {
         let DeformerKind::Bone(b) = &d.kind else { continue };
@@ -793,6 +805,83 @@ pub fn bake_bones(model: &Model) -> Result<(Model, BakeReport), BakeError> {
                 .notes
                 .push(format!("{}: its blend shapes follow its bones as they sit at rest", m.id));
         }
+        // the blend shapes of the bones below the new parent move the mesh
+        // too: each parameter they key becomes a blend shape of the mesh,
+        // its forms the mesh posed at every key the bones (and the mesh's
+        // own shape there) hold, so the runtime adds the same motion
+        let mut bone_shapes: Vec<(u32, Vec<f32>, Vec<WeightLimit>)> = Vec::new();
+        for p in &paths {
+            for &e in p.get(below..).unwrap_or(&[]) {
+                let Some(d) = model.deformers.get(e as usize) else { continue };
+                for s in &d.blend_shapes {
+                    match bone_shapes.iter_mut().find(|b| b.0 == s.parameter) {
+                        Some(b) => b.1.extend_from_slice(&s.keys),
+                        None => bone_shapes.push((s.parameter, s.keys.clone(), s.limits.clone())),
+                    }
+                }
+            }
+        }
+        for (param, mut keys, limits) in bone_shapes {
+            let own = shapes.iter().position(|s| s.parameter == param);
+            if let Some(s) = own.and_then(|o| m.blend_shapes.get(o)) {
+                keys.extend_from_slice(&s.keys);
+            }
+            keys.push(0.0);
+            keys.sort_by(f32::total_cmp);
+            keys.dedup_by(|a, b| (*a - *b).abs() < 1e-5);
+            // a blend shape goes straight between its keys where the bones
+            // turn on an arc: keys inside every span, the base key's too,
+            // keep the chord close
+            let mut keys: Vec<f32> = keys
+                .windows(2)
+                .flat_map(|w| {
+                    let (lo, hi) =
+                        (w.first().copied().unwrap_or(0.0), w.get(1).copied().unwrap_or(0.0));
+                    (0..SHAPE_SPLIT).map(move |i| lo + (hi - lo) * i as f32 / SHAPE_SPLIT as f32)
+                })
+                .chain(keys.last().copied())
+                .collect();
+            keys.retain(|k| k.abs() > 1e-6);
+            if keys.is_empty() {
+                continue;
+            }
+            let mut forms = Vec::with_capacity(keys.len().saturating_mul(len));
+            for &v in &keys {
+                set_pose(&mut orig, &defaults, &[(param, v)]);
+                let world = mesh_world(&orig, mi).unwrap_or_else(|| vec![0.0; len]);
+                let (pairs, _) = world.as_chunks::<2>();
+                for q in pairs {
+                    let (x, y) = into_parent(&orig, &domains, parent, (q[0], q[1]));
+                    forms.extend_from_slice(&[x, y]);
+                }
+            }
+            match own.and_then(|o| shapes.get_mut(o)) {
+                // the mesh's own shape on the same parameter is in the forms
+                // already; its other channels stay when its keys did
+                Some(s) if s.keys == keys => s.positions = forms,
+                Some(s) => {
+                    report.notes.push(format!(
+                        "{}: its own blend shape keys moved to its bones', its opacity and colour there dropped",
+                        m.id
+                    ));
+                    *s = BlendShape {
+                        parameter: param,
+                        keys,
+                        positions: forms,
+                        limits,
+                        ..BlendShape::default()
+                    };
+                }
+                None => shapes.push(BlendShape {
+                    parameter: param,
+                    keys,
+                    positions: forms,
+                    limits,
+                    ..BlendShape::default()
+                }),
+            }
+        }
+        set_pose(&mut orig, &defaults, &[]);
         if let Some(om) = out.art_meshes.get_mut(mi) {
             om.positions = positions;
             om.blend_shapes = shapes;
@@ -883,8 +972,8 @@ fn sweep(a: &Model, b: &Model, axes: &Axes) -> (f32, f32) {
 #[cfg(test)]
 mod tests {
     use ayatsuri_format::model::{
-        ArtMesh, Binding, BindingAxis, BoneData, Deformer, DeformerKind, IkConstraint, Model,
-        Parameter, RotationData, Skin, WarpData,
+        ArtMesh, Binding, BindingAxis, BlendShape, BoneData, Deformer, DeformerKind, IkConstraint,
+        Model, Parameter, RotationData, Skin, WarpData,
     };
 
     use super::bake_bones;
@@ -1182,6 +1271,62 @@ mod tests {
         assert_eq!(out.art_meshes[0].parent_deformer, None);
         assert!(k < 1e-4, "{k}");
         assert!(b < 1e-2, "{b}");
+    }
+
+    /// A bone keyed on a blend shape parameter only: no binding, a blend
+    /// shape turning it.
+    fn shaped_bone(
+        parent: Option<u32>,
+        origin: (f32, f32),
+        keys: &[f32],
+        turns: &[f32],
+    ) -> Deformer {
+        let mut d = bone(parent, 0, &[0.0], origin, 0.0);
+        d.binding = Binding::default();
+        let n = keys.len();
+        d.blend_shapes = vec![BlendShape {
+            parameter: 2,
+            keys: keys.to_vec(),
+            opacities: vec![1.0; n],
+            angles: turns.to_vec(),
+            origins_x: vec![origin.0; n],
+            origins_y: vec![origin.1; n],
+            scales: vec![1.0; n],
+            ..BlendShape::default()
+        }];
+        d
+    }
+
+    #[test]
+    fn bones_on_a_blend_shape_move_their_weighted_mesh() {
+        let mut m = model(
+            vec![
+                shaped_bone(None, (0.2, 0.1), &[-1.0, 0.5, 1.0], &[10.0, -6.0, 4.0]),
+                shaped_bone(Some(0), (0.0, 1.0), &[-1.0, 0.5, 1.0], &[30.0, -20.0, -45.0]),
+            ],
+            vec![mesh(
+                None,
+                TRI.to_vec(),
+                Some(skin(&[&[(1, 1.0)], &[(0, 0.5), (1, 0.5)], &[(0, 1.0)]])),
+            )],
+        );
+        m.parameters[2].blend_shape = true;
+        let (out, report) = bake_bones(&m).unwrap();
+        let mesh = &out.art_meshes[0];
+        assert_eq!(mesh.parent_deformer, Some(0));
+        assert!(mesh.blend_shapes.iter().any(|s| s.parameter == 2), "the turn reaches the mesh");
+        // the shaped parameter alone, at the bones' keys and off them
+        let along = |vs: &[f32]| -> Vec<[f32; 3]> { vs.iter().map(|&v| [0.0, 0.0, v]).collect() };
+        let k = worst(&m, &out, &along(&[-1.0, 0.0, 0.5, 1.0]));
+        let b = worst(&m, &out, &along(&[-0.6, -0.2, 0.25, 0.7, 0.9]));
+        eprintln!(
+            "shaped bones: at keys {k:.2e}, between {b:.2e}; report {} / {}",
+            report.at_keys, report.between_keys
+        );
+        assert!(k < 1e-4, "{k}");
+        assert!(b < 1e-2, "{b}");
+        // the sweep sees the shaped parameter too
+        assert!(report.between_keys > 0.0 || b == 0.0);
     }
 
     #[test]
