@@ -2,8 +2,7 @@ name: macOS test build
 
 # Run by hand (Actions > macOS test build > Run workflow) to get a macOS
 # disk image of any branch for testers. Nothing is released: the .dmg is a
-# workflow artifact that GitHub deletes after a week. macOS minutes cost
-# ten times Linux minutes on a private repo, so this only runs on request.
+# workflow artifact that GitHub deletes after a week.
 on:
   workflow_dispatch:
     inputs:
