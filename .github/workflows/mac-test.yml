@@ -1,0 +1,46 @@
+name: macOS test build
+
+# Run by hand (Actions > macOS test build > Run workflow) to get a macOS
+# disk image of any branch for testers. Nothing is released: the .dmg is a
+# workflow artifact that GitHub deletes after a week. macOS minutes cost
+# ten times Linux minutes on a private repo, so this only runs on request.
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version in the file name and the app, e.g. 0.6.3-test.1 (empty: the Cargo.toml version)"
+        required: false
+        default: ""
+      arch:
+        description: "Architectures in the app"
+        type: choice
+        options: [universal, arm64, x86_64]
+        default: universal
+
+concurrency:
+  group: mac-test-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  dmg:
+    name: macOS ${{ inputs.arch }} (dmg)
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin, x86_64-apple-darwin
+      - uses: Swatinem/rust-cache@v2
+      - name: Package
+        env:
+          AYATSURI_VERSION: ${{ inputs.version }}
+        run: packaging/macos/package.sh --arch "${{ inputs.arch }}"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ayatsuri2d-macos-${{ inputs.arch }}-${{ inputs.version || github.sha }}
+          path: dist/release/*.dmg
+          if-no-files-found: error
+          retention-days: 7
