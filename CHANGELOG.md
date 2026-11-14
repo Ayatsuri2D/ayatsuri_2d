@@ -86,9 +86,10 @@ atlas fixes.
   apart or takes only part of its parent's frame becomes a warp in its
   place, exact at every key. A weighted mesh goes under the deepest bone
   all its bones share, with a keyform at every key of the bones below
-  that one, and an IK chain gets its solved turns as keyforms. Between
-  keys these follow a curve through the keys (extended interpolation, with
-  keys added where an axis has only two). The export dialog says what the
+  that one, and an IK chain gets its solved turns as keyforms, sampled
+  closely. Between keys the warps and meshes follow a curve through the
+  keys (extended interpolation, with keys added where an axis has only
+  two). The export dialog says what the
   bones became and how far the export strays from the editor, at the keys
   and between them. The model in the editor keeps its bones.
 - **Bones palette** (with Settings > Experimental > Bones on, beside the
