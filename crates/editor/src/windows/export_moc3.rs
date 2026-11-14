@@ -188,7 +188,12 @@ impl EditorUi {
                         if let (Some(s), Some(v)) =
                             (&self.session, ayatsuri_import::ExportVersion::ALL.get(dlg.version))
                         {
-                            for w in ayatsuri_import::export_warnings(s.puppet.model(), *v) {
+                            if dlg.warnings.as_ref().is_none_or(|(at, _)| *at != dlg.version) {
+                                let w = ayatsuri_import::export_warnings(s.puppet.model(), *v);
+                                dlg.warnings = Some((dlg.version, w));
+                            }
+                            let warnings = dlg.warnings.as_ref().map(|w| w.1.clone());
+                            for w in warnings.unwrap_or_default() {
                                 let lossy = !w.starts_with("physics");
                                 ui.label(
                                     egui::RichText::new(format!(

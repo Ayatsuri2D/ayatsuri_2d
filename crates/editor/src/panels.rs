@@ -1684,6 +1684,9 @@ pub(crate) struct ExportDlg {
     pub(crate) transparent: bool,
     /// moc3: the texture pages' longer side as written, when resized.
     pub(crate) texture_size: Option<u32>,
+    /// moc3: the export warnings for a version, made once per opening
+    /// (baking the bones for its report is too slow to redo every frame).
+    pub(crate) warnings: Option<(usize, Vec<String>)>,
 }
 
 /// The New Model dialog's working copy.
@@ -8351,8 +8354,10 @@ impl EditorUi {
             jpeg: false,
             transparent: true,
             texture_size: None,
+            warnings: None,
         });
         dlg.tab = tab;
+        dlg.warnings = None;
         self.export_dlg = Some(dlg);
     }
 
