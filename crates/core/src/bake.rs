@@ -31,6 +31,10 @@ pub const MAX_KEYFORMS: usize = 4096;
 
 /// Extended interpolation on the axes a bake samples: rotation-like motion
 /// sampled at keys follows the curve through them, not the chord.
+/// Keyforms a bake may spend on one object to sample its curves more
+/// finely (each curved span is halved once while it fits).
+const SAMPLE_BUDGET: usize = 1024;
+
 const CURVE: CurveKind = CurveKind::Ellipse { points: 4, scale: 1.0 };
 
 /// Cells per side of a bone baked to a warp. The bone's map is affine at
@@ -105,8 +109,8 @@ pub fn has_bones(model: &Model) -> bool {
 }
 
 /// Keys to sample on: per parameter, its keys, and whether it is borrowed
-/// (it moves the object through something else, so it gets the curve and
-/// spans the parameter's whole range).
+/// (it moves the object through something else, so it gets the curve, and
+/// spans the parameter's whole range when the object had no axis on it).
 type Axes = Vec<(u32, Vec<f32>, bool)>;
 
 fn own_axes(binding: &Binding) -> Axes {
@@ -124,7 +128,7 @@ fn merge(into: &mut Axes, from: &Axes, borrowed: bool) {
                     }
                 }
                 a.1.sort_by(f32::total_cmp);
-                a.2 = a.2 && borrowed;
+                a.2 = a.2 || borrowed;
             }
             None => into.push((*p, keys.clone(), borrowed)),
         }
@@ -184,7 +188,7 @@ impl Domain {
         ((x - self.x0) / self.w, (y - self.y0) / self.h)
     }
 
-    fn from_unit(self, u: f32, v: f32) -> (f32, f32) {
+    fn out_of_unit(self, u: f32, v: f32) -> (f32, f32) {
         (self.x0 + u * self.w, self.y0 + v * self.h)
     }
 
@@ -304,6 +308,8 @@ fn widen(
         Target::ArtMesh(i) => out.art_meshes.get(i).map(|m| &m.binding),
         Target::Part(i) => out.parts.get(i).map(|p| &p.binding),
     };
+    let own: Vec<u32> =
+        binding.map(|b| b.axes.iter().map(|a| a.parameter).collect()).unwrap_or_default();
     let mut all = binding.map(own_axes).unwrap_or_default();
     merge(&mut all, want, false);
     let mut count = 1usize;
@@ -313,7 +319,9 @@ fn widen(
             keys.clear();
             continue;
         }
-        if *borrowed {
+        // a borrowed axis must not switch the object off where its own
+        // keys never did
+        if *borrowed && !own.contains(p) {
             for end in [param.min, param.max] {
                 if !keys.iter().any(|k| (k - end).abs() < 1e-5) {
                     keys.push(end);
@@ -321,10 +329,32 @@ fn widen(
             }
             keys.sort_by(f32::total_cmp);
         }
-        if let &[a, b] = keys.as_slice() {
+        *borrowed |= curve_own;
+        if *borrowed && let &[a, b] = keys.as_slice() {
             keys.insert(1, (a + b) * 0.5);
         }
         count = count.saturating_mul(keys.len().max(1));
+    }
+    // then halve every curved span while the keyforms stay in budget: the
+    // curve's miss shrinks with the cube of the span
+    for (_, keys, curved) in &mut all {
+        let len = keys.len();
+        if !*curved || len < 2 {
+            continue;
+        }
+        let more = count / len * (2 * len - 1);
+        if more > SAMPLE_BUDGET {
+            continue;
+        }
+        let mut split = Vec::with_capacity(2 * len - 1);
+        for w in keys.windows(2) {
+            if let &[a, b] = w {
+                split.extend_from_slice(&[a, (a + b) * 0.5]);
+            }
+        }
+        split.extend(keys.last().copied());
+        *keys = split;
+        count = more;
     }
     if count > MAX_KEYFORMS {
         return Err(BakeError::TooManyKeyforms { object: name.to_string(), count });
@@ -334,7 +364,7 @@ fn widen(
             continue;
         }
         edit::add_keys(out, target, *p as usize, keys);
-        if *borrowed || curve_own {
+        if *borrowed {
             let binding = match target {
                 Target::Deformer(i) => out.deformers.get_mut(i).map(|d| &mut d.binding),
                 Target::ArtMesh(i) => out.art_meshes.get_mut(i).map(|m| &mut m.binding),
@@ -500,7 +530,7 @@ pub fn bake_bones(model: &Model) -> Result<(Model, BakeReport), BakeError> {
             let m = rotation_map(&orig, i).unwrap_or_default();
             for r in 0..side {
                 for c in 0..side {
-                    let (x, y) = dom.from_unit(c as f32 / GRID as f32, r as f32 / GRID as f32);
+                    let (x, y) = dom.out_of_unit(c as f32 / GRID as f32, r as f32 / GRID as f32);
                     let (gx, gy) = into_parent(&orig, &domains, parent, m.apply(x, y));
                     positions.extend_from_slice(&[gx, gy]);
                 }
@@ -793,4 +823,365 @@ fn sweep(a: &Model, b: &Model, axes: &Axes) -> (f32, f32) {
         between = between.max(worst(&off));
     }
     (at, between)
+}
+
+#[cfg(test)]
+mod tests {
+    use ayatsuri_format::model::{
+        ArtMesh, Binding, BindingAxis, BoneData, Deformer, DeformerKind, IkConstraint, Model,
+        Parameter, RotationData, Skin, WarpData,
+    };
+
+    use super::bake_bones;
+    use crate::Puppet;
+
+    fn param(id: &str) -> Parameter {
+        Parameter {
+            id: id.into(),
+            min: -1.0,
+            max: 1.0,
+            default: 0.0,
+            repeat: false,
+            decimals: 3,
+            blend_shape: false,
+        }
+    }
+
+    fn axis(param: u32, keys: &[f32]) -> Binding {
+        Binding {
+            axes: vec![BindingAxis { parameter: param, keys: keys.to_vec() }],
+            curves: Vec::new(),
+        }
+    }
+
+    /// A bone at `origin` under `parent`, turning `turn` degrees per unit
+    /// of `param` at each of `keys`.
+    fn bone(
+        parent: Option<u32>,
+        param: u32,
+        keys: &[f32],
+        origin: (f32, f32),
+        turn: f32,
+    ) -> Deformer {
+        let n = keys.len();
+        let rotation = RotationData {
+            base_angle: 0.0,
+            opacities: vec![1.0; n],
+            angles: keys.iter().map(|k| k * turn).collect(),
+            origins_x: vec![origin.0; n],
+            origins_y: vec![origin.1; n],
+            scales: vec![1.0; n],
+            reflect_x: vec![false; n],
+            reflect_y: vec![false; n],
+        };
+        Deformer {
+            id: format!("B{param}_{}", origin.0),
+            parent_part: None,
+            parent_deformer: parent,
+            visible: true,
+            enabled: true,
+            binding: axis(param, keys),
+            kind: DeformerKind::Bone(BoneData::new(rotation, 1.0)),
+            multiply: Vec::new(),
+            screen: Vec::new(),
+            blend_shapes: Vec::new(),
+        }
+    }
+
+    /// A 1x1 warp over [0,2]^2 whose top edge shears sideways on `param`.
+    fn warp(param: u32) -> Deformer {
+        let mut positions = Vec::new();
+        for shear in [-0.5f32, 0.0, 0.5] {
+            positions.extend_from_slice(&[0.0, 0.0, 2.0, 0.0, shear, 2.0, 2.0 + shear, 2.0]);
+        }
+        Deformer {
+            id: "W".into(),
+            parent_part: None,
+            parent_deformer: None,
+            visible: true,
+            enabled: true,
+            binding: axis(param, &[-1.0, 0.0, 1.0]),
+            kind: DeformerKind::Warp(WarpData {
+                rows: 1,
+                cols: 1,
+                quad: true,
+                opacities: vec![1.0; 3],
+                positions,
+            }),
+            multiply: Vec::new(),
+            screen: Vec::new(),
+            blend_shapes: Vec::new(),
+        }
+    }
+
+    fn mesh(parent: Option<u32>, positions: Vec<f32>, skin: Option<Skin>) -> ArtMesh {
+        let n = positions.len() / 2;
+        ArtMesh {
+            id: format!("M{}", positions.first().copied().unwrap_or(0.0)),
+            parent_part: None,
+            parent_deformer: parent,
+            visible: true,
+            enabled: true,
+            texture: 0,
+            flags: 0,
+            blend: Default::default(),
+            vertex_count: n as u32,
+            uvs: vec![0.0; n * 2],
+            indices: vec![0, 1, 2],
+            masks: Vec::new(),
+            clip_group: None,
+            clip_inherit: false,
+            binding: Binding::default(),
+            opacities: vec![1.0],
+            draw_orders: vec![500.0],
+            positions,
+            blend_shapes: Vec::new(),
+            multiply: Vec::new(),
+            screen: Vec::new(),
+            skin,
+        }
+    }
+
+    fn model(deformers: Vec<Deformer>, meshes: Vec<ArtMesh>) -> Model {
+        let mut m = Model::new();
+        m.parameters = (0..3).map(|i| param(&format!("P{i}"))).collect();
+        m.deformers = deformers;
+        m.art_meshes = meshes;
+        m
+    }
+
+    const TRI: [f32; 6] = [0.1, 0.2, 0.6, -0.3, -0.4, 0.5];
+
+    /// Every pose with each parameter at -1, 0 or 1.
+    fn at_keys() -> Vec<[f32; 3]> {
+        const V: [f32; 3] = [-1.0, 0.0, 1.0];
+        let mut out = Vec::new();
+        for a in V {
+            for b in V {
+                for c in V {
+                    out.push([a, b, c]);
+                }
+            }
+        }
+        out
+    }
+
+    /// Poses off the keys (the bake keys two-key axes at their middle too).
+    fn between() -> Vec<[f32; 3]> {
+        const V: [f32; 4] = [-0.75, -0.3, 0.25, 0.6];
+        let mut out = Vec::new();
+        for a in V {
+            for b in V {
+                for c in V {
+                    out.push([a, b, c]);
+                }
+            }
+        }
+        out
+    }
+
+    /// The worst vertex distance between `a` and its bake over `poses`.
+    fn worst(a: &Model, b: &Model, poses: &[[f32; 3]]) -> f32 {
+        let (mut pa, mut pb) = (Puppet::new(a.clone()), Puppet::new(b.clone()));
+        let mut d = 0.0f32;
+        for v in poses {
+            for (i, &x) in v.iter().enumerate() {
+                pa.set_value(i, x);
+                pb.set_value(i, x);
+            }
+            pa.update();
+            pb.update();
+            for mi in 0..a.art_meshes.len() {
+                let (x, y) =
+                    (pa.mesh_drawn_positions(mi).unwrap(), pb.mesh_drawn_positions(mi).unwrap());
+                for (u, w) in x.iter().zip(&y) {
+                    d = d.max((u - w).abs());
+                }
+            }
+        }
+        d
+    }
+
+    /// Bake, check nothing of the bones is left, and give the worst error
+    /// at keys and between them.
+    fn bake(name: &str, m: &Model) -> (Model, f32, f32) {
+        let (out, report) = bake_bones(m).unwrap();
+        assert!(out.deformers.iter().all(|d| !d.kind.is_bone()), "{name}: a bone is left");
+        assert!(out.art_meshes.iter().all(|m| m.skin.is_none()) && out.ik.is_empty());
+        assert_eq!(out.deformers.len(), m.deformers.len());
+        let (k, b) = (worst(m, &out, &at_keys()), worst(m, &out, &between()));
+        eprintln!(
+            "{name}: at keys {k:.2e}, between {b:.2e}; report {} / {} ({:?})",
+            report.at_keys, report.between_keys, report.notes
+        );
+        (out, k, b)
+    }
+
+    fn shear(d: &mut Deformer, by: f32) {
+        let DeformerKind::Bone(b) = &mut d.kind else { panic!("bone") };
+        let n = b.rotation.angles.len();
+        b.shears_x = vec![by; n];
+        b.scales_y = vec![0.6; n];
+    }
+
+    #[test]
+    fn a_plain_bone_is_a_rotation_deformer_exactly() {
+        let m = model(
+            vec![bone(None, 0, &[-1.0, 0.0, 1.0], (0.2, 0.1), 30.0)],
+            vec![mesh(Some(0), TRI.to_vec(), None)],
+        );
+        let (out, k, b) = bake("rigid bone", &m);
+        assert!(matches!(out.deformers[0].kind, DeformerKind::Rotation(_)));
+        assert_eq!((k, b), (0.0, 0.0));
+    }
+
+    #[test]
+    fn a_chain_of_three_bakes_exactly() {
+        let m = model(
+            vec![
+                bone(None, 0, &[-1.0, 0.0, 1.0], (0.2, 0.1), 30.0),
+                bone(Some(0), 1, &[-1.0, 1.0], (0.0, 1.0), 45.0),
+                bone(Some(1), 2, &[-1.0, 0.0, 1.0], (0.0, 0.8), 20.0),
+            ],
+            vec![mesh(Some(2), TRI.to_vec(), None), mesh(Some(1), TRI.to_vec(), None)],
+        );
+        let (_, k, b) = bake("3-bone chain", &m);
+        assert_eq!((k, b), (0.0, 0.0));
+    }
+
+    #[test]
+    fn a_bone_under_a_warp_bakes_exactly() {
+        let m = model(
+            vec![warp(2), bone(Some(0), 0, &[-1.0, 0.0, 1.0], (0.5, 0.5), 30.0)],
+            vec![mesh(Some(1), TRI.to_vec(), None)],
+        );
+        let (_, k, b) = bake("bone under a warp", &m);
+        assert_eq!((k, b), (0.0, 0.0));
+    }
+
+    #[test]
+    fn a_sheared_bone_becomes_a_warp_exact_at_keys() {
+        let mut parent = bone(None, 0, &[-1.0, 1.0], (0.3, -0.2), 30.0);
+        shear(&mut parent, 15.0);
+        // a plain bone and a rotation deformer under it come along
+        let child = bone(Some(0), 1, &[-1.0, 0.0, 1.0], (0.5, 1.0), 45.0);
+        let mut rot = bone(Some(0), 2, &[-1.0, 0.0, 1.0], (-0.4, 0.6), 25.0);
+        if let DeformerKind::Bone(b) = &rot.kind {
+            rot.kind = DeformerKind::Rotation(b.rotation.clone());
+        }
+        let m = model(
+            vec![parent, child, rot],
+            vec![
+                mesh(Some(0), TRI.to_vec(), None),
+                mesh(Some(1), TRI.to_vec(), None),
+                mesh(Some(2), TRI.to_vec(), None),
+            ],
+        );
+        let (out, k, b) = bake("sheared bone", &m);
+        assert!(matches!(out.deformers[0].kind, DeformerKind::Warp(_)));
+        assert!(matches!(out.deformers[1].kind, DeformerKind::Warp(_)));
+        assert!(matches!(out.deformers[2].kind, DeformerKind::Rotation(_)));
+        assert!(k < 1e-4, "{k}");
+        assert!(b < 2e-2, "{b}");
+    }
+
+    fn skin(per_vertex: &[&[(u32, f32)]]) -> Skin {
+        Skin::from_pairs(per_vertex.iter().copied())
+    }
+
+    #[test]
+    fn a_mesh_weighted_across_a_parent_and_child_bone() {
+        let m = model(
+            vec![
+                bone(None, 0, &[-1.0, 0.0, 1.0], (0.2, 0.1), 30.0),
+                bone(Some(0), 1, &[-1.0, 1.0], (0.0, 1.0), 45.0),
+            ],
+            vec![mesh(
+                None,
+                TRI.to_vec(),
+                Some(skin(&[&[(1, 1.0)], &[(0, 0.5), (1, 0.5)], &[(0, 1.0)]])),
+            )],
+        );
+        let (out, k, b) = bake("parent and child weights", &m);
+        // under the shared bone, keyed on the child's parameter only
+        assert_eq!(out.art_meshes[0].parent_deformer, Some(0));
+        assert_eq!(out.art_meshes[0].binding.axes.len(), 1);
+        assert!(k < 1e-4, "{k}");
+        assert!(b < 1e-2, "{b}");
+    }
+
+    #[test]
+    fn a_mesh_weighted_to_two_sibling_bones() {
+        let m = model(
+            vec![
+                bone(None, 0, &[-1.0, 0.0, 1.0], (0.2, 0.1), 30.0),
+                bone(None, 1, &[-1.0, 0.0, 1.0], (-0.3, 0.4), 40.0),
+            ],
+            vec![mesh(
+                None,
+                TRI.to_vec(),
+                Some(skin(&[&[(1, 1.0)], &[(0, 0.5), (1, 0.5)], &[(0, 0.7), (1, 0.3)]])),
+            )],
+        );
+        let (out, k, b) = bake("sibling weights", &m);
+        assert_eq!(out.art_meshes[0].parent_deformer, None);
+        assert!(k < 1e-4, "{k}");
+        assert!(b < 1e-2, "{b}");
+    }
+
+    #[test]
+    fn an_ik_chain_bakes_its_solved_turns() {
+        // the target (0) moves sideways on P2; the arm (1, 2) reaches for it
+        let mut target = bone(None, 2, &[-1.0, 0.0, 1.0], (1.2, 0.5), 0.0);
+        if let DeformerKind::Bone(b) = &mut target.kind {
+            b.rotation.origins_x = vec![0.4, 1.2, 1.4];
+        }
+        let mut m = model(
+            vec![
+                target,
+                bone(None, 0, &[-1.0, 0.0, 1.0], (0.0, 0.0), 10.0),
+                bone(Some(1), 1, &[-1.0, 0.0, 1.0], (0.0, 1.0), 10.0),
+            ],
+            vec![
+                mesh(Some(1), vec![0.0, 1.0, 0.5, 0.0, 0.0, 0.5], None),
+                mesh(Some(2), vec![0.0, 1.0, 0.5, 0.0, 0.0, 0.5], None),
+            ],
+        );
+        m.ik.push(IkConstraint {
+            id: "IK".into(),
+            bones: vec![1, 2],
+            target: 0,
+            binding: Binding::default(),
+            mix: vec![1.0],
+            bend_positive: vec![true],
+        });
+        let (_, k, b) = bake("IK chain", &m);
+        assert!(k < 1e-4, "{k}");
+        assert!(b < 5e-2, "{b}");
+    }
+
+    #[test]
+    fn a_mesh_with_its_own_keyforms_and_weights() {
+        let mut weighted = mesh(
+            None,
+            TRI.to_vec(),
+            Some(skin(&[&[(1, 1.0)], &[(0, 0.4), (1, 0.6)], &[(0, 1.0)]])),
+        );
+        // the mesh stretches on P2 by itself
+        weighted.binding = axis(2, &[-1.0, 1.0]);
+        let stretched: Vec<f32> = TRI.iter().map(|v| v * 1.3).collect();
+        weighted.positions = [TRI.to_vec(), stretched].concat();
+        weighted.opacities = vec![1.0; 2];
+        weighted.draw_orders = vec![500.0; 2];
+        let m = model(
+            vec![
+                bone(None, 0, &[-1.0, 0.0, 1.0], (0.2, 0.1), 30.0),
+                bone(Some(0), 1, &[-1.0, 0.0, 1.0], (0.0, 1.0), 45.0),
+            ],
+            vec![weighted],
+        );
+        let (_, k, b) = bake("own keyforms plus weights", &m);
+        assert!(k < 1e-4, "{k}");
+        assert!(b < 1e-2, "{b}");
+    }
 }
