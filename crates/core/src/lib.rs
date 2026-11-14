@@ -1233,7 +1233,14 @@ impl Puppet {
                 {
                     // the resolved rotation stands; opacity can still fade
                     let opacity = Self::blend_scalar(&corners, &r.opacities);
-                    let scale = self.rot.get(local).map_or(1.0, |r| r.scale);
+                    // a bone's resolved scale, not the x scale its overlay
+                    // rotation keeps (they differ when its axes scale apart)
+                    let scale = match &d.kind {
+                        DeformerKind::Bone(_) => {
+                            self.bone_world.get(local).map_or(1.0, |b| b.scale)
+                        }
+                        _ => self.rot.get(local).map_or(1.0, |r| r.scale),
+                    };
                     if let Some(s) = self.def_scale.get_mut(di) {
                         *s = scale;
                     }
