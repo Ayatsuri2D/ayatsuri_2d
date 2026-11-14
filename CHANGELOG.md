@@ -128,6 +128,9 @@ atlas fixes.
 
 ### Fixed
 
+- Export as cmo3 works for a model with no physics. The check run on
+  every written project wanted a physics setting selected, so a project
+  without one was refused before it was saved.
 - The Discord invite in the app, README and code of conduct works again:
   it points at the new invite, which does not expire.
 - Meshes pasted from another project (or copied before saving and pasted

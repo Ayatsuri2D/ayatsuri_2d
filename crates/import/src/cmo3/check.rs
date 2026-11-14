@@ -47,6 +47,16 @@ impl Schema {
             "AlphaComposition".into(),
             Class { seen: 1, attrs: [("v".to_string(), 1)].into(), ..Class::default() },
         );
+        // a project with no physics settings selects none, the way the
+        // Editor leaves its other unset references null; the sample
+        // project has physics, so it never shows this
+        if let Some((_, types)) = s
+            .classes
+            .get_mut("CPhysicsSettingsSourceSet")
+            .and_then(|c| c.fields.get_mut("selectedCubismPhysics"))
+        {
+            types.insert("null".into());
+        }
         s
     }
 
