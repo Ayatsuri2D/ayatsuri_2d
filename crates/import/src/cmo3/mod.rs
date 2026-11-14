@@ -377,40 +377,7 @@ mod tests {
             .map(|v| vec![(0, 1.0 - v as f32 / n as f32), (1, v as f32 / n as f32)])
             .collect();
         blue.skin = Some(Skin::from_pairs(pairs.iter().map(Vec::as_slice)));
-        // the strict check wants a physics setting in every project
-        let node = |y: f32| PhysicsNode {
-            x: 0.0,
-            y,
-            mobility: 0.9,
-            delay: 1.0,
-            acceleration: 1.0,
-            radius: y,
-        };
-        let io = |kind| (String::from("P0"), 100.0, kind, false);
-        let (param, weight, kind, reflect) = io(PhysicsIo::X);
-        model.physics = Some(PhysicsRig {
-            fps: 30.0,
-            gravity_x: 0.0,
-            gravity_y: -1.0,
-            wind_x: 0.0,
-            wind_y: 0.0,
-            groups: vec![PhysicsGroup {
-                id: "PhysicsSetting1".into(),
-                name: "Sway".into(),
-                inputs: vec![PhysicsInput { param: param.clone(), weight, kind, reflect }],
-                outputs: vec![PhysicsOutput {
-                    param,
-                    vertex: 1,
-                    scale: 1.0,
-                    weight,
-                    kind: PhysicsIo::Angle,
-                    reflect,
-                }],
-                nodes: vec![node(0.0), node(5.0)],
-                norm_position: PhysicsRange { min: -10.0, default: 0.0, max: 10.0 },
-                norm_angle: PhysicsRange { min: -10.0, default: 0.0, max: 10.0 },
-            }],
-        });
+        // no physics rig: the project still passes the strict check
         let bytes = to_cmo3(&Cmo3Export {
             name: "bones",
             model: &model,
@@ -423,6 +390,7 @@ mod tests {
         })
         .unwrap();
         let back = from_cmo3(&bytes, "bones").unwrap().imported.model;
+        assert!(back.physics.as_ref().is_none_or(|r| r.groups.is_empty()));
         assert!(back.deformers.iter().all(|d| !d.kind.is_bone()));
         let look = |m: &Model, v: [f32; 2]| {
             let mut p = ayatsuri_core::Puppet::new(m.clone());
