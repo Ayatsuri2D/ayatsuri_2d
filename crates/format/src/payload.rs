@@ -367,6 +367,43 @@ pub struct DisplayInfo {
     /// root bones inside, palette order (a bone's children go where its
     /// root goes). Empty in older files, which show every bone loose.
     pub bone_folders: Vec<(String, Vec<u32>)>,
+    /// Guide images: pictures laid under or over the model to draw and
+    /// place parts against. Not part of the model; empty in older files.
+    pub guide_images: Vec<GuideImage>,
+}
+
+/// A guide image on the canvas: the file as it came in, where it sits
+/// and how it shows. Cubism calls these source images.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct GuideImage {
+    pub name: String,
+    /// The PNG or JPEG file, unchanged.
+    pub bytes: serde_bytes::ByteBuf,
+    /// Top-left corner on the canvas, in pixels.
+    pub x: f32,
+    pub y: f32,
+    /// Size on the canvas as a factor of the image's own pixel size.
+    pub scale: f32,
+    pub opacity: f32,
+    pub visible: bool,
+    /// Drawn over the model instead of under it.
+    pub above: bool,
+}
+
+impl Default for GuideImage {
+    fn default() -> Self {
+        Self {
+            name: String::new(),
+            bytes: serde_bytes::ByteBuf::new(),
+            x: 0.0,
+            y: 0.0,
+            scale: 1.0,
+            opacity: 0.5,
+            visible: true,
+            above: false,
+        }
+    }
 }
 
 /// A guide line on the canvas, as Cubism's Guide Line Settings has them.

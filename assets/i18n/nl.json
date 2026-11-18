@@ -1643,5 +1643,18 @@
   "New Folder…": "Nieuwe map…",
   "IK chain: reaches for {bone}": "IK-keten: reikt naar {bone}",
   "Top level": "Hoogste niveau",
-  "Show bones in this palette": "Botten in dit palet tonen"
+  "Show bones in this palette": "Botten in dit palet tonen",
+  "Import Image as Layer…": "Afbeelding importeren als laag…",
+  "Import Guide Image…": "Hulpafbeelding importeren…",
+  "Image (PNG, JPEG)": "Afbeelding (PNG, JPEG)",
+  "Import guide image": "Hulpafbeelding importeren",
+  "Import image as a layer": "Afbeelding importeren als laag",
+  "Add a PNG or JPEG to this model as one new mesh, centred on the canvas": "Voeg een PNG of JPEG als één nieuwe mesh aan dit model toe, gecentreerd op het canvas",
+  "Lay a PNG or JPEG under the model to draw and place parts against; it is saved with the project but is not part of the model": "Leg een PNG of JPEG onder het model om tegen te tekenen en onderdelen te plaatsen; het wordt met het project opgeslagen maar hoort niet bij het model",
+  "Show Guide Images": "Hulpafbeeldingen tonen",
+  "Guide Images…": "Hulpafbeeldingen…",
+  "Guide Images": "Hulpafbeeldingen",
+  "Above the model": "Boven het model",
+  "Guide images are saved with the project and never exported.": "Hulpafbeeldingen worden met het project opgeslagen en nooit geëxporteerd.",
+  "No guide images yet: File > Import Guide Image… adds one.": "Nog geen hulpafbeeldingen: Bestand > Hulpafbeelding importeren… voegt er een toe."
 }

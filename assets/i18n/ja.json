@@ -1643,5 +1643,18 @@
   "New Folder…": "新規フォルダ…",
   "IK chain: reaches for {bone}": "IKチェーン：{bone}に向かって伸びます",
   "Top level": "最上位",
-  "Show bones in this palette": "このパレットにボーンを表示"
+  "Show bones in this palette": "このパレットにボーンを表示",
+  "Import Image as Layer…": "画像をレイヤーとして読み込み…",
+  "Import Guide Image…": "ガイド画像を読み込み…",
+  "Image (PNG, JPEG)": "画像 (PNG, JPEG)",
+  "Import guide image": "ガイド画像を読み込む",
+  "Import image as a layer": "画像をレイヤーとして読み込む",
+  "Add a PNG or JPEG to this model as one new mesh, centred on the canvas": "PNG または JPEG を 1 つの新しいメッシュとしてこのモデルに追加し、キャンバスの中央に置きます",
+  "Lay a PNG or JPEG under the model to draw and place parts against; it is saved with the project but is not part of the model": "PNG または JPEG をモデルの下に敷き、描画やパーツ配置の目安にします。プロジェクトと一緒に保存されますが、モデルの一部にはなりません",
+  "Show Guide Images": "ガイド画像を表示",
+  "Guide Images…": "ガイド画像…",
+  "Guide Images": "ガイド画像",
+  "Above the model": "モデルの上",
+  "Guide images are saved with the project and never exported.": "ガイド画像はプロジェクトと一緒に保存され、書き出されることはありません。",
+  "No guide images yet: File > Import Guide Image… adds one.": "ガイド画像はまだありません。ファイル > ガイド画像を読み込み… で追加できます。"
 }

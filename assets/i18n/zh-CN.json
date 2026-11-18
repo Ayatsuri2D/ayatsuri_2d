@@ -1643,5 +1643,18 @@
   "New Folder…": "新建文件夹…",
   "IK chain: reaches for {bone}": "IK 链：伸向 {bone}",
   "Top level": "顶层",
-  "Show bones in this palette": "在此面板中显示骨骼"
+  "Show bones in this palette": "在此面板中显示骨骼",
+  "Import Image as Layer…": "将图像导入为图层…",
+  "Import Guide Image…": "导入参考图像…",
+  "Image (PNG, JPEG)": "图像 (PNG, JPEG)",
+  "Import guide image": "导入参考图像",
+  "Import image as a layer": "将图像导入为图层",
+  "Add a PNG or JPEG to this model as one new mesh, centred on the canvas": "将 PNG 或 JPEG 作为一个新网格添加到此模型，居中放在画布上",
+  "Lay a PNG or JPEG under the model to draw and place parts against; it is saved with the project but is not part of the model": "将 PNG 或 JPEG 垫在模型下方，用来对照绘制和摆放部件；它随项目保存，但不属于模型",
+  "Show Guide Images": "显示参考图像",
+  "Guide Images…": "参考图像…",
+  "Guide Images": "参考图像",
+  "Above the model": "在模型上方",
+  "Guide images are saved with the project and never exported.": "参考图像随项目保存，不会被导出。",
+  "No guide images yet: File > Import Guide Image… adds one.": "还没有参考图像：文件 > 导入参考图像… 可以添加。"
 }

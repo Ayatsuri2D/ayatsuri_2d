@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+### Added
+- **Import Image as Layer** (File menu): a PNG or JPEG joins the model as
+  one new mesh, centred on the canvas and clipped to it like a paint
+  layer. Opening a PNG or JPEG from the Open dialog, or dropping one on
+  the window, makes a new model with the picture as its canvas.
+- **Guide images** (File > Import Guide Image…): a PNG or JPEG laid under
+  the model, or over it, to draw and place parts against. Each has its
+  own place, scale, opacity and visibility in View > Guide Line > Guide
+  Images…, and they are saved with the project but never exported.
+
 ### Fixed
 - **cmo3 projects using Cubism 5.3 blend modes** (Darken, Screen, Color
   Dodge and the rest) were written with a Cubism 5.0 target, so the Editor
