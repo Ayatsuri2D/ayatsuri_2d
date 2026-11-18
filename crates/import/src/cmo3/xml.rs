@@ -39,7 +39,9 @@ const MAX_NODES: usize = 8_000_000;
 impl Doc {
     pub fn parse(xml: &[u8]) -> Result<Self, ImportError> {
         let mut reader = quick_xml::Reader::from_reader(xml);
-        reader.config_mut().trim_text(true);
+        // whitespace-only text is layout; real text keeps its spaces, since
+        // Cubism lets a name start with one
+        reader.config_mut().trim_text(false);
         let mut nodes: Vec<Node> = Vec::new();
         let mut stack: Vec<usize> = Vec::new();
         let mut buf = Vec::new();
@@ -80,6 +82,7 @@ impl Doc {
                 }
                 Event::Text(ref t) => {
                     if let (Some(&cur), Ok(raw)) = (stack.last(), t.decode())
+                        && !raw.trim().is_empty()
                         && let Some(n) = nodes.get_mut(cur)
                     {
                         match quick_xml::escape::unescape(&raw) {

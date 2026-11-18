@@ -13,7 +13,9 @@
 
 use std::collections::HashMap;
 
-use ayatsuri_format::model::{AlphaBlend, Blend, BoneData, DeformerKind, Model, PhysicsIo, flags};
+use ayatsuri_format::model::{
+    AlphaBlend, Blend, BoneData, ColorBlend, DeformerKind, Model, PhysicsIo, flags,
+};
 
 use super::caffw;
 use super::xmlw::{Tree, fmt_f};
@@ -433,7 +435,12 @@ impl W {
         self.t.i(c, "mipmapLevel", 64);
         self.t.b(c, "hasMargin", false);
         self.t.b(c, "isCleaned", false);
-        self.t.identity(c, "transformRawImageToCachedImage");
+        // the Editor keeps the cached copy padded to a multiple of 64 pixels
+        // per side and reads this affine to find the art inside it; written
+        // as identity, Model Image view draws every layer stretched by its
+        // padding fraction from its top-left corner
+        let pad = |d: u32| d as f32 / (d.div_ceil(64).max(1) * 64) as f32;
+        self.t.affine(c, "transformRawImageToCachedImage", [pad(w), 0.0, 0.0, 0.0, pad(h), 0.0]);
         self.t.push(list, c);
         self.t.i(m, "requiredMipmapLevel", 64);
         self.t.set(parent, "cachedImageManager", m);
@@ -1855,8 +1862,14 @@ pub fn to_cmo3(x: &Cmo3Export) -> Result<Vec<u8>, ImportError> {
     w.t.set(ms, "modelInfo", info);
     // export settings, as the Editor's dialog remembers them
     let opts = w.t.obj_with("hash_map", &[("keyType", "string".into())]);
+    // a model using a 5.3 blend or alpha mode targets Cubism 5.3: with a 5.0
+    // target the Editor flags the modes as unsupported and draws them plain
+    let needs_53 = model.art_meshes.iter().any(|m| {
+        let b = Blend::of(m.blend, m.flags);
+        b.color.code() > ColorBlend::MultiplyCompatible.code() || b.alpha != AlphaBlend::Over
+    });
     let ex = w.t.obj("CModelExportSettingDialogData");
-    w.t.enum_v(ex, "FormatVersion", "version", "VERSION_50");
+    w.t.enum_v(ex, "FormatVersion", "version", if needs_53 { "VERSION_53" } else { "VERSION_50" });
     for (k, v) in [
         ("exportInvisiblePart", false),
         ("exportSketchPart", false),
@@ -1908,8 +1921,9 @@ pub fn to_cmo3(x: &Cmo3Export) -> Result<Vec<u8>, ImportError> {
     let guides = w.t.obj("CGuidesSetting");
     w.t.list(guides, "carray_list", "guidesModeling");
     w.t.set(ms, "guides", guides);
-    w.t.i(ms, "targetVersionNo", 5_000_000);
-    w.t.i(ms, "latestVersionOfLastModelerNo", 5_000_000);
+    let target = if needs_53 { 5_030_000 } else { 5_000_000 };
+    w.t.i(ms, "targetVersionNo", target);
+    w.t.i(ms, "latestVersionOfLastModelerNo", target);
     let brushes = w.t.obj("CArtPathBrushSetting");
     w.t.list(brushes, "carray_list", "brushes");
     w.t.set(ms, "artPathBrushesSetting", brushes);

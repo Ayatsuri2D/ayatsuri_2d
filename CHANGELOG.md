@@ -3,6 +3,20 @@
 ## Unreleased
 
 ### Fixed
+- **cmo3 projects using Cubism 5.3 blend modes** (Darken, Screen, Color
+  Dodge and the rest) were written with a Cubism 5.0 target, so the Editor
+  flagged "the selected target version does not support Blend mode" and
+  drew those meshes plain. A model using a 5.3 blend or alpha mode now
+  targets 5.3.
+- **cmo3 export: layers shifted in Cubism Editor's Model Image view** while
+  the Texture Atlas view was right. The cached copy of each layer is padded
+  to a multiple of 64 pixels and the project must say so; written as
+  identity, the Editor drew every layer stretched by its padding from its
+  top-left corner. The padding affine is now written.
+- **cmo3 import** read every warp deformer as bilinear, ignoring the
+  project's isQuadTransform; triangle-split warps now come in as such.
+  Deformers also keep the Parts folder they sit in, and a part or mesh
+  name that starts with a space keeps it.
 - **cmo3 export refused models with a layer on the canvas edge** ("the
   packer moved its art"): the art crop grew a pixel past the canvas and
   the atlas packer clipped it back. The crop now stays inside the canvas,

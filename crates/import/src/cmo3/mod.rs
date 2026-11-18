@@ -346,6 +346,105 @@ mod tests {
     }
 
     #[test]
+    fn a_project_keeps_warp_mode_part_names_and_deformer_parts() {
+        use ayatsuri_format::model::*;
+        let fill = |w: u32, h: u32| vec![200u8; (w * h * 4) as usize];
+        let doc = crate::layers::Document {
+            width: 64,
+            height: 48,
+            layers: vec![crate::layers::Layer {
+                name: "skin".into(),
+                // a folder whose name starts with a space, as Cubism allows
+                groups: vec![" 10".into()],
+                x: 8,
+                y: 8,
+                width: 32,
+                height: 24,
+                rgba: fill(32, 24),
+                visible: true,
+                opacity: 1.0,
+                clip_to_below: false,
+                blend: crate::layers::Blend::NORMAL,
+            }],
+            folders: Vec::new(),
+        };
+        let imported = crate::layers::build_atlas(&doc).unwrap();
+        let mut model = imported.model;
+        assert_eq!(imported.part_names, vec![" 10".to_string()]);
+        let c = model.canvas;
+        let unit = |px: f32, py: f32| {
+            ((px - c.origin_x) / c.pixels_per_unit, (py - c.origin_y) / c.pixels_per_unit)
+        };
+        let mut grid = Vec::new();
+        for r in 0..2 {
+            for col in 0..2 {
+                let (x, y) = unit(64.0 * col as f32, 48.0 * r as f32);
+                grid.extend([x, y]);
+            }
+        }
+        // a triangle-split warp, inside the folder, over the whole canvas
+        model.deformers.push(Deformer {
+            id: "Warp".into(),
+            parent_part: Some(0),
+            parent_deformer: None,
+            visible: true,
+            enabled: true,
+            binding: Binding::default(),
+            kind: DeformerKind::Warp(WarpData {
+                rows: 1,
+                cols: 1,
+                quad: false,
+                opacities: vec![1.0],
+                positions: grid,
+            }),
+            multiply: Vec::new(),
+            screen: Vec::new(),
+            blend_shapes: Vec::new(),
+        });
+        let bytes = to_cmo3(&Cmo3Export {
+            name: "modes",
+            model: &model,
+            textures: &imported.textures,
+            param_names: &[],
+            part_names: &imported.part_names,
+            mesh_names: &imported.mesh_names,
+            deformer_names: &[],
+            param_groups: &[],
+        })
+        .unwrap();
+        let back = from_cmo3(&bytes, "modes").unwrap();
+        let m = &back.imported.model;
+        assert_eq!(back.imported.part_names, vec![" 10".to_string()], "leading space survives");
+        let warp = m.deformers.iter().find(|d| d.id == "Warp").expect("the warp comes back");
+        assert_eq!(warp.parent_part, Some(0), "the deformer stays in its part");
+        match &warp.kind {
+            DeformerKind::Warp(w) => assert!(!w.quad, "isQuadTransform false is read"),
+            _ => panic!("not a warp"),
+        }
+        // a 5.0 project: no 5.3 blend, so the 5.0 target
+        let xml = String::from_utf8_lossy(&caff::Caff::open(&bytes).unwrap().main_xml().unwrap())
+            .into_owned();
+        assert!(xml.contains("targetVersionNo\">5000000<"));
+        // a 5.3 blend mode moves the target to 5.3
+        model.art_meshes[0].blend = Blend { color: ColorBlend::Darken, alpha: AlphaBlend::Over };
+        let bytes = to_cmo3(&Cmo3Export {
+            name: "modes",
+            model: &model,
+            textures: &imported.textures,
+            param_names: &[],
+            part_names: &imported.part_names,
+            mesh_names: &imported.mesh_names,
+            deformer_names: &[],
+            param_groups: &[],
+        })
+        .unwrap();
+        let xml = String::from_utf8_lossy(&caff::Caff::open(&bytes).unwrap().main_xml().unwrap())
+            .into_owned();
+        assert!(xml.contains("targetVersionNo\">5030000<"), "5.3 blend needs the 5.3 target");
+        assert!(xml.contains("v=\"VERSION_53\""));
+    }
+
+    #[test]
     fn bones_go_into_a_project_baked() {
         use ayatsuri_format::model::*;
         let layer = |name: &str, x, y, rgba: [u8; 4]| crate::layers::Layer {
