@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+- **cmo3 export refused models with a layer on the canvas edge** ("the
+  packer moved its art"): the art crop grew a pixel past the canvas and
+  the atlas packer clipped it back. The crop now stays inside the canvas,
+  where Cubism's own import clips layers too.
+
 ## 0.6.2 (2026-11-14)
 
 Bones, behind Settings > Experimental > Bones: weighted bones with

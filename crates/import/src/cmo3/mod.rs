@@ -294,6 +294,58 @@ mod tests {
     /// Bones go into a project baked, as rotation deformers, a warp and
     /// mesh keyforms, and the project poses as the bones did.
     #[test]
+    fn a_layer_on_the_canvas_edge_still_exports() {
+        // a layer filling the whole canvas, and one in the corner: the art
+        // crop used to grow a pixel past the canvas, the packer clipped it
+        // back, and the export refused with "the packer moved its art"
+        let fill = |w: u32, h: u32, col: [u8; 4]| {
+            let mut v = vec![0u8; (w * h * 4) as usize];
+            for px in v.chunks_mut(4) {
+                px.copy_from_slice(&col);
+            }
+            v
+        };
+        let layer = |name: &str, x, y, w, h, rgba| crate::layers::Layer {
+            name: name.into(),
+            groups: Vec::new(),
+            x,
+            y,
+            width: w,
+            height: h,
+            rgba,
+            visible: true,
+            opacity: 1.0,
+            clip_to_below: false,
+            blend: crate::layers::Blend::NORMAL,
+        };
+        let doc = crate::layers::Document {
+            width: 64,
+            height: 48,
+            layers: vec![
+                layer("back", 0, 0, 64, 48, fill(64, 48, [40, 40, 40, 255])),
+                layer("corner", 0, 0, 12, 12, fill(12, 12, [220, 30, 30, 255])),
+                layer("far", 52, 36, 12, 12, fill(12, 12, [30, 220, 30, 255])),
+            ],
+            folders: Vec::new(),
+        };
+        let imported = crate::layers::build_atlas(&doc).unwrap();
+        let bytes = to_cmo3(&Cmo3Export {
+            name: "edges",
+            model: &imported.model,
+            textures: &imported.textures,
+            param_names: &[],
+            part_names: &imported.part_names,
+            mesh_names: &imported.mesh_names,
+            deformer_names: &[],
+            param_groups: &[],
+        })
+        .expect("edge layers export");
+        let back = from_cmo3(&bytes, "edges").unwrap();
+        assert_eq!(back.imported.model.art_meshes.len(), 3);
+        assert_eq!(back.within, (3, 3), "every mesh lands on its art: {:?}", back.off);
+    }
+
+    #[test]
     fn bones_go_into_a_project_baked() {
         use ayatsuri_format::model::*;
         let layer = |name: &str, x, y, rgba: [u8; 4]| crate::layers::Layer {
