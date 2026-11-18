@@ -89,7 +89,13 @@ pub struct Mesh {
 }
 
 pub enum DeformerKind {
-    Warp { cols: u32, rows: u32 },
+    /// `quad` is the project's isQuadTransform: bilinear cells when true,
+    /// cells split into two triangles when false.
+    Warp {
+        cols: u32,
+        rows: u32,
+        quad: bool,
+    },
     Rotation,
 }
 
@@ -98,6 +104,8 @@ pub struct Deformer {
     pub id: String,
     /// The name the rigger gave it (Cubism's localName), apart from the ID.
     pub name: String,
+    /// The Parts palette folder it sits in, outermost first.
+    pub parts: Vec<String>,
     pub parent: Option<String>,
     pub kind: DeformerKind,
     pub bindings: Vec<Binding>,
@@ -464,15 +472,22 @@ pub fn extract(caff: &Caff, doc: &Doc) -> Result<Extract, ImportError> {
                 DeformerKind::Warp {
                     cols: doc.int_field(el, "col").unwrap_or(1).max(1) as u32,
                     rows: doc.int_field(el, "row").unwrap_or(1).max(1) as u32,
+                    quad: doc.bool_field(el, "isQuadTransform", true),
                 }
             } else {
                 DeformerKind::Rotation
             };
             let name = doc.str_field(ctrl, "localName");
+            let parts = cx.part_path(
+                doc.field_raw(ctrl, "parentGuid")
+                    .and_then(|g| doc.attr(g, "xs.ref"))
+                    .map(str::to_string),
+            );
             deformers.push(Deformer {
                 uuid,
                 id,
                 name,
+                parts,
                 parent: parent_uuid(dsrc),
                 kind,
                 bindings,

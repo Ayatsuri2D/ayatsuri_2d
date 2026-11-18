@@ -157,6 +157,26 @@ pub fn build(ex: Extract, name: &str) -> Result<Cmo3, ImportError> {
     let document = Document { width: cw, height: ch, layers: layers_in, folders: Vec::new() };
     let imported = layers::build_atlas(&document)?;
     let mut model: Model = imported.model;
+    // the part a palette path names: the importer made one part per
+    // distinct path, named by its last segment, parents first
+    let part_paths: Vec<Vec<String>> = (0..model.parts.len())
+        .map(|i| {
+            let mut path = Vec::new();
+            let mut at = Some(i);
+            while let Some(p) = at.filter(|_| path.len() < 64) {
+                path.push(imported.part_names.get(p).cloned().unwrap_or_default());
+                at = model.parts.get(p).and_then(|x| x.parent_part).map(|x| x as usize);
+            }
+            path.reverse();
+            path
+        })
+        .collect();
+    let part_index = |path: &[String]| -> Option<u32> {
+        if path.is_empty() {
+            return None;
+        }
+        part_paths.iter().position(|p| p == path).map(|i| i as u32)
+    };
     let c = model.canvas;
     let ppu = c.pixels_per_unit.max(1e-6);
     let to = |space: Space, x: f32, y: f32| match space {
@@ -228,7 +248,7 @@ pub fn build(ex: Extract, name: &str) -> Result<Cmo3, ImportError> {
             }
         }
         let kind = match d.kind {
-            extract::DeformerKind::Warp { cols, rows } => {
+            extract::DeformerKind::Warp { cols, rows, quad } => {
                 let per = ((rows + 1) * (cols + 1) * 2) as usize;
                 let mut positions = vec![0.0; per * n];
                 for (f, &s) in d.forms.iter().zip(&slots) {
@@ -245,7 +265,7 @@ pub fn build(ex: Extract, name: &str) -> Result<Cmo3, ImportError> {
                     }
                 }
                 kinds.push(Space::Warp);
-                DeformerKind::Warp(WarpData { rows, cols, quad: true, opacities, positions })
+                DeformerKind::Warp(WarpData { rows, cols, quad, opacities, positions })
             }
             extract::DeformerKind::Rotation => {
                 let mut r = RotationData {
@@ -285,7 +305,7 @@ pub fn build(ex: Extract, name: &str) -> Result<Cmo3, ImportError> {
         };
         model.deformers.push(Deformer {
             id: d.id.clone(),
-            parent_part: None,
+            parent_part: part_index(&d.parts),
             parent_deformer: parent,
             visible: true,
             enabled: true,
