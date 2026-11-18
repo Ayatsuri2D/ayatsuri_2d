@@ -1643,5 +1643,18 @@
   "New Folder…": "Nuwe gids…",
   "IK chain: reaches for {bone}": "IK-ketting: reik na {bone}",
   "Top level": "Boonste vlak",
-  "Show bones in this palette": "Wys bene in hierdie palet"
+  "Show bones in this palette": "Wys bene in hierdie palet",
+  "Import Image as Layer…": "Voer beeld in as laag…",
+  "Import Guide Image…": "Voer gidsbeeld in…",
+  "Image (PNG, JPEG)": "Beeld (PNG, JPEG)",
+  "Import guide image": "Voer gidsbeeld in",
+  "Import image as a layer": "Voer beeld in as laag",
+  "Add a PNG or JPEG to this model as one new mesh, centred on the canvas": "Voeg 'n PNG of JPEG as een nuwe maas by hierdie model, gesentreer op die doek",
+  "Lay a PNG or JPEG under the model to draw and place parts against; it is saved with the project but is not part of the model": "Lê 'n PNG of JPEG onder die model om teen te teken en dele te plaas; dit word saam met die projek gestoor maar is nie deel van die model nie",
+  "Show Guide Images": "Wys gidsbeelde",
+  "Guide Images…": "Gidsbeelde…",
+  "Guide Images": "Gidsbeelde",
+  "Above the model": "Bo die model",
+  "Guide images are saved with the project and never exported.": "Gidsbeelde word saam met die projek gestoor en nooit uitgevoer nie.",
+  "No guide images yet: File > Import Guide Image… adds one.": "Nog geen gidsbeelde nie: Lêer > Voer gidsbeeld in… voeg een by."
 }

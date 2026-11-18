@@ -798,6 +798,7 @@ pub struct EditorUi {
     /// meshes under the pointer and nothing else.
     ctx_mesh_list: bool,
     show_guide_settings: bool,
+    show_guide_image_settings: bool,
     /// F: frame the selection once the canvas size is known.
     focus_request: bool,
     /// Ctrl+F: put the cursor in the Parts search box.
@@ -901,6 +902,7 @@ pub struct EditorUi {
     /// The pen tablet's pressure, read each frame.
     pub(crate) pen: crate::pen::Pen,
     show_guides: bool,
+    show_guide_images: bool,
     /// Mirror edit: point moves repeat, flipped, on the point across the
     /// vertical axis (a vertical guide line nearest the centre, else the
     /// canvas centre).
@@ -1235,6 +1237,37 @@ enum GuideCmd {
     AtVertex,
 }
 
+/// The guide images that sit under the model (`above` false) or over it,
+/// at their place and scale on the canvas, faded by their opacity.
+fn paint_guide_images(
+    ui: &Ui,
+    vp: &egui::Painter,
+    s: &mut Session,
+    origin: Pos2,
+    scale: f32,
+    above: bool,
+) {
+    for i in 0..s.guide_images.len() {
+        let Some(g) = s.guide_images.get(i) else { break };
+        if !g.visible || g.above != above || g.opacity <= 0.0 {
+            continue;
+        }
+        let (x, y, k, a) = (g.x, g.y, g.scale.max(0.0), g.opacity.clamp(0.0, 1.0));
+        let Some(tex) = s.guide_texture(ui.ctx(), i) else { continue };
+        let size = tex.size_vec2() * k * scale;
+        if size.x < 0.5 || size.y < 0.5 {
+            continue;
+        }
+        let rect = Rect::from_min_size(pos2(origin.x + x * scale, origin.y + y * scale), size);
+        vp.image(
+            tex.id(),
+            rect,
+            Rect::from_min_max(pos2(0.0, 0.0), pos2(1.0, 1.0)),
+            Color32::WHITE.gamma_multiply(a),
+        );
+    }
+}
+
 fn snap_to_guides(guides: &[ayatsuri_format::GuideLine], q: [f32; 2], tolerance: f32) -> [f32; 2] {
     let mut out = q;
     for g in guides {
@@ -1564,6 +1597,10 @@ pub(crate) enum PickFor {
     ImportPaint,
     /// An updated .psd or .kra whose art replaces the matching meshes' art.
     ReimportPaint,
+    /// A PNG or JPEG added to the open model as one mesh.
+    ImportImage,
+    /// A PNG or JPEG laid under the model as a guide image.
+    ImportGuideImage,
 }
 
 enum BgJob {
@@ -1925,6 +1962,7 @@ impl Default for EditorUi {
             canvas_cmd: None,
             ctx_mesh_list: false,
             show_guide_settings: false,
+            show_guide_image_settings: false,
             focus_request: false,
             focus_search: false,
             form_clip: None,
@@ -1983,6 +2021,7 @@ impl Default for EditorUi {
             dbrush_strength: 0.7,
             pen: Default::default(),
             show_guides: true,
+            show_guide_images: true,
             mirror_edit: false,
             mirror_at: None,
             mirror_to_pick: false,
@@ -2238,7 +2277,7 @@ impl EditorUi {
             let picked = rfd::FileDialog::new()
                 .add_filter(
                     crate::i18n::tr("All supported"),
-                    &["aom", "moc3", "cmo3", "json", "psd", "kra", "clip"],
+                    &["aom", "moc3", "cmo3", "json", "psd", "kra", "clip", "png", "jpg", "jpeg"],
                 )
                 .add_filter(
                     crate::i18n::tr("Ayatsuri / Live2D model"),
@@ -2248,6 +2287,7 @@ impl EditorUi {
                     crate::i18n::tr("Artwork (Photoshop, Krita, Clip Studio)"),
                     &["psd", "kra", "clip"],
                 )
+                .add_filter(crate::i18n::tr("Image (PNG, JPEG)"), &["png", "jpg", "jpeg"])
                 .set_title(crate::i18n::tr("Open model or artwork"))
                 .pick_file();
             let _ = tx.send(BgJob::Picked(picked));
@@ -2303,7 +2343,10 @@ impl EditorUi {
             Some(Some((path, Ok(mut s)))) => {
                 self.loading = None;
                 let from_art = path.extension().is_some_and(|e| {
-                    matches!(e.to_string_lossy().to_lowercase().as_str(), "psd" | "kra" | "clip")
+                    matches!(
+                        e.to_string_lossy().to_lowercase().as_str(),
+                        "psd" | "kra" | "clip" | "png" | "jpg" | "jpeg"
+                    )
                 });
                 if self.recovering.as_ref() == Some(&path) {
                     // recovered work is unsaved work: no file of its own, not
@@ -2384,7 +2427,7 @@ impl EditorUi {
     /// frame. One comparison a frame and a line only on a change, so the
     /// log says what the user did without a line per frame.
     fn log_state_changes(&mut self) {
-        let states: [(&str, bool); 29] = [
+        let states: [(&str, bool); 30] = [
             ("Settings", self.show_settings),
             ("API window", self.show_api_window),
             ("Model Statistics", self.show_stats),
@@ -2405,6 +2448,7 @@ impl EditorUi {
             ("Save Workspace", self.show_ws_save),
             ("Manage Workspaces", self.show_ws_manage),
             ("Guide Line Settings", self.show_guide_settings),
+            ("Guide Images", self.show_guide_image_settings),
             ("New Deformer", self.deformer_dialog.is_some()),
             ("Edit Parameter", self.param_edit.is_some()),
             ("Mesh Edit", self.mesh_edit.is_some()),
@@ -2585,6 +2629,31 @@ impl EditorUi {
                             self.mesh_art = None;
                         }
                         Err(e) => log::error!("import artwork: {e}"),
+                    }
+                }
+            }
+            (PickFor::ImportImage, Some(path)) => {
+                if self.mesh_edit.is_some() {
+                    log::warn!("leave Mesh Edit before importing an image");
+                } else if let Some(s) = &mut self.session {
+                    match s.import_image(ctx, &path) {
+                        Ok(file) => {
+                            log::info!("imported {file} as a layer");
+                            self.mesh_drag = None;
+                            self.mesh_art = None;
+                        }
+                        Err(e) => log::error!("import image: {e}"),
+                    }
+                }
+            }
+            (PickFor::ImportGuideImage, Some(path)) => {
+                if let Some(s) = &mut self.session {
+                    match s.add_guide_image(&path) {
+                        Ok(file) => {
+                            log::info!("added {file} as a guide image");
+                            self.show_guide_images = true;
+                        }
+                        Err(e) => log::error!("guide image: {e}"),
                     }
                 }
             }
@@ -3311,6 +3380,33 @@ impl EditorUi {
                     if ui
                         .add_enabled(
                             self.session.is_some(),
+                            egui::Button::new(crate::i18n::tr("Import Image as Layer…")).shortcut_text(self.sc("import-image")),
+                        )
+                        .on_hover_text(crate::i18n::tr(
+                            "Add a PNG or JPEG to this model as one new mesh, centred on the canvas",
+                        ))
+                        .clicked()
+                    {
+                        ui.close();
+                        self.pick_image(false);
+                    }
+                    if ui
+                        .add_enabled(
+                            self.session.is_some(),
+                            egui::Button::new(crate::i18n::tr("Import Guide Image…")).shortcut_text(self.sc("import-guide-image")),
+                        )
+                        .on_hover_text(crate::i18n::tr(
+                            "Lay a PNG or JPEG under the model to draw and place parts against; \
+                             it is saved with the project but is not part of the model",
+                        ))
+                        .clicked()
+                    {
+                        ui.close();
+                        self.pick_image(true);
+                    }
+                    if ui
+                        .add_enabled(
+                            self.session.is_some(),
                             egui::Button::new(crate::i18n::tr("Re-import Artwork…")).shortcut_text(self.sc("reimport-artwork")),
                         )
                         .on_hover_text(crate::i18n::tr(
@@ -3530,6 +3626,15 @@ impl EditorUi {
                             .clicked()
                         {
                             self.show_guide_settings = true;
+                            ui.close();
+                        }
+                        ui.separator();
+                        ui.checkbox(&mut self.show_guide_images, crate::i18n::tr("Show Guide Images"));
+                        if ui
+                            .add_enabled(has, egui::Button::new(crate::i18n::tr("Guide Images…")).shortcut_text(self.sc("guide-images")))
+                            .clicked()
+                        {
+                            self.show_guide_image_settings = true;
                             ui.close();
                         }
                         ui.separator();
@@ -7661,6 +7766,8 @@ impl EditorUi {
             "import-motion" if have => self.pick_motion(),
             "import-audio" if have => self.pick_audio(),
             "import-artwork" if have => self.pick_artwork(false),
+            "import-image" if have => self.pick_image(false),
+            "import-guide-image" if have => self.pick_image(true),
             "reimport-artwork" if have => self.pick_artwork(true),
             "project-info" if have => self.show_model_info = true,
             "model-stats" if have => self.show_stats = true,
@@ -7672,6 +7779,8 @@ impl EditorUi {
                 log::info!("texture atlas view {}", if self.atlas_view { "on" } else { "off" });
             }
             "guides-show" => self.show_guides = !self.show_guides,
+            "guide-images-show" => self.show_guide_images = !self.show_guide_images,
+            "guide-images" if have => self.show_guide_image_settings = true,
             "guides-center" if have => self.pending_guide = Some(GuideCmd::Center),
             "guide-at-vertex" if have => self.pending_guide = Some(GuideCmd::AtVertex),
             "guide-settings" if have => self.show_guide_settings = true,
@@ -7913,6 +8022,21 @@ impl EditorUi {
                     .pick_file()
             });
         }
+    }
+
+    /// Import Image as Layer, or Import Guide Image.
+    fn pick_image(&mut self, guide: bool) {
+        let what = if guide { PickFor::ImportGuideImage } else { PickFor::ImportImage };
+        self.pick_async(what, move || {
+            rfd::FileDialog::new()
+                .add_filter(crate::i18n::tr("Image (PNG, JPEG)"), &["png", "jpg", "jpeg"])
+                .set_title(if guide {
+                    crate::i18n::tr("Import guide image")
+                } else {
+                    crate::i18n::tr("Import image as a layer")
+                })
+                .pick_file()
+        });
     }
 
     /// Export Current Layout, or Import Layout.
@@ -12012,6 +12136,9 @@ impl EditorUi {
             Vec::new()
         };
         vp.rect_filled(page, 0.0, self.prefs.canvas_page_color().unwrap_or(theme::pal().canvas));
+        if self.show_guide_images {
+            paint_guide_images(ui, &vp, s, pos2(origin.x, origin.y), scale, false);
+        }
 
         let to_screen = |x: f32, y: f32| -> Pos2 {
             let px = c.origin_x + x * c.pixels_per_unit;
@@ -12197,6 +12324,9 @@ impl EditorUi {
             }
         }
 
+        if self.show_guide_images {
+            paint_guide_images(ui, &vp, s, pos2(origin.x, origin.y), scale, true);
+        }
         if solo_badge(ui, view, s, &mut self.prefs) {
             self.prefs.save();
         }
@@ -17333,6 +17463,84 @@ impl EditorUi {
                 });
             self.show_guide_settings = open;
         }
+        if self.show_guide_image_settings {
+            let mut open = true;
+            crate::windows::Dialog::new(crate::i18n::tr("Guide Images"))
+                .open(&mut open)
+                .resizable(vec2(640.0, 340.0), vec2(460.0, 200.0))
+                .show(ui.ctx(), |ui| {
+                    let mut changed = false;
+                    let mut remove = None;
+                    ui.weak(crate::i18n::tr(
+                        "Guide images are saved with the project and never exported.",
+                    ));
+                    ui.add_space(4.0);
+                    if s.guide_images.is_empty() {
+                        ui.label(crate::i18n::tr(
+                            "No guide images yet: File > Import Guide Image… adds one.",
+                        ));
+                    }
+                    egui::ScrollArea::vertical().max_height(280.0).show(ui, |ui| {
+                        egui::Grid::new("guide-images").striped(true).show(ui, |ui| {
+                            for h in
+                                ["", "Name", "X", "Y", "Scale", "Opacity", "Above the model", ""]
+                            {
+                                ui.weak(crate::i18n::tr(h));
+                            }
+                            ui.end_row();
+                            for (i, g) in s.guide_images.iter_mut().enumerate() {
+                                changed |= ui.checkbox(&mut g.visible, "").changed();
+                                changed |= ui
+                                    .add(
+                                        egui::TextEdit::singleline(&mut g.name)
+                                            .desired_width(140.0),
+                                    )
+                                    .changed();
+                                changed |= ui
+                                    .add(egui::DragValue::new(&mut g.x).speed(1.0).suffix(" px"))
+                                    .changed();
+                                changed |= ui
+                                    .add(egui::DragValue::new(&mut g.y).speed(1.0).suffix(" px"))
+                                    .changed();
+                                changed |= ui
+                                    .add(
+                                        egui::DragValue::new(&mut g.scale)
+                                            .speed(0.01)
+                                            .range(0.01..=100.0)
+                                            .fixed_decimals(2),
+                                    )
+                                    .changed();
+                                changed |= ui
+                                    .add(
+                                        egui::Slider::new(&mut g.opacity, 0.0..=1.0)
+                                            .show_value(false),
+                                    )
+                                    .changed();
+                                changed |= ui.checkbox(&mut g.above, "").changed();
+                                if ui
+                                    .small_button("×")
+                                    .on_hover_text(crate::i18n::tr("Delete"))
+                                    .clicked()
+                                {
+                                    remove = Some(i);
+                                }
+                                ui.end_row();
+                            }
+                        });
+                    });
+                    if let Some(i) = remove {
+                        s.guide_images.remove(i);
+                        if i < s.guide_textures.len() {
+                            s.guide_textures.remove(i);
+                        }
+                        changed = true;
+                    }
+                    if changed {
+                        s.modified = true;
+                    }
+                });
+            self.show_guide_image_settings = open;
+        }
 
         if self.tdeform.is_some() {
             let xf = temp_deform::ViewXf {
@@ -17584,6 +17792,8 @@ pub(crate) const KEY_ACTIONS: &[(&str, &str, &str, egui::Modifiers, egui::Key)] 
         ("File", "import-motion", "Import Motion…", N, K::F35),
         ("File", "import-audio", "Import Audio…", N, K::F35),
         ("File", "import-artwork", "Import Artwork…", N, K::F35),
+        ("File", "import-image", "Import Image as Layer…", N, K::F35),
+        ("File", "import-guide-image", "Import Guide Image…", N, K::F35),
         ("File", "reimport-artwork", "Re-import Artwork…", N, K::F35),
         ("File", "project-info", "Project…", N, K::F35),
         ("File", "model-stats", "Model Statistics…", N, K::F35),
@@ -17646,6 +17856,8 @@ pub(crate) const KEY_ACTIONS: &[(&str, &str, &str, egui::Modifiers, egui::Key)] 
         ("View", "guide-at-vertex", "Add a Guide Line at the Selected Vertex", N, K::F35),
         ("View", "guide-settings", "Guide Line settings…", N, K::F35),
         ("View", "guide-snap", "Snap moving vertices to guide lines", N, K::F35),
+        ("View", "guide-images-show", "Show Guide Images", N, K::F35),
+        ("View", "guide-images", "Guide Images…", N, K::F35),
         ("View", "smooth-drag", "Smooth movement", N, K::F35),
         ("View", "rulers", "Rulers", N, K::F35),
         ("Edit", "select-all", "Select all", C, K::A),

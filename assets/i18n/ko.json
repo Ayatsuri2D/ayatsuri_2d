@@ -1643,5 +1643,18 @@
   "New Folder…": "새 폴더…",
   "IK chain: reaches for {bone}": "IK 체인: {bone}을(를) 향해 뻗습니다",
   "Top level": "최상위",
-  "Show bones in this palette": "이 팔레트에 본 표시"
+  "Show bones in this palette": "이 팔레트에 본 표시",
+  "Import Image as Layer…": "이미지를 레이어로 가져오기…",
+  "Import Guide Image…": "가이드 이미지 가져오기…",
+  "Image (PNG, JPEG)": "이미지 (PNG, JPEG)",
+  "Import guide image": "가이드 이미지 가져오기",
+  "Import image as a layer": "이미지를 레이어로 가져오기",
+  "Add a PNG or JPEG to this model as one new mesh, centred on the canvas": "PNG 또는 JPEG를 새 메시 하나로 이 모델에 추가하고 캔버스 중앙에 배치합니다",
+  "Lay a PNG or JPEG under the model to draw and place parts against; it is saved with the project but is not part of the model": "PNG 또는 JPEG를 모델 아래에 깔아 그리기와 파트 배치의 기준으로 씁니다. 프로젝트와 함께 저장되지만 모델의 일부는 아닙니다",
+  "Show Guide Images": "가이드 이미지 표시",
+  "Guide Images…": "가이드 이미지…",
+  "Guide Images": "가이드 이미지",
+  "Above the model": "모델 위",
+  "Guide images are saved with the project and never exported.": "가이드 이미지는 프로젝트와 함께 저장되며 내보내지지 않습니다.",
+  "No guide images yet: File > Import Guide Image… adds one.": "아직 가이드 이미지가 없습니다. 파일 > 가이드 이미지 가져오기… 로 추가하세요."
 }

@@ -28,7 +28,7 @@ thiserror = { workspace = true }
 # paint documents in: Photoshop through `psd`, Krita's zip through `zip`
 psd = { version = "0.3", optional = true }
 zip = { version = "9", default-features = false, features = ["deflate"], optional = true }
-image = { version = "0.25", default-features = false, features = ["png"], optional = true }
+image = { version = "0.25", default-features = false, features = ["png", "jpeg"], optional = true }
 # Clip Studio tiles and Cubism project zips are deflate streams
 miniz_oxide = { workspace = true, optional = true }
 # Cubism Editor projects keep their object graph as XML

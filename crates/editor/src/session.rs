@@ -236,6 +236,10 @@ pub struct Session {
     /// None when it had none, and export then writes the standard ones.
     pub model_groups: Option<Vec<(String, String, Vec<String>)>>,
     pub guides: Vec<ayatsuri_format::GuideLine>,
+    /// Guide images laid under or over the model, saved with the project,
+    /// and their GPU copies, made the first time each one is drawn.
+    pub guide_images: Vec<ayatsuri_format::GuideImage>,
+    pub guide_textures: Vec<Option<TextureHandle>>,
     /// Records each step of the model into `<file>.timelapse`.
     pub timelapse: crate::timelapse::Recorder,
     pub timelapse_on: bool,
@@ -283,6 +287,11 @@ fn free_id(prefix: &str, taken: &mut std::collections::HashSet<String>) -> Strin
 /// made unique, and positions move from the document's canvas onto the
 /// model's (top-left pixels lined up). A model with no art and no
 /// deformers yet takes the document's canvas as is.
+/// A file's name without its extension, "model" when it has none.
+fn file_stem(path: &Path) -> String {
+    path.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_else(|| "model".into())
+}
+
 pub(crate) fn merge_paint(base: &mut Model, add: Model, tex_offset: u32) {
     let fresh = base.art_meshes.is_empty() && base.deformers.is_empty();
     if fresh {
@@ -706,6 +715,7 @@ impl Session {
         let session = match ext.as_str() {
             "aom" => Self::load_aom(ctx, path)?,
             "psd" | "kra" | "clip" => Self::load_paint(ctx, path, &ext)?,
+            "png" | "jpg" | "jpeg" => Self::load_image(ctx, path)?,
             "cmo3" => Self::load_cmo3(ctx, path)?,
             _ => Self::load_moc3(ctx, path)?,
         };
@@ -756,6 +766,75 @@ impl Session {
         }
         s.modified = true;
         Ok(s)
+    }
+
+    /// A PNG or JPEG becomes a brand new model of one mesh, the picture
+    /// being the canvas.
+    fn load_image(ctx: &Context, path: &Path) -> Result<Self, String> {
+        let bytes = std::fs::read(path).map_err(|e| format!("{}: {e}", path.display()))?;
+        let name = file_stem(path);
+        let imported = ayatsuri_import::from_image(&bytes, &name, None)
+            .map_err(|e| format!("{}: {e}", path.display()))?;
+        let tex_names = (0..imported.textures.len()).map(|i| format!("texture_{i:02}")).collect();
+        let mesh_names = imported.mesh_names.clone();
+        let mut s =
+            Self::from_parts(ctx, name, imported.model, imported.textures, tex_names, None, path)?;
+        s.layer_pages = vec![true; s.texture_pngs.len()];
+        if mesh_names.len() == s.mesh_names.len() {
+            s.mesh_names = mesh_names;
+        }
+        s.modified = true;
+        Ok(s)
+    }
+
+    /// Add a PNG or JPEG to the open model as one new mesh, centred on the
+    /// canvas and clipped to it like a paint layer. Returns the file name.
+    pub fn import_image(&mut self, ctx: &Context, path: &Path) -> Result<String, String> {
+        let bytes = std::fs::read(path).map_err(|e| format!("{}: {e}", path.display()))?;
+        let c = self.puppet.model().canvas;
+        let canvas = (c.width.round().max(1.0) as u32, c.height.round().max(1.0) as u32);
+        let imported = ayatsuri_import::from_image(&bytes, &file_stem(path), Some(canvas))
+            .map_err(|e| format!("{}: {e}", path.display()))?;
+        let file = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+        self.add_imported(ctx, imported, path)?;
+        Ok(file)
+    }
+
+    /// Lay a PNG or JPEG under the model as a guide image, centred on the
+    /// canvas at its own pixel size. Returns the file name.
+    pub fn add_guide_image(&mut self, path: &Path) -> Result<String, String> {
+        let bytes = std::fs::read(path).map_err(|e| format!("{}: {e}", path.display()))?;
+        let (w, h) =
+            ayatsuri_import::image_size(&bytes).map_err(|e| format!("{}: {e}", path.display()))?;
+        let c = self.puppet.model().canvas;
+        self.guide_images.push(ayatsuri_format::GuideImage {
+            name: file_stem(path),
+            bytes: serde_bytes::ByteBuf::from(bytes),
+            x: ((c.width - w as f32) / 2.0).round(),
+            y: ((c.height - h as f32) / 2.0).round(),
+            ..Default::default()
+        });
+        self.guide_textures.push(None);
+        self.modified = true;
+        Ok(path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default())
+    }
+
+    /// The GPU copy of a guide image, decoded on first use. None when the
+    /// file will not decode (it stays listed, so it can be removed).
+    pub fn guide_texture(&mut self, ctx: &Context, i: usize) -> Option<&TextureHandle> {
+        if self.guide_textures.len() != self.guide_images.len() {
+            self.guide_textures.resize(self.guide_images.len(), None);
+        }
+        let img = self.guide_images.get(i)?;
+        let slot = self.guide_textures.get_mut(i)?;
+        if slot.is_none() {
+            let decoded = image::load_from_memory(&img.bytes).ok()?.into_rgba8();
+            let size = [decoded.width() as usize, decoded.height() as usize];
+            let color = ColorImage::from_rgba_unmultiplied(size, decoded.as_raw());
+            *slot =
+                Some(ctx.load_texture(format!("guide-image-{i}"), color, TextureOptions::LINEAR));
+        }
+        slot.as_ref()
     }
 
     /// A Cubism Editor project becomes a model with everything the project
@@ -926,6 +1005,8 @@ impl Session {
         self.combined = old.combined;
         self.model_groups = old.model_groups;
         self.guides = old.guides;
+        self.guide_images = old.guide_images;
+        self.guide_textures = old.guide_textures;
         self.timelapse = old.timelapse;
         self.timelapse_on = old.timelapse_on;
         self.timelapse_pref = old.timelapse_pref;
@@ -1026,6 +1107,8 @@ impl Session {
         self.combined = old.combined;
         self.model_groups = old.model_groups;
         self.guides = old.guides;
+        self.guide_images = old.guide_images;
+        self.guide_textures = old.guide_textures;
         self.timelapse = old.timelapse;
         self.timelapse_on = old.timelapse_on;
         self.timelapse_pref = old.timelapse_pref;
@@ -1098,6 +1181,8 @@ impl Session {
         if let Some(d) = payload.display {
             s.model_groups = d.model_groups.clone();
             s.guides = d.guides.clone();
+            s.guide_images = d.guide_images.clone();
+            s.guide_textures = vec![None; s.guide_images.len()];
             let index_of: HashMap<&str, usize> = s
                 .puppet
                 .model()
@@ -1504,6 +1589,8 @@ impl Session {
             combined,
             model_groups: None,
             guides: Vec::new(),
+            guide_images: Vec::new(),
+            guide_textures: Vec::new(),
             timelapse: crate::timelapse::Recorder::default(),
             timelapse_on: true,
             timelapse_pref: None,
@@ -2083,6 +2170,7 @@ impl Session {
                 combined: Some(self.combined.iter().map(|&(a, b)| (a as u32, b as u32)).collect()),
                 model_groups: self.model_groups.clone(),
                 guides: self.guides.clone(),
+                guide_images: self.guide_images.clone(),
                 bezier_nets: {
                     let defs = &self.puppet.model().deformers;
                     let mut nets: Vec<(String, u32, u32, u32, Vec<f32>)> = self
