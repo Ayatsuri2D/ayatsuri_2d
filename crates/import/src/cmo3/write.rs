@@ -174,6 +174,7 @@ fn material(
     tex: Option<&image::RgbaImage>,
     uvs: &[f32],
     px: &[f32],
+    canvas: (u32, u32),
 ) -> Result<Material, ImportError> {
     let Some(tex) = tex else { return Err(err("a mesh points at a missing texture")) };
     let (tw, th) = (tex.width() as f32, tex.height() as f32);
@@ -190,10 +191,14 @@ fn material(
     if !(lo_x.is_finite() && lo_y.is_finite() && hi_x.is_finite() && hi_y.is_finite()) {
         return Err(err("a mesh has no finite points"));
     }
-    let left = (lo_x.floor() as i32).saturating_sub(1);
-    let top = (lo_y.floor() as i32).saturating_sub(1);
-    let right = (hi_x.ceil() as i32).saturating_add(1);
-    let bottom = (hi_y.ceil() as i32).saturating_add(1);
+    // a pixel of margin for the bilinear edge, kept inside the canvas:
+    // Cubism's own import clips layers there, and so does the atlas
+    // packer below, which would otherwise move the art off its mesh
+    let (cw, ch) = (canvas.0.min(i32::MAX as u32) as i32, canvas.1.min(i32::MAX as u32) as i32);
+    let left = (lo_x.floor() as i32).saturating_sub(1).clamp(0, cw - 1);
+    let top = (lo_y.floor() as i32).saturating_sub(1).clamp(0, ch - 1);
+    let right = (hi_x.ceil() as i32).saturating_add(1).clamp(left + 1, cw);
+    let bottom = (hi_y.ceil() as i32).saturating_add(1).clamp(top + 1, ch);
     let (width, height) = ((right - left).max(1) as u32, (bottom - top).max(1) as u32);
     if (width as u64) * (height as u64) > 64 << 20 {
         return Err(err("a mesh spans more than 64 million pixels"));
@@ -846,7 +851,8 @@ pub fn to_cmo3(x: &Cmo3Export) -> Result<Vec<u8>, ImportError> {
             return Err(err(format!("{}: no resting shape", m.id)));
         }
         let tex = pages.get(m.texture as usize).and_then(Option::as_ref);
-        materials.push(material(tex, &m.uvs, &px).map_err(|e| err(format!("{}: {e}", m.id)))?);
+        materials
+            .push(material(tex, &m.uvs, &px, (cw, ch)).map_err(|e| err(format!("{}: {e}", m.id)))?);
         points.push(px);
     }
     drop(pages);
@@ -900,7 +906,10 @@ pub fn to_cmo3(x: &Cmo3Export) -> Result<Vec<u8>, ImportError> {
         let right = g(&q.positions, 4) * pc.pixels_per_unit + pc.origin_x;
         let bottom = g(&q.positions, 5) * pc.pixels_per_unit + pc.origin_y;
         if (left - mat.left as f32).abs() > 0.51 || (top - mat.top as f32).abs() > 0.51 {
-            return Err(err(format!("{}: the packer moved its art", m.id)));
+            return Err(err(format!(
+                "{}: the packer moved its art ({left}, {top} vs {}, {}; {}x{})",
+                m.id, mat.left, mat.top, mat.width, mat.height
+            )));
         }
         let (ax, ay) = (g(&q.uvs, 0) * page, g(&q.uvs, 1) * page);
         let (aw, ah) = ((g(&q.uvs, 4) - g(&q.uvs, 0)) * page, (g(&q.uvs, 5) - g(&q.uvs, 1)) * page);
