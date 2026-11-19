@@ -40,13 +40,13 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - run: cargo build --locked -p ayatsuri -p ayatsuri-launcher
       - run: cargo test --locked --workspace
-
+        
   capi:
     name: C ABI ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, windows-latest, macos-latest]
+        os: [ubuntu-latest windows-latest macos-latest]
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4

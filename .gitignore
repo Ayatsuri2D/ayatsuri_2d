@@ -3,6 +3,7 @@
 *.rar
 *.zip
 *.7z
+result
 
 # Test models are never committed. Only fingerprints and manifests.
 # See ../ayatsuri2d-research/docs/09-test-corpus.md
