@@ -1,0 +1,17 @@
+[package]
+name = "cmo3"
+version.workspace = true
+edition = "2024"
+license = "MIT"
+authors.workspace = true
+repository.workspace = true
+description = "Live2D Cubism .cmo3 reader and writer: the CAFF container and the main.xml model graph, re-emitted byte for byte"
+
+[dependencies]
+flate2 = { version = "1", default-features = false, features = ["rust_backend"] }
+crc32fast = "1"
+libc = "0.2"
+
+[[bin]]
+name = "cmo3"
+path = "src/bin/cmo3.rs"

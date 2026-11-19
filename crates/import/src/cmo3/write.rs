@@ -1949,11 +1949,7 @@ pub fn to_cmo3(x: &Cmo3Export) -> Result<Vec<u8>, ImportError> {
             shown.join("; ")
         )));
     }
-    files.list.push(caffw::File {
-        name: "main.xml".into(),
-        bytes: caffw::zip_one(xml.as_bytes())?,
-        main: true,
-    });
+    files.list.push(caffw::File { name: "main.xml".into(), bytes: xml.into_bytes(), main: true });
     let key = (seed >> 16) as u32 | 0x0101_0101;
     caffw::write(&files.list, key)
 }

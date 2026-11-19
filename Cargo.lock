@@ -234,6 +234,7 @@ version = "0.6.2"
 dependencies = [
  "ayatsuri-core",
  "ayatsuri-format",
+ "cmo3",
  "image",
  "log",
  "miniz_oxide 0.9.1",
@@ -553,6 +554,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "bde03770d3df201d4fb868f2c9c59e66a3e4e2bd06692a0fe701e7103c7e84d4"
 dependencies = [
  "error-code",
+]
+
+[[package]]
+name = "cmo3"
+version = "0.6.2"
+dependencies = [
+ "crc32fast",
+ "flate2",
+ "libc",
 ]
 
 [[package]]
