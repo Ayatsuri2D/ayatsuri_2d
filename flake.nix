@@ -67,7 +67,7 @@
               libGL
             ];
 
-            commonArgs = cargoExtraArgs: {
+            makeCommonArgs = cargoExtraArgs: {
               inherit cargoExtraArgs;
               
               pname = "ayatsuri2d";
@@ -79,9 +79,13 @@
               nativeBuildInputs = [ pkgs.pkg-config pkgs.makeWrapper ];
             };
 
-            cargoArtifacts = craneLib.buildDepsOnly commonArgs;
+            makeCargoArtifacts = commonArgs: craneLib.buildDepsOnly commonArgs;
 
-            ayatsuri = craneLib.buildPackage (commonArgs "--locked -p ayatsuri -p ayatsuri-launcher" // {
+            ayatsuri = let
+              # only the two apps, not the whole workspace
+              commonArgs = makeCommonArgs "--locked -p ayatsuri -p ayatsuri-launcher";
+              cargoArtifacts = makeCargoArtifacts commonArgs;
+            in craneLib.buildPackage (commonArgs // {
               inherit cargoArtifacts meta;
               installPhaseCommand = ''
                 install -Dm755 target/release/ayatsuri "$out/bin/ayatsuri"
@@ -110,7 +114,10 @@
               '';
             });
 
-          libayatsuri = craneLib.buildPackage (commonArgs "--locked -p capi" // {
+          libayatsuri = let
+            commonArgs = makeCommonArgs "--locked -p capi";
+            cargoArtifacts = makeCargoArtifacts commonArgs;
+          in craneLib.buildPackage (commonArgs // {
             inherit cargoArtifacts;
 
             cargoBuildExtraArgs = "-p capi";
