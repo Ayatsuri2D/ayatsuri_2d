@@ -415,6 +415,10 @@ fn read_header_and_table(r: &mut BinaryReader<'_>) -> Result<HeaderAndTable> {
     // FILE TABLE (obfuscated)
     let count = r.read_i32(obfuscate_key)?;
     ensure!(count >= 0, "negative entry count {count}");
+    // Each table row is at least 24 bytes, so a count the file cannot hold is corrupt (and would
+    // otherwise size the Vec before any row is read).
+    let max_count = (r.len().saturating_sub(HEADER_AND_PREVIEW_BYTES + 4)) / 24;
+    ensure!(count as usize <= max_count, "entry count {count} exceeds what the file can hold");
     let mut metas = Vec::with_capacity(count as usize);
     for _ in 0..count {
         let path = r.read_string(obfuscate_key)?;
