@@ -607,7 +607,7 @@ mod tests {
     fn strict(bytes: &[u8]) -> Vec<String> {
         let caff = caff::Caff::open(bytes).unwrap();
         let doc = xml::Doc::parse(&caff.main_xml().unwrap()).unwrap();
-        let names: Vec<&str> = caff.entries.iter().map(|e| e.name.as_str()).collect();
+        let names = caff.names();
         check::check(&doc, &check::Schema::builtin(), &names)
     }
 
@@ -644,7 +644,7 @@ mod tests {
             .replace("<b xs.n=\"culling\">", "<b xs.n=\"cullingX\">")
             .replacen("count=\"", "count=\"9", 1);
         let doc = xml::Doc::parse(damaged.as_bytes()).unwrap();
-        let names: Vec<&str> = caff.entries.iter().map(|e| e.name.as_str()).collect();
+        let names = caff.names();
         let problems = check::check(&doc, &check::Schema::builtin(), &names).join("\n");
         assert!(problems.contains("is missing its field culling"), "{problems}");
         assert!(problems.contains("refers to #999999, which is not defined"), "{problems}");

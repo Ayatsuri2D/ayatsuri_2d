@@ -289,7 +289,9 @@ pub fn fmt_f(v: f32) -> String {
     if !v.is_finite() {
         return "0.0".into();
     }
-    if v == v.trunc() && v.abs() < 1e7 { format!("{v:.1}") } else { format!("{v}") }
+    // the digits Java picks for the value, laid out plainly as the 5.2
+    // project layout has them
+    cmo3::numfmt::float_to_plain_string(v)
 }
 
 fn esc(out: &mut String, s: &str) {

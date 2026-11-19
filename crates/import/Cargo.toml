@@ -15,7 +15,7 @@ default = ["documents"]
 # Paint documents (PSD, Krita, Clip Studio) and Cubism Editor projects
 # (cmo3), with the image, zip and XML crates they need. Off, the crate is
 # moc3 plus the Cubism JSON files only, which is what the C ABI compiles.
-documents = ["dep:psd", "dep:zip", "dep:image", "dep:miniz_oxide", "dep:quick-xml"]
+documents = ["dep:psd", "dep:zip", "dep:image", "dep:miniz_oxide", "dep:quick-xml", "dep:cmo3"]
 
 [dependencies]
 ayatsuri-core = { workspace = true }
@@ -33,3 +33,5 @@ image = { version = "0.25", default-features = false, features = ["png", "jpeg"]
 miniz_oxide = { workspace = true, optional = true }
 # Cubism Editor projects keep their object graph as XML
 quick-xml = { version = "0.41", optional = true }
+# the Cubism project container and the Editor's number spelling
+cmo3 = { path = "../cmo3", optional = true }
