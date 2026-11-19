@@ -67,11 +67,8 @@
               libGL
             ];
 
-            makeCommonArgs = cargoExtraArgs: {
-              inherit cargoExtraArgs;
-              
-              pname = "ayatsuri2d";
-              inherit version src;
+            makeCommonArgs = pname: cargoExtraArgs: {
+              inherit pname cargoExtraArgs version src;
               strictDeps = true;
               # the workspace tests run in the repository's CI
               doCheck = false;
@@ -83,7 +80,7 @@
 
             ayatsuri = let
               # only the two apps, not the whole workspace
-              commonArgs = makeCommonArgs "--locked -p ayatsuri -p ayatsuri-launcher";
+              commonArgs = makeCommonArgs "ayatsuri2d" "--locked -p ayatsuri -p ayatsuri-launcher";
               cargoArtifacts = makeCargoArtifacts commonArgs;
             in craneLib.buildPackage (commonArgs // {
               inherit cargoArtifacts meta;
@@ -115,12 +112,11 @@
             });
 
           libayatsuri = let
-            commonArgs = makeCommonArgs "--locked -p capi";
+            commonArgs = makeCommonArgs "libayatsuri" "--locked -p ayatsuri-capi";
             cargoArtifacts = makeCargoArtifacts commonArgs;
           in craneLib.buildPackage (commonArgs // {
             inherit cargoArtifacts;
 
-            cargoBuildExtraArgs = "-p capi";
             installPhaseCommand = ''
               install -Dm 755 "./target/release/capi/ayatsuri.h" "$out/include/ayatsuri.h"
               install -Dm 755 "./target/release/capi/libayatsuri_capi.*" "$out/lib"
