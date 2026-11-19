@@ -24,6 +24,13 @@
             pkgs = nixpkgs.legacyPackages.${system};
             inherit (pkgs) lib;
             craneLib = crane.mkLib pkgs;
+            meta = {
+              description = cargoToml.workspace.package.description;
+              homepage = "https://ayatsuri-2d.org";
+              license = with lib.licenses; [ gpl3Only mit asl20 ];
+              mainProgram = "ayatsuri-launcher";
+              platforms = lib.platforms.linux;
+            };
 
             # the workspace, plus what the crates embed at build time
             # (assets, the changelog, the C header) and the Linux files the
@@ -60,12 +67,12 @@
               libGL
             ];
 
-            commonArgs = {
+            commonArgs = cargoExtraArgs: {
+              inherit cargoExtraArgs;
+              
               pname = "ayatsuri2d";
               inherit version src;
               strictDeps = true;
-              # only the two apps, not the whole workspace
-              cargoExtraArgs = "--locked -p ayatsuri -p ayatsuri-launcher";
               # the workspace tests run in the repository's CI
               doCheck = false;
               buildInputs = [ pkgs.alsa-lib pkgs.libxkbcommon ];
@@ -74,8 +81,8 @@
 
             cargoArtifacts = craneLib.buildDepsOnly commonArgs;
 
-            ayatsuri = craneLib.buildPackage (commonArgs // {
-              inherit cargoArtifacts;
+            ayatsuri = craneLib.buildPackage (commonArgs "--locked -p ayatsuri -p ayatsuri-launcher" // {
+              inherit cargoArtifacts meta;
               installPhaseCommand = ''
                 install -Dm755 target/release/ayatsuri "$out/bin/ayatsuri"
                 install -Dm755 target/release/ayatsuri-launcher "$out/bin/ayatsuri-launcher"
@@ -101,19 +108,30 @@
                     --prefix AYATSURI_NIX : "true"
                 done
               '';
-              meta = {
-                description = cargoToml.workspace.package.description;
-                homepage = "https://ayatsuri-2d.org";
-                license = with lib.licenses; [ gpl3Only mit asl20 ];
-                mainProgram = "ayatsuri-launcher";
-                platforms = lib.platforms.linux;
-              };
             });
-          in
-          f { inherit pkgs craneLib ayatsuri runtimeLibs; });
+
+          libayatsuri = craneLib.buildPackage (commonArgs "--locked -p capi" // {
+            inherit cargoArtifacts;
+
+            cargoBuildExtraArgs = "-p capi";
+            installPhaseCommand = ''
+              install -Dm 755 "./target/release/capi/ayatsuri.h" "$out/include/ayatsuri.h"
+              install -Dm 755 "./target/release/capi/libayatsuri_capi.*" "$out/lib"
+              install -Dm 755 "./target/release/capi/ayatsuri_capi.*" "$out/lib/"
+              install -Dm 755 "./target/release/capi/LICENSE" "$out/share/doc/libayatsuri"
+            '';
+
+            meta = {
+              description = "The C ABI of the Ayatsuri2D runtime";
+              license = [pkgs.lib.licenses.mit pkgs.lib.licensesSpdx."Apache-2.0"];
+            };
+          });
+        in f { inherit pkgs craneLib ayatsuri libayatsuri runtimeLibs; }
+      );
     in
     {
-      packages = forAllSystems ({ ayatsuri, ... }: {
+      packages = forAllSystems ({ ayatsuri, libayatsuri, ... }: {
+        inherit libayatsuri;
         default = ayatsuri;
         ayatsuri2d = ayatsuri;
       });
