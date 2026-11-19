@@ -12,7 +12,7 @@ on:
       - flake.lock
 
 concurrency:
-  group: ci-${{ github.ref }}
+  group: nix-${{ github.ref }}
   cancel-in-progress: true
 
 env:
