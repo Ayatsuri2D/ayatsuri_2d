@@ -85,10 +85,6 @@
             installPhaseCommand = ''
               install -Dm755 "./target/release/ayatsuri" "$out/bin/ayatsuri"
               install -Dm755 "./target/release/ayatsuri-launcher" "$out/bin/ayatsuri-launcher"
-              strip "$out/bin/ayatsuri" "$out/bin/ayatsuri-launcher" 2>/dev/null || true
-
-              wrapProgram "$out/bin/ayatsuri" --set AYATSURI_NIX "true"
-              wrapProgram "$out/bin/ayatsuri-launcher" --set AYATSURI_NIX "true"
 
               install -Dm644 "${here}/${appID}.desktop" "$out/share/applications/${appID}.desktop"
               install -Dm644 "${here}/${appID}.mime.xml" "$out/share/mime/packages/${appID}.xml"
@@ -104,6 +100,12 @@
               install -m644 "./LICENSING.md" "$out/share/doc/ayatsuri2d/LICENSING.md"
               install -m644 "./README.md" "$out/share/doc/ayatsuri2d/README.md"
               install -m644 "./assets/credits.tsv" "$out/share/doc/ayatsuri2d/credits.tsv"
+            '';
+
+            postFixup = ''
+              strip "$out/bin/ayatsuri" "$out/bin/ayatsuri-launcher" 2>/dev/null || true
+              wrapProgram "$out/bin/ayatsuri" --set AYATSURI_NIX "true"
+              wrapProgram "$out/bin/ayatsuri-launcher" --set AYATSURI_NIX "true"
             '';
 
             meta = appMeta;
