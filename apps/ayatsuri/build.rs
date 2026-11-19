@@ -9,8 +9,8 @@ fn main() {
     res.set_icon("../../assets/app-icon/ayatsuri2d.ico");
     res.set("ProductName", "Ayatsuri2D");
     res.set("FileDescription", "Ayatsuri2D");
-    res.set("CompanyName", "Yoru_KenomoVT");
-    res.set("LegalCopyright", "Yoru_KenomoVT, GPL-3.0");
+    res.set("CompanyName", "Ayatsuri2D");
+    res.set("LegalCopyright", "Ayatsuri2D contributors, GPL-3.0");
     if let Err(e) = res.compile() {
         // no resource compiler: still build, just without the icon
         println!("cargo:warning=could not embed the Windows icon: {e}");

@@ -3,7 +3,9 @@
 // fastest), so every change resamples the product: inserted keys take the
 // interpolated shape, so the puppet looks identical until someone moves it.
 
-use ayatsuri_format::model::{Binding, BindingAxis, BlendShape, DeformerKind, Model, WeightLimit};
+use ayatsuri_format::model::{
+    Binding, BindingAxis, BlendShape, BoneData, DeformerKind, Model, WeightLimit,
+};
 
 use crate::{blend, blendshape};
 
@@ -196,6 +198,26 @@ pub(crate) fn with_object<R>(
                     Channel::Bool { data: &mut r.reflect_x },
                     Channel::Bool { data: &mut r.reflect_y },
                 ],
+                DeformerKind::Bone(BoneData {
+                    rotation: r, scales_y, shears_x, shears_y, ..
+                }) => {
+                    let mut v = vec![
+                        Channel::F32 { elems: 1, data: &mut r.opacities },
+                        Channel::F32 { elems: 1, data: &mut r.angles },
+                        Channel::F32 { elems: 1, data: &mut r.origins_x },
+                        Channel::F32 { elems: 1, data: &mut r.origins_y },
+                        Channel::F32 { elems: 1, data: &mut r.scales },
+                        Channel::Bool { data: &mut r.reflect_x },
+                        Channel::Bool { data: &mut r.reflect_y },
+                    ];
+                    // a bone's own pools, when it has them
+                    for data in [scales_y, shears_x, shears_y] {
+                        if !data.is_empty() {
+                            v.push(Channel::F32 { elems: 1, data });
+                        }
+                    }
+                    v
+                }
             };
             colour_channels(&mut channels, multiply, screen);
             Some(f(binding, channels))
@@ -455,79 +477,89 @@ pub fn add_keys(model: &mut Model, target: Target, param: usize, values: &[f32])
         return crate::shapes::add_keys(model, target, param, values);
     }
     with_object(model, target, |binding, mut channels| {
-        let mut changed = false;
-        let axis_at = binding.axes.iter().position(|a| a.parameter as usize == param);
-        let axis_at = match axis_at {
-            Some(a) => a,
-            None => {
-                // a fresh axis varies slowest: the data tiles
-                let keys: Vec<f32> = {
-                    let mut k: Vec<f32> = values.to_vec();
-                    k.sort_by(f32::total_cmp);
-                    k.dedup_by(|a, b| (*a - *b).abs() < 1e-5);
-                    k
-                };
-                if keys.is_empty() {
-                    return false;
-                }
-                let k = keys.len();
-                binding.axes.push(BindingAxis { parameter: param as u32, keys });
-                for ch in &mut channels {
-                    tile(ch, k);
-                }
-                return true;
-            }
-        };
-        let curve = binding.curve(param as u32);
-        for &v in values {
-            let lens = axis_lens(binding);
-            let Some(axis) = binding.axes.get_mut(axis_at) else { break };
-            if axis.keys.iter().any(|k| (k - v).abs() < 1e-5) {
-                continue;
-            }
-            let pos = axis.keys.iter().take_while(|k| **k < v).count();
-            let old_len = axis.keys.len();
-            let mut map = Vec::with_capacity(old_len + 1);
-            for i in 0..=old_len {
-                if i < pos {
-                    map.push(KeySrc::Copy(i));
-                } else if i == pos {
-                    if pos == 0 {
-                        map.push(KeySrc::Copy(0));
-                    } else if pos == old_len {
-                        map.push(KeySrc::Copy(old_len.saturating_sub(1)));
-                    } else {
-                        let a = axis.keys.get(pos - 1).copied().unwrap_or(0.0);
-                        let b = axis.keys.get(pos).copied().unwrap_or(1.0);
-                        let t = if (b - a).abs() > 1e-9 { (v - a) / (b - a) } else { 0.0 };
-                        match curve.filter(|_| old_len >= 3) {
-                            // on a curved axis the new key takes the curve's
-                            // shape, so adding it changes nothing on screen
-                            Some(kind) => {
-                                let mut ws = Vec::with_capacity(4);
-                                crate::blend::curve_weights(&axis.keys, pos - 1, t, kind, &mut ws);
-                                let mut mix = [(0usize, 0.0f32); 4];
-                                for (slot, w) in mix.iter_mut().zip(&ws) {
-                                    *slot = *w;
-                                }
-                                map.push(KeySrc::Mix(mix));
-                            }
-                            None => map.push(KeySrc::Lerp(pos - 1, pos, t)),
-                        }
-                    }
-                } else {
-                    map.push(KeySrc::Copy(i - 1));
-                }
-            }
-            axis.keys.insert(pos, v);
-            for ch in &mut channels {
-                remap(&lens, axis_at, &map, ch);
-            }
-            changed = true;
-        }
-        changed
+        add_keys_to(binding, &mut channels, param, values)
     })
     .unwrap_or(false)
+}
+
+/// `add_keys` on one binding and the keyform channels it drives.
+pub(crate) fn add_keys_to(
+    binding: &mut Binding,
+    channels: &mut [Channel<'_>],
+    param: usize,
+    values: &[f32],
+) -> bool {
+    let mut changed = false;
+    let axis_at = binding.axes.iter().position(|a| a.parameter as usize == param);
+    let axis_at = match axis_at {
+        Some(a) => a,
+        None => {
+            // a fresh axis varies slowest: the data tiles
+            let keys: Vec<f32> = {
+                let mut k: Vec<f32> = values.to_vec();
+                k.sort_by(f32::total_cmp);
+                k.dedup_by(|a, b| (*a - *b).abs() < 1e-5);
+                k
+            };
+            if keys.is_empty() {
+                return false;
+            }
+            let k = keys.len();
+            binding.axes.push(BindingAxis { parameter: param as u32, keys });
+            for ch in channels.iter_mut() {
+                tile(ch, k);
+            }
+            return true;
+        }
+    };
+    let curve = binding.curve(param as u32);
+    for &v in values {
+        let lens = axis_lens(binding);
+        let Some(axis) = binding.axes.get_mut(axis_at) else { break };
+        if axis.keys.iter().any(|k| (k - v).abs() < 1e-5) {
+            continue;
+        }
+        let pos = axis.keys.iter().take_while(|k| **k < v).count();
+        let old_len = axis.keys.len();
+        let mut map = Vec::with_capacity(old_len + 1);
+        for i in 0..=old_len {
+            if i < pos {
+                map.push(KeySrc::Copy(i));
+            } else if i == pos {
+                if pos == 0 {
+                    map.push(KeySrc::Copy(0));
+                } else if pos == old_len {
+                    map.push(KeySrc::Copy(old_len.saturating_sub(1)));
+                } else {
+                    let a = axis.keys.get(pos - 1).copied().unwrap_or(0.0);
+                    let b = axis.keys.get(pos).copied().unwrap_or(1.0);
+                    let t = if (b - a).abs() > 1e-9 { (v - a) / (b - a) } else { 0.0 };
+                    match curve.filter(|_| old_len >= 3) {
+                        // on a curved axis the new key takes the curve's
+                        // shape, so adding it changes nothing on screen
+                        Some(kind) => {
+                            let mut ws = Vec::with_capacity(4);
+                            crate::blend::curve_weights(&axis.keys, pos - 1, t, kind, &mut ws);
+                            let mut mix = [(0usize, 0.0f32); 4];
+                            for (slot, w) in mix.iter_mut().zip(&ws) {
+                                *slot = *w;
+                            }
+                            map.push(KeySrc::Mix(mix));
+                        }
+                        None => map.push(KeySrc::Lerp(pos - 1, pos, t)),
+                    }
+                }
+            } else {
+                map.push(KeySrc::Copy(i - 1));
+            }
+        }
+        axis.keys.insert(pos, v);
+        for ch in channels.iter_mut() {
+            remap(&lens, axis_at, &map, ch);
+        }
+        changed = true;
+    }
+    changed
 }
 
 /// Delete the key nearest `value` on `target`'s axis for `param`. Deleting
@@ -537,38 +569,47 @@ pub fn delete_key(model: &mut Model, target: Target, param: usize, value: f32) -
         return crate::shapes::delete_key(model, target, param, value);
     }
     with_object(model, target, |binding, mut channels| {
-        let Some(axis_at) = binding.axes.iter().position(|a| a.parameter as usize == param) else {
-            return false;
-        };
-        let lens = axis_lens(binding);
-        let Some(axis) = binding.axes.get_mut(axis_at) else { return false };
-        let Some(pos) = axis
-            .keys
-            .iter()
-            .enumerate()
-            .min_by(|(_, a), (_, b)| (*a - value).abs().total_cmp(&(*b - value).abs()))
-            .map(|(i, _)| i)
-        else {
-            return false;
-        };
-        if axis.keys.len() <= 1 {
-            // last key: the binding goes away, keyform 0 stays
-            let map = [KeySrc::Copy(0)];
-            for ch in &mut channels {
-                remap(&lens, axis_at, &map, ch);
-            }
-            binding.axes.remove(axis_at);
-            return true;
-        }
-        let map: Vec<KeySrc> =
-            (0..axis.keys.len()).filter(|&i| i != pos).map(KeySrc::Copy).collect();
-        axis.keys.remove(pos);
-        for ch in &mut channels {
-            remap(&lens, axis_at, &map, ch);
-        }
-        true
+        delete_key_from(binding, &mut channels, param, value)
     })
     .unwrap_or(false)
+}
+
+/// `delete_key` on one binding and the keyform channels it drives.
+pub(crate) fn delete_key_from(
+    binding: &mut Binding,
+    channels: &mut [Channel<'_>],
+    param: usize,
+    value: f32,
+) -> bool {
+    let Some(axis_at) = binding.axes.iter().position(|a| a.parameter as usize == param) else {
+        return false;
+    };
+    let lens = axis_lens(binding);
+    let Some(axis) = binding.axes.get_mut(axis_at) else { return false };
+    let Some(pos) = axis
+        .keys
+        .iter()
+        .enumerate()
+        .min_by(|(_, a), (_, b)| (*a - value).abs().total_cmp(&(*b - value).abs()))
+        .map(|(i, _)| i)
+    else {
+        return false;
+    };
+    if axis.keys.len() <= 1 {
+        // last key: the binding goes away, keyform 0 stays
+        let map = [KeySrc::Copy(0)];
+        for ch in channels.iter_mut() {
+            remap(&lens, axis_at, &map, ch);
+        }
+        binding.axes.remove(axis_at);
+        return true;
+    }
+    let map: Vec<KeySrc> = (0..axis.keys.len()).filter(|&i| i != pos).map(KeySrc::Copy).collect();
+    axis.keys.remove(pos);
+    for ch in channels.iter_mut() {
+        remap(&lens, axis_at, &map, ch);
+    }
+    true
 }
 
 /// Remove `target`'s whole binding on `param`, keeping the current-default
@@ -847,7 +888,7 @@ fn child_points(model: &Model, c: Child) -> Vec<(f32, f32)> {
         Child::Mesh(i) => model.art_meshes.get(i).map(|m| pairs(&m.positions)).unwrap_or_default(),
         Child::Deformer(i) => match model.deformers.get(i).map(|d| &d.kind) {
             Some(DeformerKind::Warp(w)) => pairs(&w.positions),
-            Some(DeformerKind::Rotation(r)) => {
+            Some(DeformerKind::Rotation(r) | DeformerKind::Bone(BoneData { rotation: r, .. })) => {
                 r.origins_x.iter().zip(&r.origins_y).map(|(&x, &y)| (x, y)).collect()
             }
             None => Vec::new(),
@@ -884,7 +925,10 @@ fn map_child(model: &mut Model, c: Child, f: &dyn Fn(f32, f32) -> (f32, f32)) {
                         map_pairs(&mut b.positions);
                     }
                 }
-                Some((DeformerKind::Rotation(r), _)) => {
+                Some((
+                    DeformerKind::Rotation(r) | DeformerKind::Bone(BoneData { rotation: r, .. }),
+                    _,
+                )) => {
                     for (x, y) in r.origins_x.iter_mut().zip(r.origins_y.iter_mut()) {
                         let (nx, ny) = f(*x, *y);
                         *x = nx;
@@ -898,7 +942,7 @@ fn map_child(model: &mut Model, c: Child, f: &dyn Fn(f32, f32) -> (f32, f32)) {
 }
 
 /// Whether `d` is `target` or sits somewhere under it.
-fn deformer_under(model: &Model, d: usize, target: usize) -> bool {
+pub(crate) fn deformer_under(model: &Model, d: usize, target: usize) -> bool {
     let mut cur = Some(d as u32);
     let mut hops = 0;
     while let Some(c) = cur {
@@ -964,7 +1008,7 @@ pub fn create_deformer(
         let wraps_rotation = children.iter().any(|&c| {
             matches!(c, Child::Deformer(d) if matches!(
                 model.deformers.get(d).map(|x| &x.kind),
-                Some(DeformerKind::Rotation(_))
+                Some(DeformerKind::Rotation(_) | DeformerKind::Bone(_))
             ))
         });
         let before = (matches!(kind, NewDeformer::Rotation { .. }) || wraps_rotation)
@@ -1051,6 +1095,7 @@ pub fn create_deformer(
         for d in &mut model.deformers {
             bump(&mut d.parent_deformer);
         }
+        crate::bone_edit::remap_refs(model, |x| Some(if x as usize >= di { x + 1 } else { x }));
         let shift = |i: usize| if i >= di { i + 1 } else { i };
         let children: Vec<Child> = children
             .iter()
@@ -1166,7 +1211,7 @@ pub(crate) fn rest_puppet(model: &Model) -> crate::Puppet {
 /// Put deformers back in "parents first" order (the evaluator and moc3
 /// both need it), keeping everything else in its current order, and
 /// renumber every reference. Returns old index -> new index.
-fn sort_parents_first(model: &mut Model) -> Vec<usize> {
+pub(crate) fn sort_parents_first(model: &mut Model) -> Vec<usize> {
     let n = model.deformers.len();
     let mut placed = vec![false; n];
     let mut order: Vec<usize> = Vec::with_capacity(n);
@@ -1203,8 +1248,15 @@ fn sort_parents_first(model: &mut Model) -> Vec<usize> {
     if order.iter().enumerate().all(|(new, &old)| new == old) {
         return new_of;
     }
+    put_in_order(model, &order, &new_of);
+    new_of
+}
+
+/// Lay the deformers out in `order` (old indices, each once) and renumber
+/// every reference to them; `new_of` is the inverse, old index -> new.
+pub(crate) fn put_in_order(model: &mut Model, order: &[usize], new_of: &[usize]) {
     let mut old = core::mem::take(&mut model.deformers).into_iter().map(Some).collect::<Vec<_>>();
-    for &i in &order {
+    for &i in order {
         if let Some(d) = old.get_mut(i).and_then(Option::take) {
             model.deformers.push(d);
         }
@@ -1220,7 +1272,7 @@ fn sort_parents_first(model: &mut Model) -> Vec<usize> {
     for d in &mut model.deformers {
         remap(&mut d.parent_deformer);
     }
-    new_of
+    crate::bone_edit::remap_refs(model, |x| new_of.get(x as usize).map(|&n| n as u32));
 }
 
 /// Give `child` a new parent deformer (None: no deformer) without moving
@@ -1261,6 +1313,12 @@ pub fn set_parent(model: &mut Model, child: Child, new_parent: Option<usize>) ->
             Child::Mesh(i) => {
                 if let Some(m) = model.art_meshes.get_mut(i) {
                     m.parent_deformer = np;
+                    // binds are in the old parent's space: the bones are
+                    // bound again where they sit at rest
+                    if let Some(s) = &mut m.skin {
+                        s.bind_bones.clear();
+                        s.bind_maps.clear();
+                    }
                 }
             }
             Child::Deformer(i) => {
@@ -1277,13 +1335,17 @@ pub fn set_parent(model: &mut Model, child: Child, new_parent: Option<usize>) ->
         // a rotation reads its parents' turn and scale; give back the difference
         if let (Child::Deformer(d), Some((old_angle, old_scale))) = (child, old_frame) {
             let after = rest_puppet(model);
-            if let (Some(now), Some(def)) = (after.rotation_state(d), model.deformers.get_mut(d))
-                && let DeformerKind::Rotation(r) = &mut def.kind
-            {
+            if let (Some(now), Some(def)) = (after.rotation_state(d), model.deformers.get_mut(d)) {
+                // a bone's own y scale goes with its x scale
+                let (r, scales_y) = match &mut def.kind {
+                    DeformerKind::Rotation(r) => (r, None),
+                    DeformerKind::Bone(b) => (&mut b.rotation, Some(&mut b.scales_y)),
+                    DeformerKind::Warp(_) => return Some(child),
+                };
                 r.base_angle += old_angle - now.angle;
                 if now.scale.abs() > 1e-6 && old_scale.is_finite() {
                     let ratio = old_scale / now.scale;
-                    for s in &mut r.scales {
+                    for s in r.scales.iter_mut().chain(scales_y.into_iter().flatten()) {
                         *s *= ratio;
                     }
                 }
@@ -1339,6 +1401,13 @@ pub fn delete_deformer(model: &mut Model, deformer: usize) -> bool {
         for d in &mut model.deformers {
             shift(&mut d.parent_deformer);
         }
+        // weights on it go to the vertices' other bones, IK on it goes
+        let gone = deformer as u32;
+        crate::bone_edit::remap_refs(model, |x| match x.cmp(&gone) {
+            core::cmp::Ordering::Less => Some(x),
+            core::cmp::Ordering::Equal => None,
+            core::cmp::Ordering::Greater => Some(x - 1),
+        });
         true
     })
 }
@@ -1453,6 +1522,13 @@ pub fn insert_art_mesh(
     }
     if mesh.parent_deformer.is_some_and(|d| d as usize >= model.deformers.len()) {
         mesh.parent_deformer = None;
+    }
+    // weights only on what is a bone here
+    if let Some(skin) = &mesh.skin {
+        let is_bone = |b: u32| model.deformers.get(b as usize).is_some_and(|d| d.kind.is_bone());
+        mesh.skin = crate::bone_edit::remap_skin(skin, mesh.vertex_count as usize, |b| {
+            is_bone(b).then_some(b)
+        });
     }
     let index = model.art_meshes.len();
     let next_to = beside.and_then(|id| model.art_meshes.iter().position(|m| m.id == id));
@@ -1619,6 +1695,7 @@ pub fn create_art_path(
         clip_inherit: false,
         multiply: Vec::new(),
         screen: Vec::new(),
+        skin: None,
     });
     let index = model.art_meshes.len() - 1;
     if let Some(root) = model.draw_groups.first_mut() {
@@ -1833,7 +1910,9 @@ pub fn color_pool_mut(
             let d = model.deformers.get_mut(i)?;
             let n = match &d.kind {
                 DeformerKind::Warp(w) => w.opacities.len(),
-                DeformerKind::Rotation(r) => r.opacities.len(),
+                DeformerKind::Rotation(r) | DeformerKind::Bone(BoneData { rotation: r, .. }) => {
+                    r.opacities.len()
+                }
             };
             (&mut d.multiply, &mut d.screen, n)
         }
@@ -1977,7 +2056,9 @@ pub fn set_opacity(model: &mut Model, target: Target, keyform: usize, opacity: f
         }
         Target::Deformer(i) => model.deformers.get_mut(i).and_then(|d| match &mut d.kind {
             DeformerKind::Warp(w) => w.opacities.get_mut(keyform),
-            DeformerKind::Rotation(r) => r.opacities.get_mut(keyform),
+            DeformerKind::Rotation(r) | DeformerKind::Bone(BoneData { rotation: r, .. }) => {
+                r.opacities.get_mut(keyform)
+            }
         }),
         Target::Part(i) => {
             model.parts.get_mut(i).and_then(|p| p.offscreen.as_mut()?.opacities.get_mut(keyform))
@@ -2970,7 +3051,7 @@ pub fn four_corner_forms(model: &mut Model, target: Target) -> bool {
                     let pts = w.grid_points() * 2;
                     (binding, pts, &mut w.positions)
                 }
-                DeformerKind::Rotation(_) => return false,
+                DeformerKind::Rotation(_) | DeformerKind::Bone(_) => return false,
             }
         }
         Target::Part(_) => return false,
@@ -3317,7 +3398,7 @@ pub fn flip_object(model: &mut Model, target: Target, horizontal: bool) -> bool 
         Target::Deformer(d)
             if matches!(
                 model.deformers.get(d).map(|x| &x.kind),
-                Some(DeformerKind::Rotation(_))
+                Some(DeformerKind::Rotation(_) | DeformerKind::Bone(_))
             ) =>
         {
             // its centre is its origin, which stays
@@ -3348,7 +3429,10 @@ pub fn flip_object(model: &mut Model, target: Target, horizontal: bool) -> bool 
         }
     }
     for &r in &rotations {
-        if let Some(DeformerKind::Rotation(rot)) = model.deformers.get_mut(r).map(|d| &mut d.kind) {
+        if let Some(
+            DeformerKind::Rotation(rot) | DeformerKind::Bone(BoneData { rotation: rot, .. }),
+        ) = model.deformers.get_mut(r).map(|d| &mut d.kind)
+        {
             rot.base_angle = -rot.base_angle;
             for a in &mut rot.angles {
                 *a = -*a;
@@ -3503,8 +3587,10 @@ fn mirror_positions(model: &mut Model, target: Target, horizontal: bool) -> bool
 fn rotations_in(model: &Model, deformer: usize) -> Vec<usize> {
     (0..model.deformers.len())
         .filter(|&r| {
-            matches!(model.deformers.get(r).map(|d| &d.kind), Some(DeformerKind::Rotation(_)))
-                && deformer_under(model, r, deformer)
+            matches!(
+                model.deformers.get(r).map(|d| &d.kind),
+                Some(DeformerKind::Rotation(_) | DeformerKind::Bone(_))
+            ) && deformer_under(model, r, deformer)
         })
         .collect()
 }
@@ -3514,8 +3600,10 @@ fn rotations_in(model: &Model, deformer: usize) -> Vec<usize> {
 fn settle_rotations(model: &mut Model, want: &[(usize, f32)]) {
     for &(r, angle) in want {
         let now = rest_puppet(model).rotation_state(r).map(|s| s.angle);
-        if let (Some(now), Some(DeformerKind::Rotation(rot))) =
-            (now, model.deformers.get_mut(r).map(|d| &mut d.kind))
+        if let (
+            Some(now),
+            Some(DeformerKind::Rotation(rot) | DeformerKind::Bone(BoneData { rotation: rot, .. })),
+        ) = (now, model.deformers.get_mut(r).map(|d| &mut d.kind))
         {
             let mut diff = (angle - now) % 360.0;
             if diff > 180.0 {
@@ -3532,7 +3620,7 @@ fn settle_rotations(model: &mut Model, want: &[(usize, f32)]) {
 /// every keyform.
 pub fn move_rotation_origin(model: &mut Model, deformer: usize, dx: f32, dy: f32) -> bool {
     let Some(d) = model.deformers.get_mut(deformer) else { return false };
-    let DeformerKind::Rotation(r) = &mut d.kind else { return false };
+    let Some(r) = d.kind.rotation_mut() else { return false };
     for x in &mut r.origins_x {
         *x += dx;
     }
@@ -3552,7 +3640,7 @@ pub fn move_rotation_origin_in(
     dy: f32,
 ) -> bool {
     let Some(d) = model.deformers.get_mut(deformer) else { return false };
-    let DeformerKind::Rotation(r) = &mut d.kind else { return false };
+    let Some(r) = d.kind.rotation_mut() else { return false };
     match (r.origins_x.get_mut(keyform), r.origins_y.get_mut(keyform)) {
         (Some(x), Some(y)) => {
             *x += dx;
@@ -3575,7 +3663,7 @@ pub fn move_rotation_pivot(
     child: (f32, f32),
 ) -> bool {
     let Some(d) = model.deformers.get_mut(deformer) else { return false };
-    let DeformerKind::Rotation(r) = &mut d.kind else { return false };
+    let Some(r) = d.kind.rotation_mut() else { return false };
     if origin_deltas.len() != r.origins_x.len() || r.origins_x.len() != r.origins_y.len() {
         return false;
     }
@@ -3628,7 +3716,7 @@ pub fn rotate_rotation_at(
         .is_some();
     }
     let Some(d) = model.deformers.get_mut(deformer) else { return false };
-    let DeformerKind::Rotation(r) = &mut d.kind else { return false };
+    let Some(r) = d.kind.rotation_mut() else { return false };
     r.angles.get_mut(keyform).map(|a| *a += degrees).is_some()
 }
 
@@ -3638,7 +3726,9 @@ pub fn rotate_rotation_at(
 /// other way when the deformer mirrors through one Reflect flag), and
 /// rotation deformers among them keep the turn they showed.
 pub fn rotate_rotation_keep_children(model: &mut Model, deformer: usize, degrees: f32) -> bool {
-    let Some(DeformerKind::Rotation(r)) = model.deformers.get(deformer).map(|d| &d.kind) else {
+    let Some(DeformerKind::Rotation(r) | DeformerKind::Bone(BoneData { rotation: r, .. })) =
+        model.deformers.get(deformer).map(|d| &d.kind)
+    else {
         return false;
     };
     let mirrored = r.reflect_x.first().copied().unwrap_or(false)
@@ -3666,7 +3756,7 @@ pub fn rotate_rotation_keep_children(model: &mut Model, deformer: usize, degrees
                 Child::Deformer(d)
                     if matches!(
                         model.deformers.get(d).map(|x| &x.kind),
-                        Some(DeformerKind::Rotation(_))
+                        Some(DeformerKind::Rotation(_) | DeformerKind::Bone(_))
                     ) =>
                 {
                     Some(d)
@@ -3702,7 +3792,8 @@ pub fn scale_rotation_in(model: &mut Model, deformer: usize, keyform: usize, fac
     if !(factor.is_finite() && factor > 0.0) {
         return false;
     }
-    let Some(DeformerKind::Rotation(r)) = model.deformers.get_mut(deformer).map(|d| &mut d.kind)
+    let Some(DeformerKind::Rotation(r) | DeformerKind::Bone(BoneData { rotation: r, .. })) =
+        model.deformers.get_mut(deformer).map(|d| &mut d.kind)
     else {
         return false;
     };
@@ -3723,7 +3814,8 @@ pub fn scale_rotation_keep_children(model: &mut Model, deformer: usize, factor: 
     if !(factor.is_finite() && factor > 0.0) {
         return false;
     }
-    let Some(DeformerKind::Rotation(r)) = model.deformers.get_mut(deformer).map(|d| &mut d.kind)
+    let Some(DeformerKind::Rotation(r) | DeformerKind::Bone(BoneData { rotation: r, .. })) =
+        model.deformers.get_mut(deformer).map(|d| &mut d.kind)
     else {
         return false;
     };
@@ -3751,8 +3843,9 @@ pub fn scale_rotation_keep_children(model: &mut Model, deformer: usize, factor: 
         for &c in &children {
             map_child(model, c, &back);
             if let Child::Deformer(d) = c
-                && let Some(DeformerKind::Rotation(r)) =
-                    model.deformers.get_mut(d).map(|x| &mut x.kind)
+                && let Some(
+                    DeformerKind::Rotation(r) | DeformerKind::Bone(BoneData { rotation: r, .. }),
+                ) = model.deformers.get_mut(d).map(|x| &mut x.kind)
             {
                 for s in &mut r.scales {
                     *s /= factor;
@@ -3766,7 +3859,7 @@ pub fn scale_rotation_keep_children(model: &mut Model, deformer: usize, factor: 
 /// Turn a rotation deformer by `degrees` on every keyform.
 pub fn rotate_rotation(model: &mut Model, deformer: usize, degrees: f32) -> bool {
     let Some(d) = model.deformers.get_mut(deformer) else { return false };
-    let DeformerKind::Rotation(r) = &mut d.kind else { return false };
+    let Some(r) = d.kind.rotation_mut() else { return false };
     for a in &mut r.angles {
         *a += degrees;
     }
@@ -4514,6 +4607,7 @@ mod tests {
                 clip_inherit: false,
                 multiply: Vec::new(),
                 screen: Vec::new(),
+                skin: None,
             }],
             glues: vec![],
             draw_groups: vec![],
@@ -4523,6 +4617,7 @@ mod tests {
             art_path_page: None,
             original_shapes: Vec::new(),
             clip_groups: Vec::new(),
+            ik: Vec::new(),
         }
     }
 
@@ -5227,7 +5322,7 @@ mod tests {
         mk(&mut m, NewDeformer::Warp { rows: 2, cols: 2 }, &[], "free");
         let turn = |m: &mut Model, id: &str, deg: f32, scale: f32| {
             let d = m.deformers.iter_mut().find(|d| d.id == id).unwrap();
-            let DeformerKind::Rotation(r) = &mut d.kind else { panic!() };
+            let Some(r) = d.kind.rotation_mut() else { panic!() };
             r.base_angle = deg;
             r.scales = vec![scale];
         };

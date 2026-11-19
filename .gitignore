@@ -24,3 +24,6 @@ result
 
 # only the workspace lockfile is committed
 crates/*/Cargo.lock
+
+# metas a local Unity writes into the package checkout; the pack makes its own
+sdk/unity/**/*.meta

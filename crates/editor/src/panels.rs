@@ -13,6 +13,8 @@ use crate::dock::{self, DockAction, DockNode, PanelKind};
 use crate::point_edit;
 
 mod api_bar;
+mod bone_palette;
+mod bones;
 mod deformer_dialog;
 mod original;
 mod param_menu;
@@ -26,6 +28,7 @@ use crate::logging;
 use crate::prefs::Prefs;
 use crate::session::{Sel, Session};
 use crate::theme;
+use bone_palette::BoneCmd;
 use param_menu::ParamCmd;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -44,6 +47,10 @@ enum Tool {
     TextureAtlas,
     /// Modeling > Temporary Deform Tool, bound to the selection.
     TempDeform,
+    /// Bones (Settings > Experimental > Bones): drag out bones and chains.
+    Bone,
+    /// Bones: brush a mesh's weights for one bone.
+    WeightPaint,
 }
 
 impl Tool {
@@ -62,6 +69,8 @@ impl Tool {
             Tool::ArtPath,
         ],
     ];
+    /// Shown after the others while the Bones switch is on.
+    const BONES: &'static [Tool] = &[Tool::Bone, Tool::WeightPaint];
     fn icon(self) -> &'static str {
         match self {
             Tool::Arrow => egui_phosphor::regular::CURSOR,
@@ -77,6 +86,8 @@ impl Tool {
             Tool::ArtPath => egui_phosphor::regular::PEN_NIB,
             Tool::TextureAtlas => egui_phosphor::regular::SQUARES_FOUR,
             Tool::TempDeform => egui_phosphor::regular::BOUNDING_BOX,
+            Tool::Bone => egui_phosphor::regular::BONE,
+            Tool::WeightPaint => egui_phosphor::regular::PAINT_BRUSH_BROAD,
         }
     }
     fn label(self) -> &'static str {
@@ -94,6 +105,8 @@ impl Tool {
             Tool::ArtPath => "ArtPath",
             Tool::TextureAtlas => "Texture Atlas",
             Tool::TempDeform => "Temporary Deform Tool",
+            Tool::Bone => "Bone",
+            Tool::WeightPaint => "Weight Paint",
         }
     }
 }
@@ -452,7 +465,7 @@ fn tool_key(t: Tool) -> Option<&'static str> {
         Tool::WarpCreate => "tool-warp",
         Tool::RotationCreate => "tool-rotation",
         Tool::TextureAtlas => "tool-atlas",
-        Tool::TempDeform => return None,
+        Tool::TempDeform | Tool::Bone | Tool::WeightPaint => return None,
     })
 }
 
@@ -467,6 +480,8 @@ struct ToolOptions {
     warp_rows: u32,
     /// Stroke mesh-mapping's settings.
     stroke: stroke_tool::StrokeOpts,
+    /// Weight binding and painting.
+    bones: bones::BoneOpts,
 }
 
 impl Default for ToolOptions {
@@ -478,6 +493,7 @@ impl Default for ToolOptions {
             warp_cols: 5,
             warp_rows: 5,
             stroke: stroke_tool::StrokeOpts::default(),
+            bones: bones::BoneOpts::default(),
         }
     }
 }
@@ -663,6 +679,12 @@ pub struct EditorUi {
     mesh_art: Option<MeshArt>,
     /// Stroke mesh-mapping's strokes, not yet confirmed.
     stroke_edit: Option<stroke_tool::StrokeEdit>,
+    /// The bone tools' pick, mesh and strokes.
+    bones: bones::BoneState,
+    bone_pal: bone_palette::BonePalette,
+    /// Whether Bones was on last frame: turning it on opens the Bones
+    /// palette beside the Deformer palette.
+    bones_tab_was: bool,
     /// Confirm asked for on the canvas: applied once it lets go.
     stroke_confirm: bool,
     /// The mesh Mesh Edit was on last frame, to notice it closing.
@@ -752,6 +774,9 @@ pub struct EditorUi {
     clip_also: Vec<usize>,
     /// A deformer creation requested from inside a borrow (canvas, tool pane).
     pending_create: Option<(bool, Option<(f32, f32)>)>,
+    /// A bone the Bone tool drew this frame, and its part: New Bone opens
+    /// for it after the canvas lets go of the session.
+    pending_bone: Option<(deformer_dialog::DrawnBone, Option<u32>)>,
     /// The IDs of the parameter and the deformer made last: the next create
     /// dialog starts from them, so a run of similar IDs needs one edit each.
     last_param_id: Option<String>,
@@ -1512,6 +1537,8 @@ enum DefCmd {
     DeletePath(usize, u8),
     /// Move this object under that deformer (None: under no deformer).
     Reparent(Child, Option<usize>),
+    /// An armature row's command, run as the Bones palette runs it.
+    Bones(BoneCmd),
 }
 
 /// What a native file dialog running on its own thread was opened for;
@@ -1565,6 +1592,8 @@ struct PathGrab {
     ptr: Pos2,
     /// Present when the drag deforms (arrow tool): ties fixed at the grab.
     bind: Option<point_edit::PathBind>,
+    /// Ctrl at the start: the control point moves alone, nothing bends.
+    control: bool,
     verts: Vec<Pos2>,
     local: Vec<f32>,
 }
@@ -1655,6 +1684,9 @@ pub(crate) struct ExportDlg {
     pub(crate) transparent: bool,
     /// moc3: the texture pages' longer side as written, when resized.
     pub(crate) texture_size: Option<u32>,
+    /// moc3: the export warnings for a version, made once per opening
+    /// (baking the bones for its report is too slow to redo every frame).
+    pub(crate) warnings: Option<(usize, Vec<String>)>,
 }
 
 /// The New Model dialog's working copy.
@@ -1717,6 +1749,7 @@ impl Default for EditorUi {
         // tests never touch the saved preferences
         let whats_new = !cfg!(test) && crate::whats_new::first_start(&mut prefs);
         let check_updates = !prefs.update_check_off;
+        let bones_on = prefs.bones_on();
         let ask_ffmpeg = !prefs.ffmpeg_prompt_off;
         crate::i18n::set_language(prefs.language.as_deref().unwrap_or("system"));
         let pending_import = if prefs.reopen_last { prefs.recents.first().cloned() } else { None };
@@ -1847,6 +1880,9 @@ impl Default for EditorUi {
             dev_def_logged: false,
             mesh_art: None,
             stroke_edit: None,
+            bones: bones::BoneState::default(),
+            bone_pal: bone_palette::BonePalette::default(),
+            bones_tab_was: bones_on,
             stroke_confirm: false,
             mesh_edit_was: None,
             dev_mesh_logged: false,
@@ -1879,6 +1915,7 @@ impl Default for EditorUi {
             clip_pick: None,
             clip_also: Vec::new(),
             pending_create: None,
+            pending_bone: None,
             last_param_id: None,
             last_def_id: None,
             pending_guide: None,
@@ -2828,6 +2865,7 @@ impl EditorUi {
         self.api_prompt_window(&ui.ctx().clone());
         self.api_window(ui);
         self.def_rename_window(&ui.ctx().clone());
+        self.bone_folder_window(&ui.ctx().clone());
         if std::mem::take(&mut self.stroke_confirm) {
             self.apply_stroke_mesh();
         }
@@ -4081,6 +4119,9 @@ impl EditorUi {
                     // one checkbox per palette; the menu stays open so several
                     // can be toggled in one go
                     for p in PanelKind::ALL {
+                        if p == PanelKind::Bones && !self.prefs.bones_on() {
+                            continue;
+                        }
                         let was = self.layout.contains(p);
                         let mut open = was;
                         if ui.checkbox(&mut open, crate::i18n::tr(p.title())).changed() {
@@ -4733,6 +4774,15 @@ impl EditorUi {
                 self.physics_page(ui);
             });
         } else {
+            // the Bones palette comes and goes with Settings > Experimental >
+            // Bones: turned on, it opens beside the Deformer palette
+            let bones_on = self.prefs.bones_on();
+            if bones_on && !self.bones_tab_was {
+                self.layout.open_near(PanelKind::Bones, PanelKind::Deformers);
+            } else if !bones_on && self.layout.contains(PanelKind::Bones) {
+                self.layout.close(PanelKind::Bones);
+            }
+            self.bones_tab_was = bones_on;
             CentralPanel::default().frame(Frame::NONE.fill(theme::pal().chrome)).show(ui, |ui| {
                 let rect = ui.available_rect_before_wrap().shrink(dock::theme::GAP);
                 let mut groups = Vec::new();
@@ -4764,6 +4814,9 @@ impl EditorUi {
 
         if let Some((warp, origin)) = self.pending_create.take() {
             self.open_deformer_dialog(warp, origin);
+        }
+        if let Some((drawn, part)) = self.pending_bone.take() {
+            self.open_bone_dialog(drawn, part);
         }
         self.deformer_dialog_window(ui);
 
@@ -5717,6 +5770,7 @@ impl EditorUi {
             PanelKind::Parameters => self.parameters_panel(ui),
             PanelKind::Parts => self.parts_panel(ui),
             PanelKind::Deformers => self.deformers_panel(ui),
+            PanelKind::Bones => self.bones_panel(ui),
             PanelKind::Textures => self.textures_panel(ui),
             PanelKind::Inspector => self.inspector_panel(ui),
             PanelKind::ToolDetails => self.tool_details_panel(ui),
@@ -7994,7 +8048,7 @@ impl EditorUi {
                                 (0..w.grid_points()).map(|p| (p, dx, dy)).collect();
                             ayatsuri_core::edit::move_warp_points(m, d, None, &moves);
                         }
-                        Some(DeformerKind::Rotation(_)) => {
+                        Some(DeformerKind::Rotation(_) | DeformerKind::Bone(_)) => {
                             ayatsuri_core::edit::move_rotation_origin(m, d, dx, dy);
                         }
                         None => {}
@@ -8300,8 +8354,10 @@ impl EditorUi {
             jpeg: false,
             transparent: true,
             texture_size: None,
+            warnings: None,
         });
         dlg.tab = tab;
+        dlg.warnings = None;
         self.export_dlg = Some(dlg);
     }
 
@@ -9780,7 +9836,8 @@ impl EditorUi {
                 theme::pal().text,
             );
         }
-        for (gi, group) in Tool::GROUPS.iter().enumerate() {
+        let bone_group = self.prefs.bones_on().then_some(Tool::BONES);
+        for (gi, group) in Tool::GROUPS.iter().copied().chain(bone_group).enumerate() {
             if gi > 0 {
                 let (sep, _) = ui.allocate_exact_size(vec2(7.0, 26.0), Sense::hover());
                 ui.painter().line_segment(
@@ -9866,17 +9923,57 @@ impl EditorUi {
             ui.weak(crate::i18n::tr("No model loaded."));
             return;
         };
-        search_box(ui, &mut self.def_search, crate::i18n::tr("Search deformers and meshes"));
+        // with Bones on, bones can stay in the Bones palette only
+        let bones_on = self.prefs.bones_on();
+        ui.horizontal(|ui| {
+            if bones_on {
+                let shown = !self.prefs.def_bones_off;
+                if ui
+                    .selectable_label(shown, egui_phosphor::regular::BONE)
+                    .on_hover_text(crate::i18n::tr("Show bones in this palette"))
+                    .clicked()
+                {
+                    self.prefs.def_bones_off = shown;
+                    self.prefs.save();
+                }
+            }
+            search_box(ui, &mut self.def_search, crate::i18n::tr("Search deformers and meshes"));
+        });
+        let hide_bones = bones_on && self.prefs.def_bones_off;
         let query = self.def_search.trim().to_lowercase();
         let searching = !query.is_empty();
+        // with Bones on, the bone folders show as armature rows; the bone
+        // toggle leaves them out with the bones
+        let armatures = bones_on && !hide_bones;
+        if armatures {
+            bone_palette::tidy(&mut s.bone_folders, s.puppet.model());
+        }
+        let filed = if armatures {
+            bone_palette::filed(&s.bone_folders)
+        } else {
+            std::collections::HashMap::new()
+        };
+        let folder_open: Vec<bool> = s.bone_folders.iter().map(|f| f.open).collect();
         // hierarchy: deformers under their parents, meshes under deformers
         let model = s.puppet.model();
         let nd = model.deformers.len();
         let (def_shown, mesh_shown_by_search) = if searching {
             let parents: Vec<Option<u32>> =
                 model.deformers.iter().map(|d| d.parent_deformer).collect();
-            let hits: Vec<bool> =
-                model.deformers.iter().map(|d| matches_search(&query, &[&d.id])).collect();
+            // a folder's name finds every bone filed in it
+            let folder_hit: Vec<bool> =
+                s.bone_folders.iter().map(|f| matches_search(&query, &[&f.name])).collect();
+            let hits: Vec<bool> = model
+                .deformers
+                .iter()
+                .enumerate()
+                .map(|(i, d)| {
+                    matches_search(&query, &[&d.id])
+                        || filed
+                            .get(&bone_palette::chain_root(model, i))
+                            .is_some_and(|&fi| folder_hit.get(fi).copied().unwrap_or(false))
+                })
+                .collect();
             let leaf_parent: Vec<Option<u32>> =
                 model.art_meshes.iter().map(|m| m.parent_deformer).collect();
             let leaf_hit: Vec<bool> = model
@@ -9889,49 +9986,42 @@ impl EditorUi {
         } else {
             (vec![true; nd], vec![true; model.art_meshes.len()])
         };
-        let mut children: Vec<Vec<usize>> = vec![Vec::new(); nd];
-        let mut roots: Vec<usize> = Vec::new();
-        for (i, d) in model.deformers.iter().enumerate() {
-            match d.parent_deformer {
-                Some(p) if (p as usize) < nd => {
-                    if let Some(c) = children.get_mut(p as usize) {
-                        c.push(i);
+        // bones hidden: those with only bones under them (and no meshes)
+        let mut holds_more = vec![false; nd];
+        if hide_bones {
+            let mut mark = |mut at: Option<u32>| {
+                let mut hops = 0;
+                while let Some(p) = at.map(|p| p as usize) {
+                    let Some(h) = holds_more.get_mut(p) else { break };
+                    *h = true;
+                    at = model.deformers.get(p).and_then(|d| d.parent_deformer);
+                    hops += 1;
+                    if hops > nd {
+                        break;
                     }
                 }
-                _ => roots.push(i),
+            };
+            for m in &model.art_meshes {
+                mark(m.parent_deformer);
+            }
+            for d in model.deformers.iter().filter(|d| !d.kind.is_bone()) {
+                mark(d.parent_deformer);
             }
         }
-        let mut order: Vec<(usize, usize)> = Vec::new();
-        let mut stack: Vec<(usize, usize)> = roots.into_iter().rev().map(|i| (i, 0)).collect();
-        let mut guard = 0;
-        while let Some((i, depth)) = stack.pop() {
-            if !def_shown.get(i).copied().unwrap_or(true) {
-                continue;
-            }
-            order.push((i, depth));
-            // a search opens every folded row so its matches show
-            if (searching || !self.def_collapsed.contains(&i))
-                && let Some(kids) = children.get(i)
-            {
-                for &k in kids.iter().rev() {
-                    stack.push((k, depth + 1));
-                }
-            }
-            guard += 1;
-            if guard > nd * 2 + 16 {
-                break;
-            }
-        }
-        let rows: Vec<(usize, usize, String, bool, bool)> = order
-            .into_iter()
-            .filter_map(|(i, depth)| {
-                model.deformers.get(i).map(|d| {
-                    let has_kids = children.get(i).is_some_and(|k| !k.is_empty())
-                        || model.art_meshes.iter().any(|m| m.parent_deformer == Some(i as u32));
-                    (i, depth, d.id.clone(), matches!(d.kind, DeformerKind::Warp(_)), has_kids)
-                })
-            })
-            .collect();
+        let bone_hidden = |i: usize| {
+            hide_bones
+                && model.deformers.get(i).is_some_and(|d| d.kind.is_bone())
+                && !holds_more.get(i).copied().unwrap_or(true)
+        };
+        let rows = deformer_tree(
+            model,
+            &filed,
+            &folder_open,
+            &bone_hidden,
+            &def_shown,
+            &self.def_collapsed,
+            searching,
+        );
 
         // which deformer each mesh hangs from, and each deformer's parent,
         // so a row can find everything it moves for its preview
@@ -9975,7 +10065,97 @@ impl EditorUi {
                     ui.ctx().request_repaint();
                 }
             }
-            for (i, dep, _, is_warp, has_kids) in rows {
+            for row in rows {
+                let (i, dep, is_warp, has_kids) = match row {
+                    TreeRow::Def(i, dep, is_warp, has_kids) => (i, dep, is_warp, has_kids),
+                    TreeRow::Armature(fi, dep, open, roots) => {
+                        // a bone folder, Blender's armature: click picks its
+                        // bones, a bone dropped here files its chain in it
+                        let (rect, resp) = ui
+                            .allocate_exact_size(vec2(ui.available_width(), 18.0), Sense::click());
+                        let all = bone_palette::chain_bones(s.puppet.model(), &roots);
+                        if !all.is_empty() && all.iter().all(|b| picked_defs.contains(b)) {
+                            paint_picked_row(ui, rect);
+                        }
+                        let x = rect.min.x + 48.0 + dep as f32 * 14.0;
+                        let caret = Rect::from_center_size(
+                            pos2(x - 10.0, rect.center().y),
+                            vec2(12.0, 14.0),
+                        );
+                        ui.painter().text(
+                            caret.center(),
+                            Align2::CENTER_CENTER,
+                            if open { "⏷" } else { "⏵" },
+                            FontId::proportional(9.0),
+                            theme::pal().text_faint,
+                        );
+                        let key = roots.first().copied().unwrap_or(fi);
+                        let caret_resp = ui.interact(
+                            caret,
+                            egui::Id::new(("def-armature-caret", fi, key)),
+                            Sense::click(),
+                        );
+                        ui.painter().text(
+                            pos2(x, rect.center().y),
+                            Align2::LEFT_CENTER,
+                            egui_phosphor::regular::BONE,
+                            FontId::proportional(12.0),
+                            theme::pal().rotation_red,
+                        );
+                        let name =
+                            s.bone_folders.get(fi).map(|f| f.name.clone()).unwrap_or_default();
+                        ui.painter().text(
+                            pos2(x + 16.0, rect.center().y),
+                            Align2::LEFT_CENTER,
+                            truncate(&name, 22),
+                            FontId::proportional(11.5),
+                            theme::pal().text,
+                        );
+                        if resp.dnd_hover_payload::<Child>().is_some() {
+                            ui.painter().rect_stroke(
+                                rect.shrink(1.0),
+                                3.0,
+                                Stroke::new(1.0, theme::pal().accent.gamma_multiply(0.6)),
+                                StrokeKind::Inside,
+                            );
+                        }
+                        if let Some(p) = resp.dnd_release_payload::<Child>()
+                            && let Child::Deformer(d) = *p
+                        {
+                            let group = def_group(self.selected, &self.def_pick);
+                            let moving = if group.contains(&d) { group } else { vec![d] };
+                            def_cmd = Some(DefCmd::Bones(BoneCmd::Move(moving, Some(fi))));
+                        }
+                        if caret_resp.clicked() {
+                            def_cmd = Some(DefCmd::Bones(BoneCmd::ToggleFolder(fi)));
+                        } else if resp.double_clicked() {
+                            def_cmd = Some(DefCmd::Bones(BoneCmd::RenameFolder(fi)));
+                        } else if resp.clicked() {
+                            let ctrl = ui.input(|k| k.modifiers.command);
+                            def_cmd = Some(DefCmd::Bones(BoneCmd::PickFolder(fi, ctrl)));
+                        }
+                        resp.context_menu(|ui| {
+                            if ui.button(crate::i18n::tr("Rename Folder")).clicked() {
+                                def_cmd = Some(DefCmd::Bones(BoneCmd::RenameFolder(fi)));
+                                ui.close();
+                            }
+                            if ui
+                                .button(crate::i18n::tr("Delete Folder"))
+                                .on_hover_text(crate::i18n::tr("Its bones move to the top level"))
+                                .clicked()
+                            {
+                                def_cmd = Some(DefCmd::Bones(BoneCmd::DeleteFolder(fi)));
+                                ui.close();
+                            }
+                            ui.separator();
+                            if ui.button(crate::i18n::tr("New Folder…")).clicked() {
+                                def_cmd = Some(DefCmd::Bones(BoneCmd::NewFolder(Vec::new())));
+                                ui.close();
+                            }
+                        });
+                        continue;
+                    }
+                };
                 let (rect, resp) = ui
                     .allocate_exact_size(vec2(ui.available_width(), 18.0), Sense::click_and_drag());
                 if self.selected == Some(Sel::Deformer(i)) || picked_defs.contains(&i) {
@@ -10050,6 +10230,8 @@ impl EditorUi {
                 }
                 if is_warp {
                     paint_warp_glyph(ui, pos2(x, rect.center().y));
+                } else if s.puppet.model().deformers.get(i).is_some_and(|d| d.kind.is_bone()) {
+                    paint_bone_glyph(ui, pos2(x, rect.center().y));
                 } else {
                     paint_rotation_glyph(ui, pos2(x, rect.center().y));
                 }
@@ -10475,6 +10657,7 @@ impl EditorUi {
             DefCmd::CreateForSelection(warp) => self.pending_create = Some((warp, None)),
             DefCmd::Rename(i) => self.open_def_rename(i),
             DefCmd::RenameMesh(i) => self.open_mesh_rename(i),
+            DefCmd::Bones(c) => self.run_bone_cmd(c, &[]),
             DefCmd::Division(i) => self.open_def_division(i),
             DefCmd::FlipMesh(mi, h) => self.flip_mesh_row(mi, h),
             DefCmd::Flip(i, horizontal, alone) => {
@@ -10804,7 +10987,7 @@ impl EditorUi {
         let was = self.session.as_ref().and_then(|s| match s.puppet.model().deformers.get(i) {
             Some(d) => match &d.kind {
                 DeformerKind::Warp(w) => Some((w.cols, w.rows)),
-                DeformerKind::Rotation(_) => None,
+                DeformerKind::Rotation(_) | DeformerKind::Bone(_) => None,
             },
             None => None,
         });
@@ -11113,6 +11296,9 @@ impl EditorUi {
                 }
                 ui.separator();
                 original::inspector_rows(ui, s, ayatsuri_core::edit::Target::ArtMesh(i));
+                if self.prefs.bones_on() {
+                    bones::weight_rows(ui, s, i);
+                }
             }
             Some(Sel::Deformer(i)) => {
                 let name = s.deformer_names.get(i).cloned().unwrap_or_default();
@@ -11157,12 +11343,17 @@ impl EditorUi {
                         });
                         row(ui, crate::i18n::tr("Keyforms"), format!("{}", w.opacities.len()));
                     }
-                    DeformerKind::Rotation(r) => {
-                        row(ui, crate::i18n::tr("Type"), crate::i18n::tr("Rotation").into());
+                    DeformerKind::Rotation(r)
+                    | DeformerKind::Bone(ayatsuri_format::model::BoneData {
+                        rotation: r, ..
+                    }) => {
+                        let kind = if d.kind.is_bone() { "Bone" } else { "Rotation" };
+                        row(ui, crate::i18n::tr("Type"), crate::i18n::tr(kind).into());
                         row(ui, crate::i18n::tr("Base angle"), format!("{:.1}", r.base_angle));
                         row(ui, crate::i18n::tr("Keyforms"), format!("{}", r.opacities.len()));
                     }
                 }
+                let bone_rows = d.kind.is_bone() && self.prefs.bones_on();
                 let kids = s
                     .puppet
                     .model()
@@ -11185,6 +11376,21 @@ impl EditorUi {
                     &mut self.color_pick,
                     &mut self.color_picked,
                 );
+                // several bones picked: only what is simple to set on all
+                let many: Vec<usize> = def_group(self.selected, &self.def_pick)
+                    .into_iter()
+                    .filter(|&b| {
+                        s.puppet.model().deformers.get(b).is_some_and(|x| x.kind.is_bone())
+                    })
+                    .collect();
+                if bone_rows && many.len() > 1 {
+                    ui.separator();
+                    bones::multi_rows(ui, s, &many);
+                } else if bone_rows {
+                    ui.separator();
+                    bones::bone_rows(ui, s, i);
+                    bones::ik_rows(ui, s, i, self.sel_param);
+                }
                 ui.separator();
                 original::inspector_rows(ui, s, ayatsuri_core::edit::Target::Deformer(i));
             }
@@ -12151,7 +12357,218 @@ impl EditorUi {
                 self.pick_pages.clear();
             }
         }
-        if self.tool == Tool::Arrow && !space && self.mesh_edit.is_none() && !eyedropping {
+        // bones, over the art: the Bone tool draws them, Weight Paint brushes
+        // their weights, and the arrow picks one under a click before the
+        // art under it
+        let mut bone_click = false;
+        if !self.prefs.bones_on() && matches!(self.tool, Tool::Bone | Tool::WeightPaint) {
+            self.tool = Tool::Arrow;
+        }
+        if self.prefs.bones_on() && self.mesh_edit.is_none() {
+            let bview = bones::View { origin, scale, canvas: c };
+            let sel_def = match self.selected {
+                Some(Sel::Deformer(d)) => Some(d),
+                _ => None,
+            };
+            let sel_mesh = match self.selected {
+                Some(Sel::Mesh(m)) => Some(m),
+                _ => None,
+            };
+            let group = def_group(self.selected, &self.def_pick);
+            let nothing = self.selected.is_none();
+            self.bones.follow(s.puppet.model(), nothing, sel_mesh, sel_def, &group);
+            let mut segs = bones::segments(s, bview);
+            // the Bone and Weight Paint tools show every bone; elsewhere only
+            // the picked chains show, as deformers do, and a mesh's bones
+            // show while it is picked or under the pointer
+            if !matches!(self.tool, Tool::Bone | Tool::WeightPaint) {
+                let model = s.puppet.model();
+                let meshes: Vec<usize> =
+                    sel_mesh.into_iter().chain(self.bones.hover_mesh.take()).collect();
+                // the chains filed in a mesh's own folder ("<mesh>_bones")
+                // show with it too, before any weights tie them to it
+                let mut picked = self.bones.bones(model);
+                for &mi in &meshes {
+                    let folder = format!("{}_bones", s.mesh_name(mi));
+                    if let Some(f) = s.bone_folders.iter().find(|f| f.name == folder) {
+                        picked.extend_from_slice(&f.bones);
+                    }
+                }
+                let keep = bones::shown_bones(model, &picked, &meshes);
+                segs.retain(|g| keep.contains(&g.0));
+            }
+            // several picked bones dragged with Ctrl: the same, for all of them
+            let shift = ui.input(|i| i.modifiers.shift);
+            if bones::ctrl_preview(&self.bones, &mut segs, bview, shift) {
+                ui.ctx().request_repaint();
+            }
+            // Ctrl on a bone's handle: the bone turns or scales alone (the
+            // art and the bones under it stay, as the edit leaves them);
+            // nothing in the model moves until the release, so show it here
+            if let Some(d) = self.rot_drag.as_ref().filter(|d| d.keep && !d.handle_only) {
+                let pivot = segs.iter().find(|g| g.0 == d.deformer).map(|g| g.1);
+                if let Some(o) = pivot {
+                    let (sin, cos) = if d.turning && !d.scaling {
+                        d.turn(shift).to_radians().sin_cos()
+                    } else {
+                        (0.0, 1.0)
+                    };
+                    let k = if d.scaling { d.factor } else { 1.0 };
+                    let carry = |p: Pos2| {
+                        let v = (p - o) * k;
+                        o + vec2(v.x * cos - v.y * sin, v.x * sin + v.y * cos)
+                    };
+                    for g in segs.iter_mut().filter(|g| g.0 == d.deformer) {
+                        g.1 = carry(g.1);
+                        g.2 = carry(g.2);
+                    }
+                    ui.ctx().request_repaint();
+                }
+            }
+            let free = !space && !eyedropping;
+            let mut act = None;
+            if free && self.tool == Tool::WeightPaint {
+                let pen = self.pen.brush(&self.prefs);
+                let opts = &self.tool_opts.bones;
+                act = bones::weight_paint(
+                    ui,
+                    &vp,
+                    &resp,
+                    &mut self.bones,
+                    s,
+                    &segs,
+                    bview,
+                    opts,
+                    pen,
+                );
+            }
+            let hover = ui
+                .ctx()
+                .input(|i| i.pointer.latest_pos())
+                .filter(|_| resp.hovered() && free)
+                .and_then(|p| bones::bone_at(&segs, p));
+            let mut picked = self.bones.bones(s.puppet.model());
+            if self.tool == Tool::WeightPaint {
+                picked = self.bones.active.into_iter().collect();
+            }
+            bones::draw_bones(&vp, &segs, &picked, hover, self.disp.rotation_color);
+            // the bone New Bone is asking about, until it is made or closed
+            if let Some((j, t)) = self.deformer_dialog.as_ref().and_then(|d| d.drawn_bone()) {
+                let (a, b) = (bview.screen(j), bview.screen(t));
+                let ink = theme::pal().accent;
+                vp.line_segment([a, b], Stroke::new(2.0, ink.gamma_multiply(0.7)));
+                vp.circle_stroke(a, 4.0, Stroke::new(1.5, ink));
+            }
+            let model = s.puppet.model();
+            let is_bone = |d: usize| model.deformers.get(d).is_some_and(|x| x.kind.is_bone());
+            if free && self.tool == Tool::Bone {
+                // a drag off the selected bone's tip makes its child; one
+                // elsewhere goes under a selected warp or rotation deformer
+                let tip_of = sel_def.filter(|&d| is_bone(d));
+                let parent = sel_def.filter(|&d| !is_bone(d) && d < model.deformers.len());
+                act =
+                    bones::bone_tool(ui, &vp, &resp, &mut self.bones, &segs, bview, tip_of, parent);
+            }
+            let mods = ui.ctx().input(|i| i.modifiers);
+            if free
+                && self.tool == Tool::Arrow
+                && resp.clicked()
+                && let Some(b) = resp.interact_pointer_pos().and_then(|p| bones::bone_at(&segs, p))
+            {
+                act = Some(bones::BoneAct::Pick { bone: Some(b), add: mods.command || mods.shift });
+                bone_click = true;
+            }
+            // the arrow's marquee picks bones: from empty canvas, with
+            // nothing or only bones selected (else the drag belongs to the
+            // selection's own points and box)
+            let on_bones = match self.selected {
+                None => true,
+                Some(Sel::Deformer(_)) => !group.is_empty() && group.iter().all(|&d| is_bone(d)),
+                _ => false,
+            };
+            if free && self.tool == Tool::Arrow && act.is_none() {
+                let busy = self.rot_drag.is_some();
+                let start_ok =
+                    |p: Pos2| on_bones && !busy && bones::off_bones(&segs, &picked, ROT_RING, p);
+                act = bones::marquee(ui, &vp, &resp, &mut self.bones, &segs, start_ok);
+            }
+            match act {
+                Some(bones::BoneAct::PickMany { bones, add }) => {
+                    let pick = &mut self.bones.pick;
+                    if !add {
+                        pick.clear();
+                    }
+                    for b in bones {
+                        if !pick.contains(&b) {
+                            pick.push(b);
+                        }
+                    }
+                    self.selected = pick.last().copied().map(Sel::Deformer);
+                    self.def_pick = pick.clone();
+                    self.multi_sel.clear();
+                }
+                Some(bones::BoneAct::Pick { bone, add }) => {
+                    let pick = &mut self.bones.pick;
+                    match (bone, add) {
+                        (Some(b), true) if pick.contains(&b) => pick.retain(|&x| x != b),
+                        (Some(b), true) => pick.push(b),
+                        (Some(b), false) => *pick = vec![b],
+                        (None, _) => pick.clear(),
+                    }
+                    self.selected = pick.last().copied().map(Sel::Deformer);
+                    self.def_pick = pick.clone();
+                }
+                Some(bones::BoneAct::Create { parent, joint, tip }) => {
+                    let model = s.puppet.model();
+                    // in its parent's part, else the weights' mesh's
+                    let part = parent
+                        .and_then(|p| model.deformers.get(p))
+                        .map(|d| d.parent_part)
+                        .or_else(|| {
+                            let mi = self.bones.mesh_index(model)?;
+                            Some(model.art_meshes.get(mi)?.parent_part)
+                        })
+                        .flatten();
+                    // the bone is made once New Bone has its name and ID
+                    let mesh = self.bones.mesh.clone();
+                    let drawn = deformer_dialog::DrawnBone { parent, joint, tip, mesh };
+                    self.pending_bone = Some((drawn, part));
+                }
+                Some(bones::BoneAct::Paint { mesh, bone, hits }) => {
+                    let brush = self.tool_opts.bones.brush;
+                    let value = self.tool_opts.bones.value;
+                    let values: Vec<f32> =
+                        (0..s.puppet.model().parameters.len()).map(|p| s.puppet.value(p)).collect();
+                    let mut failed = None;
+                    if s.edit(|m| {
+                        match ayatsuri_core::bone_edit::paint_weights(
+                            m, mesh, bone, &hits, brush, value, &values,
+                        ) {
+                            Ok(changed) => changed,
+                            Err(e) => {
+                                failed = Some(e);
+                                false
+                            }
+                        }
+                    }) {
+                        log::debug!(
+                            "mesh {mesh}: {brush:?} on {} point(s) for bone {bone}",
+                            hits.len()
+                        );
+                    }
+                    if let Some(e) = failed {
+                        set_notice(&mut self.notice, bones::bind_message(e));
+                    }
+                }
+                None => {}
+            }
+        }
+        if self.tool == Tool::Arrow
+            && !space
+            && self.mesh_edit.is_none()
+            && !eyedropping
+            && !bone_click
+        {
             let unit_of = |ptr: Pos2| {
                 (
                     ((ptr.x - origin.x) / scale - c.origin_x) / c.pixels_per_unit,
@@ -12167,6 +12584,7 @@ impl EditorUi {
             } else {
                 None
             };
+            self.bones.hover_mesh = hovered_mesh;
             if let Some(mi) = hovered_mesh
                 && self.selected != Some(Sel::Mesh(mi))
                 && let Some(g) = s.puppet.mesh_geometry(mi)
@@ -12589,6 +13007,15 @@ impl EditorUi {
         // overlays for whatever is selected
         let mut warp_hot = false;
         let mut group_live = false;
+        let many_bones = self.prefs.bones_on() && self.mesh_edit.is_none() && {
+            let group = def_group(self.selected, &self.def_pick);
+            let model = s.puppet.model();
+            group.len() > 1
+                && group.iter().all(|&d| model.deformers.get(d).is_some_and(|x| x.kind.is_bone()))
+        };
+        if !many_bones {
+            self.bones.drop_multi(s);
+        }
         match self.selected {
             Some(Sel::Mesh(_)) if self.multi_sel.len() > 1 => {
                 let group: Vec<usize> = self
@@ -12792,6 +13219,7 @@ impl EditorUi {
                                 start,
                                 ptr: start,
                                 bind: Some(bind),
+                                control: ui.ctx().input(|i| i.modifiers.command),
                                 verts: pts.clone(),
                                 local,
                             });
@@ -12805,17 +13233,37 @@ impl EditorUi {
                             if let Some(p) = inp.ptr {
                                 gp.ptr = p;
                             }
+                            // Shift moves straight: across, up or at 45°
+                            let mut d = gp.ptr - gp.start;
+                            if inp.shift {
+                                d = point_edit::straight(d);
+                            }
                             let mut moved = bind.path.clone();
                             if let Some(cp) = moved.get_mut(gp.point) {
-                                *cp += gp.ptr - gp.start;
+                                *cp += d;
                             }
-                            let offs = point_edit::follow_path(bind, &gp.verts, &moved, gp.point);
+                            let offs = if gp.control {
+                                Vec::new()
+                            } else {
+                                point_edit::follow_path(bind, &gp.verts, &moved, gp.point)
+                            };
                             for &(vi, d) in &offs {
                                 if let (Some(p), Some(v)) = (pts.get_mut(vi), gp.verts.get(vi)) {
                                     *p = *v + d;
                                 }
                             }
                             path_s = moved.clone();
+                            // live preview: the art bends with the path, not
+                            // just the dots; put back before the commit
+                            live_for(
+                                &mut self.live_drag,
+                                &mut s.puppet,
+                                Some(LiveTarget::Mesh(mi)),
+                            );
+                            if let Some(l) = &self.live_drag {
+                                l.show(&mut s.puppet, &offs, 1.0 / (scale * c.pixels_per_unit));
+                                s.dirty = true;
+                            }
                             if inp.drag_stopped || !inp.any_down {
                                 let to = moved.get(gp.point).copied().unwrap_or(gp.ptr);
                                 finish = Some((gp.point, to, offs, std::mem::take(&mut gp.local)));
@@ -12823,6 +13271,7 @@ impl EditorUi {
                         }
                         if let Some((cp, to, offs, local)) = finish {
                             self.path_grab = None;
+                            live_for(&mut self.live_drag, &mut s.puppet, None);
                             path_busy = false;
                             let parent =
                                 s.puppet.model().art_meshes.get(mi).and_then(|m| m.parent_deformer);
@@ -13022,6 +13471,30 @@ impl EditorUi {
                     if editable {
                         point_edit::draw_overlay(&self.pts, &vp, &pts, true, 0.0, grab_hot);
                     }
+                }
+            }
+            Some(Sel::Deformer(_)) if many_bones => {
+                // several bones picked: they turn, slide and scale together
+                // with the arrow, each about its own joint (see multi_drag)
+                let picked: Vec<usize> = def_group(self.selected, &self.def_pick)
+                    .into_iter()
+                    .filter(|d| !self.def_locked.contains(d))
+                    .collect();
+                if self.tool == Tool::Arrow && !space && !picked.is_empty() {
+                    let bview = bones::View { origin, scale, canvas: c };
+                    bones::multi_drag(
+                        ui,
+                        &vp,
+                        &resp,
+                        &mut self.bones,
+                        s,
+                        bview,
+                        &picked,
+                        ROT_RING,
+                        self.disp.rotation_color,
+                    );
+                } else {
+                    self.bones.drop_multi(s);
                 }
             }
             Some(Sel::Deformer(_)) if def_group(self.selected, &self.def_pick).len() > 1 => {
@@ -13706,7 +14179,16 @@ impl EditorUi {
                     let a = angle.to_radians();
                     let handle = self.rot_handle.get(&di).copied().unwrap_or(26.0);
                     let dir = vec2(a.sin(), -a.cos()) * handle;
-                    let tip = o + dir;
+                    // a bone turns by its tip or anywhere along it
+                    let bone_tip = if self.prefs.bones_on() {
+                        ayatsuri_core::bone_edit::bone_ends(&s.puppet, di)
+                            .map(|(_, t)| to_screen(t.0, t.1))
+                            .filter(|t| t.distance(o) > 9.0)
+                    } else {
+                        None
+                    };
+                    let tip = bone_tip.unwrap_or(o + dir);
+                    let on_bone = |p: Pos2| bone_tip.is_some() && bones::near_segment(p, o, tip);
 
                     // a drag only starts once the pointer has gone past the
                     // click distance (wider in pen mode), so what it grabs
@@ -13715,7 +14197,7 @@ impl EditorUi {
                     let at = if resp.drag_started() { press.or(ptr) } else { ptr };
                     let near_origin =
                         at.is_some_and(|p| p.distance(o) < 9.0) && self.rot_drag.is_none();
-                    let near_tip = at.is_some_and(|p| p.distance(tip) < 9.0)
+                    let near_tip = at.is_some_and(|p| p.distance(tip) < 9.0 || on_bone(p))
                         && !near_origin
                         && self.rot_drag.is_none();
                     // the round scale handle: the ring around the centre
@@ -13723,7 +14205,7 @@ impl EditorUi {
                         && !near_origin
                         && !near_tip
                         && self.rot_drag.is_none();
-                    if !space {
+                    if !space && !matches!(self.tool, Tool::Bone | Tool::WeightPaint) {
                         if resp.drag_started()
                             && !self.def_locked.contains(&di)
                             && (near_origin || near_tip || near_ring)
@@ -13937,6 +14419,14 @@ impl EditorUi {
                                 *v = base;
                                 s.dirty = true;
                             }
+                            // meshes weighted to bones under it: without Ctrl
+                            // they bend and stay bent, so their bones are
+                            // bound where they were read from so far; with
+                            // Ctrl they are bound again where they now sit
+                            if !d.keep {
+                                s.amend(|m| ayatsuri_core::bone_edit::pin_binds(m, di));
+                            }
+                            let keep_from = d.keep.then(|| s.puppet.model().clone());
                             let deg = d.turn(ui.input(|i| i.modifiers.shift));
                             if d.scaling {
                                 let (dfm, f) = (d.deformer, d.factor);
@@ -14035,6 +14525,19 @@ impl EditorUi {
                                     None => log::warn!(
                                         "the parameters are between keys: move them onto a key to move this pivot"
                                     ),
+                                }
+                            }
+                            // Ctrl: the weighted art stays where it was, in
+                            // the same undo step as the move
+                            if let Some(before) = keep_from {
+                                let values: Vec<f32> = (0..s.puppet.model().parameters.len())
+                                    .map(|i| s.puppet.value(i))
+                                    .collect();
+                                if s.edit(|m| {
+                                    ayatsuri_core::bone_edit::keep_bound(&before, m, &values, di)
+                                }) {
+                                    s.join_last_edit();
+                                    log::debug!("deformer {di} moved alone: its meshes rebound");
                                 }
                             }
                         }
@@ -14526,6 +15029,7 @@ impl EditorUi {
                             start,
                             ptr: start,
                             bind: None,
+                            control: false,
                             verts: Vec::new(),
                             local: Vec::new(),
                         });
@@ -15885,12 +16389,9 @@ impl EditorUi {
                         ));
                     }
                 }
-                // stroke mesh-mapping (experimental), drawn over the mesh:
+                // stroke mesh-mapping, drawn over the mesh:
                 // strokes stay put while another tool is used, and go with
                 // Mesh Edit
-                if self.mesh_mode == 7 && !self.prefs.stroke_mesh_on() {
-                    self.mesh_mode = 0;
-                }
                 if self.mesh_mode == 7 && !space {
                     let sv = stroke_tool::View { origin, scale, rect: view };
                     let act = stroke_tool::stroke_tool(
@@ -16973,10 +17474,9 @@ fn pivot_move(
     drag_x: f32,
     drag_y: f32,
 ) -> Option<PivotMove> {
-    use ayatsuri_format::model::DeformerKind;
     let model = puppet.model();
     let def = model.deformers.get(deformer)?;
-    let DeformerKind::Rotation(rot) = &def.kind else { return None };
+    let rot = def.kind.rotation()?;
     let values: Vec<f32> = (0..model.parameters.len()).map(|i| puppet.value(i)).collect();
     // the keyform the parameters sit on right now
     let current = ayatsuri_core::keyform::keyform_at(
@@ -17892,6 +18392,103 @@ fn opacity_row(
 }
 
 /// A palette search box, with a clear button once something is typed.
+/// A row of the Deformer palette's tree.
+enum TreeRow {
+    /// Deformer, depth, a warp, rows under it.
+    Def(usize, usize, bool, bool),
+    /// Bone folder, depth, open, and the root bones it holds here.
+    Armature(usize, usize, bool, Vec<usize>),
+}
+
+/// A node of that tree: a deformer, or a bone folder under a parent.
+#[derive(Clone, Copy)]
+enum TreeNode {
+    Def(usize),
+    Armature(usize, Option<usize>),
+}
+
+/// The Deformer palette's tree, top to bottom: deformers under their
+/// parents, and each root bone in `filed` under an armature row for its
+/// folder. A folder whose chains hang from different deformers shows once
+/// under each of them, so every bone stays under its real parent; the row
+/// sits where its first chain would. `hidden` leaves deformers out, `shown`
+/// is what a search keeps (a search opens everything), `open` each
+/// folder's open state and `collapsed` the folded deformers.
+fn deformer_tree(
+    model: &Model,
+    filed: &std::collections::HashMap<usize, usize>,
+    open: &[bool],
+    hidden: &dyn Fn(usize) -> bool,
+    shown: &[bool],
+    collapsed: &std::collections::HashSet<usize>,
+    searching: bool,
+) -> Vec<TreeRow> {
+    let nd = model.deformers.len();
+    let mut children: Vec<Vec<TreeNode>> = vec![Vec::new(); nd];
+    let mut roots: Vec<TreeNode> = Vec::new();
+    let mut held: std::collections::HashMap<(usize, Option<usize>), Vec<usize>> =
+        std::collections::HashMap::new();
+    for (i, d) in model.deformers.iter().enumerate() {
+        if hidden(i) {
+            continue;
+        }
+        let parent = d.parent_deformer.map(|p| p as usize).filter(|&p| p < nd);
+        let node = match filed.get(&i) {
+            Some(&fi) => {
+                let bones = held.entry((fi, parent)).or_default();
+                bones.push(i);
+                if bones.len() > 1 {
+                    continue;
+                }
+                TreeNode::Armature(fi, parent)
+            }
+            None => TreeNode::Def(i),
+        };
+        match parent.and_then(|p| children.get_mut(p)) {
+            Some(c) => c.push(node),
+            None => roots.push(node),
+        }
+    }
+    let is_shown = |i: usize| shown.get(i).copied().unwrap_or(true);
+    let mut out = Vec::new();
+    let mut stack: Vec<(TreeNode, usize)> = roots.into_iter().rev().map(|n| (n, 0)).collect();
+    let mut guard = 0;
+    while let Some((node, depth)) = stack.pop() {
+        guard += 1;
+        if guard > nd * 2 + 16 {
+            break;
+        }
+        match node {
+            TreeNode::Def(i) => {
+                if !is_shown(i) {
+                    continue;
+                }
+                let kids = children.get(i).map(Vec::as_slice).unwrap_or_default();
+                let warp =
+                    model.deformers.get(i).is_some_and(|d| matches!(d.kind, DeformerKind::Warp(_)));
+                let meshes = model.art_meshes.iter().any(|m| m.parent_deformer == Some(i as u32));
+                out.push(TreeRow::Def(i, depth, warp, !kids.is_empty() || meshes));
+                // a search opens every folded row so its matches show
+                if searching || !collapsed.contains(&i) {
+                    stack.extend(kids.iter().rev().map(|&k| (k, depth + 1)));
+                }
+            }
+            TreeNode::Armature(fi, parent) => {
+                let bones = held.get(&(fi, parent)).cloned().unwrap_or_default();
+                if !bones.iter().any(|&b| is_shown(b)) {
+                    continue;
+                }
+                let now_open = searching || open.get(fi).copied().unwrap_or(true);
+                if now_open {
+                    stack.extend(bones.iter().rev().map(|&b| (TreeNode::Def(b), depth + 1)));
+                }
+                out.push(TreeRow::Armature(fi, depth, now_open, bones));
+            }
+        }
+    }
+    out
+}
+
 fn search_box(ui: &mut Ui, text: &mut String, hint: &str) -> Option<egui::Response> {
     let mut field = None;
     ui.horizontal(|ui| {
@@ -18566,6 +19163,16 @@ fn paint_warp_glyph(ui: &Ui, at: Pos2) {
     p.rect_stroke(r, 0.0, s, StrokeKind::Inside);
     p.line_segment([pos2(r.center().x, r.min.y), pos2(r.center().x, r.max.y)], s);
     p.line_segment([pos2(r.min.x, r.center().y), pos2(r.max.x, r.center().y)], s);
+}
+
+/// A bone: a small tapered shape, joint at the bottom.
+fn paint_bone_glyph(ui: &Ui, at: Pos2) {
+    let p = ui.painter();
+    let c = at + vec2(5.0, 0.0);
+    let s = Stroke::new(1.2, theme::pal().rotation_red);
+    let pts =
+        vec![c + vec2(0.0, 5.0), c + vec2(2.5, 2.0), c + vec2(0.0, -5.0), c + vec2(-2.5, 2.0)];
+    p.add(egui::Shape::convex_polygon(pts, theme::pal().rotation_red.gamma_multiply(0.3), s));
 }
 
 /// The red fan Cubism marks rotation deformers with.
@@ -19800,6 +20407,7 @@ mod drag_tests {
             clip_inherit: false,
             multiply: Vec::new(),
             screen: Vec::new(),
+            skin: None,
         });
         let w = ayatsuri_core::edit::create_deformer(
             &mut m,
@@ -19896,6 +20504,7 @@ mod mesh_delete_tests {
                 clip_inherit: false,
                 multiply: Vec::new(),
                 screen: Vec::new(),
+                skin: None,
             });
         }
         let ctx = egui::Context::default();
@@ -20083,6 +20692,7 @@ mod key_cmd_tests {
             clip_inherit: false,
             multiply: Vec::new(),
             screen: Vec::new(),
+            skin: None,
         });
         let ctx = egui::Context::default();
         let s = Session::create(&ctx, "t".into(), String::new(), model).unwrap();
@@ -20375,6 +20985,7 @@ mod point_paste_tests {
                 clip_inherit: false,
                 multiply: Vec::new(),
                 screen: Vec::new(),
+                skin: None,
             },
         };
         // dropped at (4, 4) but the warp drew it at (5, 3)
@@ -20682,6 +21293,7 @@ mod eyedropper_tests {
             clip_inherit: false,
             multiply: Vec::new(),
             screen: Vec::new(),
+            skin: None,
         });
         let mut puppet = ayatsuri_core::Puppet::new(m);
         puppet.update();

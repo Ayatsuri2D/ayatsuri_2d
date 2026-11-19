@@ -177,6 +177,9 @@ pub struct Prefs {
     /// Leave the deformer tree off the top of the canvas right-click menu
     /// (Cubism's Show parent-child hierarchy of deformers, cleared).
     pub def_tree_off: bool,
+    /// Leave bones out of the Deformer palette (with Bones on, the Bones
+    /// palette lists them); bones holding meshes or other deformers stay.
+    pub def_bones_off: bool,
     pub guide_snap_off: bool,
     /// Smooth movement while dragging points and objects, and how much
     /// (1 to 100; 0 is the default, 40).
@@ -208,9 +211,9 @@ pub struct Prefs {
     /// Inherited clipping: a mesh also clipped by what its masks are
     /// clipped by.
     pub experimental_inherit_clip: bool,
-    /// Stroke mesh-mapping in Mesh Edit: a mesh built along a dragged stroke.
+    /// Bones: bone deformers, weighted meshes and IK in the editor.
     #[serde(default)]
-    pub experimental_stroke_mesh: bool,
+    pub experimental_bones: bool,
     /// Solo's inactive color, rgba; None for the default.
     pub solo_tint: Option<[u8; 4]>,
     /// Highlight overlapping polygons' color, rgba; None for the default.
@@ -294,8 +297,8 @@ impl Prefs {
         self.experimental && self.experimental_inherit_clip
     }
 
-    pub fn stroke_mesh_on(&self) -> bool {
-        self.experimental && self.experimental_stroke_mesh
+    pub fn bones_on(&self) -> bool {
+        self.experimental && self.experimental_bones
     }
 
     /// The saved colour of the canvas page, if one was picked.

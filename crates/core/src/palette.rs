@@ -509,6 +509,7 @@ mod tests {
             clip_inherit: false,
             multiply: Vec::new(),
             screen: Vec::new(),
+            skin: None,
         }
     }
 

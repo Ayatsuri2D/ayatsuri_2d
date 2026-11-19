@@ -141,6 +141,7 @@ mod tests {
             blend_shapes: vec![],
             multiply: Vec::new(),
             screen: Vec::new(),
+            skin: None,
         };
         assert!(!can_flicker(&m));
         m.flags = ayatsuri_format::model::flags::BLEND_ADDITIVE;

@@ -2,13 +2,18 @@
 //!
 //! `layers` enforces the dependency rules in docs/architecture.md as a build
 //! failure rather than a convention. `credits` regenerates the open-source
-//! list the About window shows. `capi` builds the C library and writes its
+//! list the About window shows. `metainfo` writes the Linux AppStream file
+//! with its release list from CHANGELOG.md. `capi` builds the C library and writes its
 //! header off the Rust source; `sdk` packs it for one platform, as releases
-//! ship it. `ci` runs every gate.
+//! ship it. `unity` checks the Unity package against the header and packs
+//! it with those libraries. `ci` runs every gate.
 
 use std::error::Error;
 use std::path::Path;
 use std::process::Command;
+
+mod metainfo;
+mod unity;
 
 type Result<T> = std::result::Result<T, Box<dyn Error>>;
 
@@ -216,7 +221,9 @@ fn ci() -> Result<()> {
     run("cargo", &["clippy", "--workspace", "--all-targets", "--", "-D", "warnings"])?;
     run("cargo", &["test", "--workspace"])?;
     credits(true)?;
+    metainfo::metainfo(true)?;
     capi(&["--check".to_string()])?;
+    unity::unity(&[])?;
     layers()
 }
 
@@ -342,6 +349,10 @@ fn label_of(triple: &str) -> String {
     let arch = if triple.starts_with("aarch64") { "arm64" } else { "x64" };
     let os = if triple.contains("windows") {
         "windows"
+    } else if triple.contains("android") {
+        "android"
+    } else if triple.contains("apple-ios") {
+        "ios"
     } else if triple.contains("apple") {
         "macos"
     } else {
@@ -517,11 +528,15 @@ fn main() {
         match task.as_str() {
             "layers" => layers(),
             "credits" => credits(std::env::args().nth(2).is_some_and(|a| a == "--check")),
+            "metainfo" => {
+                metainfo::metainfo(std::env::args().nth(2).is_some_and(|a| a == "--check"))
+            }
             "ci" => ci(),
             "soak" => soak(&std::env::args().skip(2).collect::<Vec<_>>()),
             "capi" => capi(&std::env::args().skip(2).collect::<Vec<_>>()),
             "sdk" => sdk(&std::env::args().skip(2).collect::<Vec<_>>()),
-            _ => Err("usage: cargo xtask <layers|credits [--check]|ci|capi [--header|--check]|sdk [--target T]... [--label L]|soak <model.aom> [seconds]>"
+            "unity" => unity::unity(&std::env::args().skip(2).collect::<Vec<_>>()),
+            _ => Err("usage: cargo xtask <layers|credits [--check]|metainfo [--check]|ci|capi [--header|--check]|sdk [--target T]... [--label L]|unity [--pack <sdk dir>...]|soak <model.aom> [seconds]>"
                 .into()),
         };
     if let Err(e) = result {

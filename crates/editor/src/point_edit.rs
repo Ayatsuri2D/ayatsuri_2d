@@ -626,9 +626,11 @@ pub fn draw_overlay(
 
 /// Deform path follow, as Cubism's: every vertex rides the smooth path,
 /// keeping its place along and across it. Around the control point being
-/// dragged it also holds its shape, turning and moving as one piece with
-/// the point: fully inside `width * hardness`, fading out by `width`.
-/// Built once when the grab starts.
+/// dragged the points also keep their spacing: each one's move eases toward
+/// the moves of the points near it, so the mesh bends gently there instead
+/// of folding over. That holds fully inside `width * hardness` and fades
+/// out by `width`; a small width (or hardness 0) leaves the plain ride, as
+/// the Temporary Path tool does. Built once when the grab starts.
 pub struct PathBind {
     /// vertex and its tie to the path as it was
     pub ties: Vec<(usize, crate::bend_path::Tie)>,
@@ -653,36 +655,51 @@ pub fn follow_path(
     grabbed: usize,
 ) -> Vec<(usize, Vec2)> {
     use crate::bend_path::Curve;
-    let rest = Curve::new(&bind.path.iter().map(|p| p.to_vec2()).collect::<Vec<_>>());
     let now = Curve::new(&moved.iter().map(|p| p.to_vec2()).collect::<Vec<_>>());
-    let (Some(&c0), Some(&c1)) = (bind.path.get(grabbed), moved.get(grabbed)) else {
-        return Vec::new();
+    // every vertex rides the path
+    let ride: Vec<(usize, Vec2)> = bind
+        .ties
+        .iter()
+        .filter_map(|(vi, tie)| Some((*vi, now.place(tie).to_pos2() - *verts.get(*vi)?)))
+        .collect();
+    let Some(&c0) = bind.path.get(grabbed) else {
+        return ride;
     };
-    // the piece around the grabbed point turns as the path does there
-    let (t0, t1) = (rest.tangent_at(grabbed), now.tangent_at(grabbed));
-    let (cos, sin) = (t0.dot(t1), t0.x * t1.y - t0.y * t1.x);
-    let inner = bind.width * bind.hardness;
-    let mut out = Vec::with_capacity(bind.ties.len());
-    for (vi, tie) in &bind.ties {
+    let width = bind.width;
+    if width <= 1e-3 || bind.hardness <= 0.0 {
+        return ride;
+    }
+    // near the dragged point, ease each move toward a smooth average of the
+    // moves around it (a gaussian over the width), which keeps the spacing
+    let inner = width * bind.hardness;
+    let inv = 1.0 / (2.0 * (width * 0.4).powi(2));
+    let mut out = ride.clone();
+    for (vi, d) in &mut out {
         let Some(&v) = verts.get(*vi) else { continue };
-        let follow = now.place(tie).to_pos2();
         let dist = v.distance(c0);
+        if dist >= width {
+            continue;
+        }
         let w = if dist <= inner {
             1.0
-        } else if dist >= bind.width {
-            0.0
         } else {
-            let x = 1.0 - (dist - inner) / (bind.width - inner).max(1e-3);
+            let x = 1.0 - (dist - inner) / (width - inner).max(1e-3);
             x * x * (3.0 - 2.0 * x)
-        };
-        let target = if w > 0.0 {
-            let d = v - c0;
-            let held = c1 + vec2(d.x * cos - d.y * sin, d.x * sin + d.y * cos);
-            follow + (held - follow) * w
-        } else {
-            follow
-        };
-        out.push((*vi, target - v));
+        } * bind.hardness;
+        let (mut sum, mut weight) = (Vec2::ZERO, 0.0);
+        for (vj, dj) in &ride {
+            let Some(&u) = verts.get(*vj) else { continue };
+            let r2 = (u - v).length_sq();
+            if r2 > width * width {
+                continue;
+            }
+            let g = (-r2 * inv).exp();
+            sum += *dj * g;
+            weight += g;
+        }
+        if weight > 0.0 {
+            *d += (sum / weight - *d) * w;
+        }
     }
     out
 }

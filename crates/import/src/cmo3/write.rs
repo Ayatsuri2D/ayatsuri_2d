@@ -13,7 +13,7 @@
 
 use std::collections::HashMap;
 
-use ayatsuri_format::model::{AlphaBlend, Blend, DeformerKind, Model, PhysicsIo, flags};
+use ayatsuri_format::model::{AlphaBlend, Blend, BoneData, DeformerKind, Model, PhysicsIo, flags};
 
 use super::caffw;
 use super::xmlw::{Tree, fmt_f};
@@ -769,17 +769,10 @@ impl W {
 
 /// The project as archive bytes.
 pub fn to_cmo3(x: &Cmo3Export) -> Result<Vec<u8>, ImportError> {
-    // the project gets the curves as plain keys too (Cubism's own setting
-    // is not written yet)
-    let baked;
-    let model = if ayatsuri_core::edit::has_curves(x.model) {
-        let mut m = x.model.clone();
-        ayatsuri_core::edit::bake_curves(&mut m);
-        baked = m;
-        &baked
-    } else {
-        x.model
-    };
+    // the project gets the bones baked and the curves as plain keys too
+    // (Cubism's own curve setting is not written yet)
+    let baked = crate::moc3_export::export_copy(x.model)?;
+    let model = baked.as_ref().unwrap_or(x.model);
     let c = model.canvas;
     let (cw, ch) = (c.width.round() as i64, c.height.round() as i64);
     if !(1..=65536).contains(&cw) || !(1..=65536).contains(&ch) {
@@ -1050,7 +1043,7 @@ pub fn to_cmo3(x: &Cmo3Export) -> Result<Vec<u8>, ImportError> {
         .map(|d| {
             w.t.obj(match d.kind {
                 DeformerKind::Warp(_) => "CWarpDeformerSource",
-                DeformerKind::Rotation(_) => "CRotationDeformerSource",
+                DeformerKind::Rotation(_) | DeformerKind::Bone(_) => "CRotationDeformerSource",
             })
         })
         .collect();
@@ -1072,7 +1065,9 @@ pub fn to_cmo3(x: &Cmo3Export) -> Result<Vec<u8>, ImportError> {
             d.binding.axes.iter().map(|a| (a.parameter as usize, a.keys.clone())).collect();
         let (opacities, slots) = match &d.kind {
             DeformerKind::Warp(wd) => (&wd.opacities, wd.opacities.len().max(1)),
-            DeformerKind::Rotation(r) => (&r.opacities, r.angles.len().max(1)),
+            DeformerKind::Rotation(r) | DeformerKind::Bone(BoneData { rotation: r, .. }) => {
+                (&r.opacities, r.angles.len().max(1))
+            }
         };
         let (grid, form_guids) = w.grid(&axes, &param_guids, slots);
         let name = name_or(x.deformer_names, i, &d.id);
@@ -1112,7 +1107,7 @@ pub fn to_cmo3(x: &Cmo3Export) -> Result<Vec<u8>, ImportError> {
                 }
                 spaces.push(Space::Warp);
             }
-            DeformerKind::Rotation(r) => {
+            DeformerKind::Rotation(r) | DeformerKind::Bone(BoneData { rotation: r, .. }) => {
                 w.t.b(node, "useBoneUi_testImpl", true);
                 let forms = w.t.list(node, "carray_list", "keyforms");
                 for (s, &g) in form_guids.iter().enumerate() {

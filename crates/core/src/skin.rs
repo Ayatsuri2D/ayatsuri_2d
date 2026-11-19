@@ -432,6 +432,7 @@ mod tests {
             clip_inherit: false,
             multiply: Vec::new(),
             screen: Vec::new(),
+            skin: None,
         });
         m.draw_groups.push(DrawGroup {
             total: 1,

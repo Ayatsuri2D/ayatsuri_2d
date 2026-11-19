@@ -18,9 +18,9 @@ runs in VTube Studio. On Windows, macOS and Linux.
 ![moc3](https://img.shields.io/badge/moc3-3.0%20to%205.3-brightgreen)
 [![Rust](https://img.shields.io/badge/Rust-2024-orange?logo=rust&logoColor=white)](https://www.rust-lang.org/)
 [![Website](https://img.shields.io/badge/ayatsuri--2d.org-website-f08e1e)](https://ayatsuri-2d.org)
-[![Discord](https://img.shields.io/badge/Discord-join-5865F2?logo=discord&logoColor=white)](https://discord.gg/WyzDsXzdnh)
+[![Discord](https://img.shields.io/badge/Discord-join-5865F2?logo=discord&logoColor=white)](https://discord.gg/kwJNG69RAA)
 
-[**Website**](https://ayatsuri-2d.org) · [**Discord**](https://discord.gg/WyzDsXzdnh) · [**Download**](#download) · [Features](#features) · [Status](#status) · [Build from source](#build-from-source) · [Docs](#documentation) · [Support the project](#support-the-project)
+[**Website**](https://ayatsuri-2d.org) · [**Discord**](https://discord.gg/kwJNG69RAA) · [**Download**](#download) · [Features](#features) · [Status](#status) · [Build from source](#build-from-source) · [Docs](#documentation) · [Support the project](#support-the-project)
 
 </div>
 
@@ -108,7 +108,7 @@ then `rpm --checksig` on the file.
 
 | | Minimum | Recommended |
 |---|---|---|
-| **OS** | Windows 10 64-bit, macOS 11, or Linux x86_64 (glibc 2.35+) | same |
+| **OS** | Windows 10 64-bit, macOS 11, or Linux x86_64 (glibc 2.39+) | same |
 | **CPU** | 2 cores, 64-bit | 4 cores or more |
 | **Memory** | 1 GB free | 2 GB or more for very large models |
 | **Graphics** | integrated graphics with OpenGL 3.3, Vulkan, DirectX 12 or Metal | any dedicated GPU |
@@ -354,7 +354,7 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for how, and the
 [code of conduct](CODE_OF_CONDUCT.md) for how we treat each other.
 
 For ideas, questions and showing off what you rig, come talk on
-[Discord](https://discord.gg/WyzDsXzdnh). Bugs still go to
+[Discord](https://discord.gg/kwJNG69RAA). Bugs still go to
 [Issues](https://github.com/Ayatsuri2D/ayatsuri_2d/issues), with your log attached.
 
 Bug reports, security problems and anything else can also be emailed to

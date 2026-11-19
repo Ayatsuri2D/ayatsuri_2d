@@ -64,6 +64,9 @@ pub(crate) struct ClipMesh {
     part: Option<String>,
     deformer: Option<String>,
     masks: Vec<String>,
+    /// The bones its weights name, by index when copied and by id.
+    #[serde(default)]
+    bones: Vec<(u32, String)>,
     /// Positions as drawn when copied, model units in the canvas frame.
     drawn: Vec<f32>,
     /// The mesh's patch of its texture page, as PNG, and where it was:
@@ -108,7 +111,8 @@ fn rooted(rest: &ayatsuri_core::Puppet, d: &Deformer) -> Option<Deformer> {
                 map_pairs(&mut b.positions);
             }
         }
-        DeformerKind::Rotation(r) => {
+        DeformerKind::Rotation(r)
+        | DeformerKind::Bone(ayatsuri_format::model::BoneData { rotation: r, .. }) => {
             for (x, y) in r.origins_x.iter_mut().zip(r.origins_y.iter_mut()) {
                 (*x, *y) = map(*x, *y);
             }
@@ -246,6 +250,10 @@ pub(crate) fn copy(s: &Session, meshes: &[usize]) -> ClipFile {
                     .and_then(|d| model.deformers.get(d as usize))
                     .map(|d| d.id.clone()),
                 masks: mesh.masks.iter().filter_map(|&m| id_of(m)).collect(),
+                bones: ayatsuri_core::bone_edit::mesh_bones(model, mi)
+                    .into_iter()
+                    .filter_map(|b| Some((b, model.deformers.get(b as usize)?.id.clone())))
+                    .collect(),
                 drawn: s.puppet.mesh_drawn_positions(mi).unwrap_or_default(),
                 png,
                 patch: [x, y, w, h],
@@ -414,6 +422,19 @@ pub(crate) fn paste(
             // along: the mesh keeps its pixels (the crop) and drops the path
             path = None;
         }
+        // weights by bone id: on a copied bone's copy, else the bone of that
+        // id here; the rest go to each vertex's other bones
+        if let Some(skin) = &mesh.skin {
+            let to = |b: u32| {
+                let (_, id) = c.bones.iter().find(|(i, _)| *i == b)?;
+                let at = pasted_defs
+                    .get(id)
+                    .copied()
+                    .or_else(|| next.deformers.iter().position(|d| &d.id == id))?;
+                Some(at as u32)
+            };
+            mesh.skin = ayatsuri_core::bone_edit::remap_skin(skin, mesh.vertex_count as usize, to);
+        }
         if home && let Some(k) = under_copy {
             mesh.parent_deformer = Some(k as u32);
         }
@@ -552,6 +573,7 @@ mod tests {
             clip_inherit: false,
             multiply: Vec::new(),
             screen: Vec::new(),
+            skin: None,
         });
         let warp = NewDeformer::Warp { rows: 2, cols: 2 };
         ayatsuri_core::edit::create_deformer(

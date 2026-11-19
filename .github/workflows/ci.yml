@@ -14,38 +14,40 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  build-win:
-    name: build windows
+  check:
+    name: fmt, clippy, tests, credits, layers
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+      - name: System libraries
+        run: sudo apt-get update && sudo apt-get install -y libxkbcommon-dev libwayland-dev libx11-dev libasound2-dev
+      - run: cargo xtask ci
+
+  build:
+    name: build ${{ matrix.os }}
     strategy:
       fail-fast: false
-    runs-on: windows-latest
+      matrix:
+        os: [windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - run: cargo build --locked -p ayatsuri -p ayatsuri-launcher
       - run: cargo test --locked --workspace
-
-  build-nix:
-    name: build ${{ matrix.os }}
+        
+  capi:
+    name: C ABI ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest macos-latest]
+        os: [ubuntu-latest windows-latest macos-latest]
     runs-on: ${{ matrix.os }}
-    steps:
-      - uses: actions/checkout@v6
-      - uses: DeterminateSystems/nix-installer-action@main
-      - uses: DeterminateSystems/magic-nix-cache-action@main
-      - uses: DeterminateSystems/flake-checker-action@main
-      - name: Run `nix build`
-        run: nix build .#ayatsuri
-        
-  capi-win:
-    name: C ABI windows
-    strategy:
-      fail-fast: false
-    runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
@@ -61,26 +63,3 @@ jobs:
             target/capi/LICENSE
             target/capi/libayatsuri_capi.*
             target/capi/ayatsuri_capi.*
-
-  capi-nix:
-    name: C ABI ${{ matrix.os }}
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ubuntu-latest macos-latest]
-    runs-on: ${{ matrix.os }}
-    steps:
-      - uses: actions/checkout@v6
-      - uses: DeterminateSystems/nix-installer-action@main
-      - uses: DeterminateSystems/magic-nix-cache-action@main
-      - uses: DeterminateSystems/flake-checker-action@main
-      - name: Run `nix build`
-        run: nix build .#libayatsuri
-      - uses: actions/upload-artifact@v4
-        with:
-          name: ayatsuri-capi-${{ matrix.os }}
-          path: |
-            result/include/ayatsuri.h
-            result/lib/libayatsuri_capi.*
-            result/lib/ayatsuri_capi.*
-            result/share/doc/libayatsuri/LICENSE

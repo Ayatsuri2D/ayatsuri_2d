@@ -291,6 +291,139 @@ mod tests {
         assert!(px[0] > 200 && px[2] < 60 && px[3] == 255, "red art came back: {px:?}");
     }
 
+    /// Bones go into a project baked, as rotation deformers, a warp and
+    /// mesh keyforms, and the project poses as the bones did.
+    #[test]
+    fn bones_go_into_a_project_baked() {
+        use ayatsuri_format::model::*;
+        let layer = |name: &str, x, y, rgba: [u8; 4]| crate::layers::Layer {
+            name: name.into(),
+            groups: vec!["Body".into()],
+            x,
+            y,
+            width: 20,
+            height: 20,
+            rgba: rgba.repeat(400),
+            visible: true,
+            opacity: 1.0,
+            clip_to_below: false,
+            blend: crate::layers::Blend::NORMAL,
+        };
+        let doc = crate::layers::Document {
+            width: 128,
+            height: 96,
+            layers: vec![
+                layer("red", 10, 20, [220, 30, 30, 255]),
+                layer("blue", 60, 50, [30, 30, 220, 255]),
+            ],
+            folders: Vec::new(),
+        };
+        let imported = crate::layers::build_atlas(&doc).unwrap();
+        let mut model = imported.model;
+        for i in 0..2 {
+            model.parameters.push(Parameter {
+                id: format!("P{i}"),
+                min: -1.0,
+                max: 1.0,
+                default: 0.0,
+                repeat: false,
+                decimals: 3,
+                blend_shape: false,
+            });
+        }
+        let bone =
+            |id: &str, parent: Option<u32>, param: u32, at: (f32, f32), turn: f32| Deformer {
+                id: id.into(),
+                parent_part: Some(0),
+                parent_deformer: parent,
+                visible: true,
+                enabled: true,
+                binding: Binding {
+                    axes: vec![BindingAxis { parameter: param, keys: vec![-1.0, 0.0, 1.0] }],
+                    curves: Vec::new(),
+                },
+                kind: DeformerKind::Bone(BoneData::new(
+                    RotationData {
+                        base_angle: 0.0,
+                        opacities: vec![1.0; 3],
+                        angles: vec![-turn, 0.0, turn],
+                        origins_x: vec![at.0; 3],
+                        origins_y: vec![at.1; 3],
+                        scales: vec![1.0; 3],
+                        reflect_x: vec![false; 3],
+                        reflect_y: vec![false; 3],
+                    },
+                    0.3,
+                )),
+                multiply: Vec::new(),
+                screen: Vec::new(),
+                blend_shapes: Vec::new(),
+            };
+        let mut sheared = bone("Shear", Some(0), 1, (0.0, 0.3), 40.0);
+        if let DeformerKind::Bone(b) = &mut sheared.kind {
+            b.shears_x = vec![10.0; 3];
+            b.scales_y = vec![0.8; 3];
+        }
+        model.deformers = vec![bone("Root", None, 0, (0.0, 0.0), 30.0), sheared];
+        // red rigidly under the sheared bone, blue weighted across both
+        let red = &mut model.art_meshes[0];
+        red.parent_deformer = Some(1);
+        for p in red.positions.chunks_mut(2) {
+            p[1] -= 0.3;
+        }
+        let blue = &mut model.art_meshes[1];
+        let n = blue.vertex_count as usize;
+        let pairs: Vec<Vec<(u32, f32)>> = (0..n)
+            .map(|v| vec![(0, 1.0 - v as f32 / n as f32), (1, v as f32 / n as f32)])
+            .collect();
+        blue.skin = Some(Skin::from_pairs(pairs.iter().map(Vec::as_slice)));
+        // no physics rig: the project still passes the strict check
+        let bytes = to_cmo3(&Cmo3Export {
+            name: "bones",
+            model: &model,
+            textures: &imported.textures,
+            param_names: &[],
+            part_names: &imported.part_names,
+            mesh_names: &imported.mesh_names,
+            deformer_names: &[],
+            param_groups: &[],
+        })
+        .unwrap();
+        let back = from_cmo3(&bytes, "bones").unwrap().imported.model;
+        assert!(back.physics.as_ref().is_none_or(|r| r.groups.is_empty()));
+        assert!(back.deformers.iter().all(|d| !d.kind.is_bone()));
+        let look = |m: &Model, v: [f32; 2]| {
+            let mut p = ayatsuri_core::Puppet::new(m.clone());
+            for (i, x) in v.into_iter().enumerate() {
+                let at = m.parameters.iter().position(|q| q.id == format!("P{i}")).unwrap();
+                p.set_value(at, x);
+            }
+            p.update();
+            let mut out = Vec::new();
+            for id in ["ArtMesh0", "ArtMesh1"] {
+                let at = m.art_meshes.iter().position(|x| x.id == id).unwrap();
+                out.extend(p.mesh_drawn_positions(at).unwrap());
+            }
+            out
+        };
+        let (mut at, mut between) = (0.0f32, 0.0f32);
+        for (set, worst) in
+            [(&[-1.0f32, 0.0, 1.0][..], &mut at), (&[-0.7, -0.2, 0.35, 0.8][..], &mut between)]
+        {
+            for &a in set {
+                for &b in set {
+                    let (x, y) = (look(&model, [a, b]), look(&back, [a, b]));
+                    for (u, v) in x.iter().zip(&y) {
+                        *worst = worst.max((u - v).abs());
+                    }
+                }
+            }
+        }
+        eprintln!("cmo3: worst {at:.2e} at keys, {between:.2e} between");
+        assert!(at < 1e-3, "{at}");
+        assert!(between < 1e-2, "{between}");
+    }
+
     /// For a look in Cubism Editor: `AYATSURI_CMO3_OUT=/path/out.cmo3 cargo
     /// test -p ayatsuri-import rewrite_for_a_look -- --ignored` writes the
     /// sample project back out through the writer.

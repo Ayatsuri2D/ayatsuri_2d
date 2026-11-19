@@ -1,0 +1,1515 @@
+//! Editing bones: making them, their keyed values, weights (bound by
+//! distance or painted) and IK constraints, and carrying the deformer
+//! indices that weights and IK hold through every edit that adds, removes
+//! or reorders deformers.
+//!
+//! These are edits, run once per click or stroke; the frame loop never
+//! calls them, so they may allocate.
+
+use ayatsuri_format::model::{
+    Binding, BoneData, Deformer, DeformerKind, IkConstraint, Inherit, Model, RotationData, Skin,
+};
+
+use crate::Puppet;
+use crate::edit::{self, Channel, Child};
+
+/// Weights under this are dropped, by binding and by painting.
+const WEIGHT_FLOOR: f32 = 0.01;
+
+/// A vertex's (bone, weight) pairs, one list per vertex. A skin whose
+/// offsets do not fit gives every vertex none.
+fn pairs_of(skin: Option<&Skin>, vertex_count: usize) -> Vec<Vec<(u32, f32)>> {
+    let mut out = vec![Vec::new(); vertex_count];
+    let Some(skin) = skin.filter(|s| s.fits(vertex_count)) else { return out };
+    for (v, span) in skin.offsets.windows(2).enumerate() {
+        let &[a, b] = span else { continue };
+        let (a, b) = (a as usize, b as usize);
+        if let (Some(slot), Some(bones), Some(ws)) =
+            (out.get_mut(v), skin.bones.get(a..b), skin.weights.get(a..b))
+        {
+            slot.extend(bones.iter().copied().zip(ws.iter().copied()));
+        }
+    }
+    out
+}
+
+/// Back from per vertex pairs; None when no vertex keeps a bone.
+fn skin_from(pairs: &[Vec<(u32, f32)>]) -> Option<Skin> {
+    if pairs.iter().all(Vec::is_empty) {
+        return None;
+    }
+    Some(Skin::from_pairs(pairs.iter().map(Vec::as_slice)))
+}
+
+/// A mesh's weights carried through `map`, old bone index to new (None
+/// when the bone is gone). A vertex that loses a bone gives its weight to
+/// its other bones in proportion, so it keeps its total; one left with
+/// none follows its parent alone. None when no vertex keeps a bone.
+pub fn remap_skin(
+    skin: &Skin,
+    vertex_count: usize,
+    map: impl Fn(u32) -> Option<u32>,
+) -> Option<Skin> {
+    if !skin.fits(vertex_count) {
+        // offsets that do not fit are not read anyway: carry what can be
+        let bones: Option<Vec<u32>> = skin.bones.iter().map(|&b| map(b)).collect();
+        return bones.map(|bones| {
+            let mut out = Skin { bones, ..skin.clone() };
+            carry_binds(skin, &mut out, &map);
+            out
+        });
+    }
+    let mut pairs = pairs_of(Some(skin), vertex_count);
+    for v in &mut pairs {
+        let total: f32 = v.iter().map(|p| p.1).sum();
+        let mut kept: Vec<(u32, f32)> =
+            v.iter().filter_map(|&(b, w)| map(b).map(|n| (n, w))).collect();
+        if kept.len() < v.len() {
+            let left: f32 = kept.iter().map(|p| p.1).sum();
+            if left > 1e-6 {
+                for p in &mut kept {
+                    p.1 *= total / left;
+                }
+            } else {
+                kept.clear();
+            }
+        }
+        *v = kept;
+    }
+    let mut out = skin_from(&pairs)?;
+    carry_binds(skin, &mut out, &map);
+    Some(out)
+}
+
+/// `to` takes `from`'s binds through `map`, those of bones it still uses.
+fn carry_binds(from: &Skin, to: &mut Skin, map: impl Fn(u32) -> Option<u32>) {
+    to.bind_bones.clear();
+    to.bind_maps.clear();
+    for &b in &from.bind_bones {
+        if let (Some(n), Some(bind)) = (map(b), from.bind_of(b))
+            && to.bones.contains(&n)
+        {
+            to.set_bind(n, bind);
+        }
+    }
+}
+
+/// Renumber the deformer indices that bone weights and IK constraints
+/// hold: `map` takes an old index to the new one, None when that deformer
+/// is gone. Weights on a gone bone go to the vertex's other bones (see
+/// [`remap_skin`]); an IK constraint naming a gone bone goes too.
+pub(crate) fn remap_refs(model: &mut Model, map: impl Fn(u32) -> Option<u32>) {
+    for m in &mut model.art_meshes {
+        if let Some(skin) = &m.skin {
+            m.skin = remap_skin(skin, m.vertex_count as usize, &map);
+        }
+    }
+    model.ik.retain_mut(|c| {
+        let bones: Option<Vec<u32>> = c.bones.iter().map(|&b| map(b)).collect();
+        match (bones, map(c.target)) {
+            (Some(bones), Some(target)) => {
+                c.bones = bones;
+                c.target = target;
+                true
+            }
+            _ => false,
+        }
+    });
+}
+
+fn is_bone(model: &Model, d: usize) -> bool {
+    model.deformers.get(d).is_some_and(|x| x.kind.is_bone())
+}
+
+/// An id no deformer has yet: `BoneN` from the bone count up.
+pub fn free_bone_id(model: &Model) -> String {
+    let mut n = model.deformers.iter().filter(|d| d.kind.is_bone()).count();
+    loop {
+        let id = format!("Bone{n}");
+        if !model.deformers.iter().any(|d| d.id == id) {
+            return id;
+        }
+        n += 1;
+    }
+}
+
+/// Where a bone's joint and tip are drawn now, in model units.
+pub fn bone_ends(puppet: &Puppet, bone: usize) -> Option<((f32, f32), (f32, f32))> {
+    let DeformerKind::Bone(b) = &puppet.model().deformers.get(bone)?.kind else { return None };
+    Some((puppet.deformer_point(bone, 0.0, 0.0), puppet.deformer_point(bone, 0.0, b.length)))
+}
+
+/// A point in model units.
+type Pt = (f32, f32);
+
+fn dist(a: Pt, b: Pt) -> f32 {
+    (a.0 - b.0).hypot(a.1 - b.1)
+}
+
+/// Make a bone from `joint` to `tip` (model units, as drawn at rest) under
+/// `parent` (None: the root), in `part`. It is placed after every other
+/// deformer, so it evaluates after its parent; its one keyform holds the
+/// origin and angle that put it there, and its length reaches the tip.
+/// Returns its index.
+pub fn create_bone(
+    model: &mut Model,
+    parent: Option<usize>,
+    part: Option<u32>,
+    joint: (f32, f32),
+    tip: (f32, f32),
+    id: String,
+) -> Option<usize> {
+    if parent.is_some_and(|p| model.deformers.get(p).is_none()) || dist(joint, tip) < 1e-6 {
+        return None;
+    }
+    let mut next = model.clone();
+    let rest = edit::rest_puppet(&next);
+    let (ox, oy) = edit::to_local(&rest, parent, joint);
+    let rotation = RotationData {
+        base_angle: 0.0,
+        opacities: vec![1.0],
+        angles: vec![0.0],
+        origins_x: vec![ox],
+        origins_y: vec![oy],
+        scales: vec![1.0],
+        reflect_x: vec![false],
+        reflect_y: vec![false],
+    };
+    let bi = next.deformers.len();
+    next.deformers.push(Deformer {
+        id,
+        parent_part: part,
+        parent_deformer: parent.map(|p| p as u32),
+        visible: true,
+        enabled: true,
+        binding: Binding::default(),
+        kind: DeformerKind::Bone(BoneData::new(rotation, 1.0)),
+        multiply: Vec::new(),
+        screen: Vec::new(),
+        blend_shapes: Vec::new(),
+    });
+    // the bone's own y axis as its parents draw it, unturned
+    let probe = edit::rest_puppet(&next);
+    let at = probe.deformer_point(bi, 0.0, 0.0);
+    let one = probe.deformer_point(bi, 0.0, 1.0);
+    let u = (one.0 - at.0, one.1 - at.1);
+    let d = (tip.0 - joint.0, tip.1 - joint.1);
+    let unit = u.0.hypot(u.1);
+    if unit < 1e-9 || !unit.is_finite() {
+        return None;
+    }
+    let turn = (u.0 * d.1 - u.1 * d.0).atan2(u.0 * d.0 + u.1 * d.1).to_degrees();
+    let length = d.0.hypot(d.1) / unit;
+    let set = |m: &mut Model, angle: f32| {
+        if let Some(DeformerKind::Bone(b)) = m.deformers.get_mut(bi).map(|d| &mut d.kind) {
+            b.rotation.angles = vec![angle];
+            b.length = length;
+        }
+    };
+    set(&mut next, turn);
+    // a mirrored parent turns the other way
+    let reach =
+        |m: &Model| bone_ends(&edit::rest_puppet(m), bi).map_or(f32::MAX, |e| dist(e.1, tip));
+    if reach(&next) > 1e-3 * (1.0 + d.0.hypot(d.1)) {
+        let mut other = next.clone();
+        set(&mut other, -turn);
+        if reach(&other) < reach(&next) {
+            next = other;
+        }
+    }
+    *model = next;
+    Some(bi)
+}
+
+/// A value a bone holds per keyform.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum BoneField {
+    Angle,
+    OriginX,
+    OriginY,
+    ScaleX,
+    ScaleY,
+    ShearX,
+    ShearY,
+}
+
+/// A bone's value in one keyform. An absent y scale reads as the x scale,
+/// an absent shear as none.
+pub fn bone_field(model: &Model, bone: usize, keyform: usize, field: BoneField) -> Option<f32> {
+    let DeformerKind::Bone(b) = &model.deformers.get(bone)?.kind else { return None };
+    let r = &b.rotation;
+    let pool = |v: &[f32], fallback: Option<f32>| match v.get(keyform) {
+        Some(&x) if v.len() == r.scales.len() => Some(x),
+        _ => fallback,
+    };
+    match field {
+        BoneField::Angle => r.angles.get(keyform).copied(),
+        BoneField::OriginX => r.origins_x.get(keyform).copied(),
+        BoneField::OriginY => r.origins_y.get(keyform).copied(),
+        BoneField::ScaleX => r.scales.get(keyform).copied(),
+        BoneField::ScaleY => pool(&b.scales_y, r.scales.get(keyform).copied()),
+        BoneField::ShearX => pool(&b.shears_x, Some(0.0)),
+        BoneField::ShearY => pool(&b.shears_y, Some(0.0)),
+    }
+}
+
+/// Set a bone's value in one keyform. A y scale or shear the bone does not
+/// have yet is made for every keyform first (the x scale, no shear).
+pub fn set_bone_field(
+    model: &mut Model,
+    bone: usize,
+    keyform: usize,
+    field: BoneField,
+    value: f32,
+) -> bool {
+    if !value.is_finite() {
+        return false;
+    }
+    let Some(DeformerKind::Bone(b)) = model.deformers.get_mut(bone).map(|d| &mut d.kind) else {
+        return false;
+    };
+    let n = b.rotation.scales.len();
+    let fill = |pool: &mut Vec<f32>, from: &[f32]| {
+        if pool.len() != n {
+            *pool = from.to_vec();
+        }
+    };
+    let slot = match field {
+        BoneField::Angle => b.rotation.angles.get_mut(keyform),
+        BoneField::OriginX => b.rotation.origins_x.get_mut(keyform),
+        BoneField::OriginY => b.rotation.origins_y.get_mut(keyform),
+        BoneField::ScaleX => b.rotation.scales.get_mut(keyform),
+        BoneField::ScaleY => {
+            fill(&mut b.scales_y, &b.rotation.scales);
+            b.scales_y.get_mut(keyform)
+        }
+        BoneField::ShearX => {
+            fill(&mut b.shears_x, &vec![0.0; n]);
+            b.shears_x.get_mut(keyform)
+        }
+        BoneField::ShearY => {
+            fill(&mut b.shears_y, &vec![0.0; n]);
+            b.shears_y.get_mut(keyform)
+        }
+    };
+    match slot {
+        Some(s) if *s != value => {
+            *s = value;
+            true
+        }
+        _ => false,
+    }
+}
+
+/// Set a bone's rest length (its own units).
+pub fn set_bone_length(model: &mut Model, bone: usize, length: f32) -> bool {
+    match model.deformers.get_mut(bone).map(|d| &mut d.kind) {
+        Some(DeformerKind::Bone(b)) if length.is_finite() && length >= 0.0 => {
+            b.length = length;
+            true
+        }
+        _ => false,
+    }
+}
+
+/// Set what a bone takes from its parent.
+pub fn set_bone_inherit(model: &mut Model, bone: usize, inherit: Inherit) -> bool {
+    match model.deformers.get_mut(bone).map(|d| &mut d.kind) {
+        Some(DeformerKind::Bone(b)) if b.inherit != inherit => {
+            b.inherit = inherit;
+            true
+        }
+        _ => false,
+    }
+}
+
+/// Why a mesh can't be weighted to some bones.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum BindError {
+    NoMesh,
+    /// One of them is not a bone.
+    NotBone,
+    /// No deformer has every bone under it with only rotation deformers
+    /// and bones between: they sit under different warps.
+    NoCommonParent,
+}
+
+/// The deformers `bone` may be weighted from: its ancestors up to and
+/// including the first one that is not a rotation deformer or bone, then
+/// None (the root) when there is no such one. Nearest first.
+fn weight_parents(model: &Model, bone: usize) -> Vec<Option<u32>> {
+    let mut out = Vec::new();
+    let mut at = model.deformers.get(bone).and_then(|d| d.parent_deformer);
+    for _ in 0..=model.deformers.len() {
+        out.push(at);
+        let Some(p) = at else { break };
+        match model.deformers.get(p as usize) {
+            Some(d) if d.kind.rotation().is_some() => at = d.parent_deformer,
+            _ => break,
+        }
+    }
+    out
+}
+
+/// The parent deformer a mesh weighted to `bones` must have: every bone
+/// under it (or under the root) with only rotation deformers and bones
+/// between. The mesh's own parent when it will do, else the nearest that
+/// does.
+pub fn bind_parent(model: &Model, mesh: usize, bones: &[usize]) -> Result<Option<u32>, BindError> {
+    let m = model.art_meshes.get(mesh).ok_or(BindError::NoMesh)?;
+    if bones.is_empty() || bones.iter().any(|&b| !is_bone(model, b)) {
+        return Err(BindError::NotBone);
+    }
+    let mut common: Option<Vec<Option<u32>>> = None;
+    for &b in bones {
+        let here = weight_parents(model, b);
+        common = Some(match common {
+            None => here,
+            Some(c) => c.into_iter().filter(|p| here.contains(p)).collect(),
+        });
+    }
+    let common = common.unwrap_or_default();
+    if common.contains(&m.parent_deformer) {
+        return Ok(m.parent_deformer);
+    }
+    common.first().copied().ok_or(BindError::NoCommonParent)
+}
+
+/// Put `mesh` under the parent `bones` need, keeping where it is drawn.
+fn seat_mesh(model: &mut Model, mesh: usize, bones: &[usize]) -> Result<(), BindError> {
+    let parent = bind_parent(model, mesh, bones)?;
+    let now = model.art_meshes.get(mesh).ok_or(BindError::NoMesh)?.parent_deformer;
+    if now != parent
+        && edit::set_parent(model, Child::Mesh(mesh), parent.map(|p| p as usize)).is_none()
+    {
+        return Err(BindError::NoCommonParent);
+    }
+    Ok(())
+}
+
+/// The shortest distance from `p` to the segment `a`..`b`.
+fn to_segment(p: (f32, f32), a: (f32, f32), b: (f32, f32)) -> f32 {
+    let (dx, dy) = (b.0 - a.0, b.1 - a.1);
+    let len2 = dx * dx + dy * dy;
+    let t = if len2 > 1e-12 {
+        (((p.0 - a.0) * dx + (p.1 - a.1) * dy) / len2).clamp(0.0, 1.0)
+    } else {
+        0.0
+    };
+    dist(p, (a.0 + dx * t, a.1 + dy * t))
+}
+
+/// Weight `mesh` to `bones` by distance: each vertex leans on each bone
+/// (joint to tip, as drawn at the parameter `values`) by inverse distance
+/// raised to a power that `smoothness` (0 to 1) lowers, so a smoother bind
+/// blends further from each bone. Weights under a hundredth are dropped
+/// and the rest sum to 1. The bones are bound where they sit at `values`,
+/// so the mesh does not move. The mesh moves under the parent the bones
+/// need (see [`bind_parent`]) without moving on screen; its old weights
+/// are replaced.
+pub fn auto_weights(
+    model: &mut Model,
+    mesh: usize,
+    bones: &[usize],
+    smoothness: f32,
+    values: &[f32],
+) -> Result<(), BindError> {
+    let mut next = model.clone();
+    seat_mesh(&mut next, mesh, bones)?;
+    // drawn as posed, with no weights of its own in the way
+    if let Some(m) = next.art_meshes.get_mut(mesh) {
+        m.skin = None;
+    }
+    let rest = posed(&next, values);
+    let pts = rest.mesh_drawn_positions(mesh).ok_or(BindError::NoMesh)?;
+    let segs: Vec<(u32, Pt, Pt)> =
+        bones.iter().filter_map(|&b| bone_ends(&rest, b).map(|(j, t)| (b as u32, j, t))).collect();
+    if segs.is_empty() {
+        return Err(BindError::NotBone);
+    }
+    // distances are taken against the longest bone, so the falloff reads
+    // the same at any model size
+    let reach = segs.iter().map(|s| dist(s.1, s.2)).fold(0.0f32, f32::max).max(1e-6);
+    let power = 1.0 + 7.0 * (1.0 - smoothness.clamp(0.0, 1.0));
+    let pairs: Vec<Vec<(u32, f32)>> = pts
+        .as_chunks::<2>()
+        .0
+        .iter()
+        .map(|&[x, y]| {
+            let p = (x, y);
+            let mut ws: Vec<(u32, f32)> = segs
+                .iter()
+                .map(|&(b, j, t)| (b, (to_segment(p, j, t) / reach + 1e-3).powf(-power)))
+                .collect();
+            normalise(&mut ws);
+            ws.retain(|w| w.1 >= WEIGHT_FLOOR);
+            normalise(&mut ws);
+            ws
+        })
+        .collect();
+    if let Some(m) = next.art_meshes.get_mut(mesh) {
+        m.skin = skin_from(&pairs);
+    }
+    bind_at(&mut next, &rest, mesh, false);
+    *model = next;
+    Ok(())
+}
+
+/// A puppet of `model` posed at `values` (a parameter missing from them
+/// sits at its default).
+fn posed(model: &Model, values: &[f32]) -> Puppet {
+    let mut puppet = Puppet::new(model.clone());
+    for (i, p) in model.parameters.iter().enumerate() {
+        puppet.set_value(i, values.get(i).copied().unwrap_or(p.default));
+    }
+    puppet.update();
+    puppet
+}
+
+/// Bind `mesh`'s bones where they sit in `puppet` (`model` as posed): all
+/// of them, or only those with no bind yet. True when a bind was set.
+fn bind_at(model: &mut Model, puppet: &Puppet, mesh: usize, only_missing: bool) -> bool {
+    let bones = mesh_bones(model, mesh);
+    let Some(m) = model.art_meshes.get_mut(mesh) else { return false };
+    let parent = m.parent_deformer;
+    let Some(skin) = &mut m.skin else { return false };
+    let mut changed = false;
+    for b in bones {
+        if only_missing && skin.bind_of(b).is_some() {
+            continue;
+        }
+        if let Some(map) = puppet.bone_chain(b as usize, parent) {
+            skin.set_bind(b, map);
+            changed = true;
+        }
+    }
+    changed
+}
+
+/// Set Bind Pose: bind every bone of `mesh` where it sits at `values`, so
+/// the mesh shows its own keyforms there, unbent.
+pub fn set_bind_pose(model: &mut Model, mesh: usize, values: &[f32]) -> bool {
+    let puppet = posed(model, values);
+    bind_at(model, &puppet, mesh, false)
+}
+
+/// Whether `bone` is `deformer` or under it.
+fn under(model: &Model, bone: u32, deformer: usize) -> bool {
+    edit::deformer_under(model, bone as usize, deformer)
+}
+
+/// The meshes weighted to `deformer` or a bone under it.
+fn meshes_on(model: &Model, deformer: usize) -> Vec<usize> {
+    (0..model.art_meshes.len())
+        .filter(|&mi| mesh_bones(model, mi).iter().any(|&b| under(model, b, deformer)))
+        .collect()
+}
+
+/// Before `deformer` is edited: every mesh weighted to it or a bone
+/// under it binds, at every parameter's default, each bone that has no
+/// bind yet, where it is read from today. Nothing moves, and the edit
+/// then bends the meshes instead of moving their bind with it.
+pub fn pin_binds(model: &mut Model, deformer: usize) -> bool {
+    let meshes: Vec<usize> = meshes_on(model, deformer)
+        .into_iter()
+        .filter(|&mi| {
+            let Some(s) = model.art_meshes.get(mi).and_then(|m| m.skin.as_ref()) else {
+                return false;
+            };
+            mesh_bones(model, mi).iter().any(|&b| s.bind_of(b).is_none())
+        })
+        .collect();
+    if meshes.is_empty() {
+        return false;
+    }
+    let rest = edit::rest_puppet(model);
+    let mut changed = false;
+    for mi in meshes {
+        changed |= bind_at(model, &rest, mi, true);
+    }
+    changed
+}
+
+fn affine(m: [f32; 6]) -> crate::deform::Affine {
+    let [m00, m01, m10, m11, tx, ty] = m;
+    crate::deform::Affine { m00, m01, m10, m11, tx, ty }
+}
+
+fn floats(a: crate::deform::Affine) -> [f32; 6] {
+    [a.m00, a.m01, a.m10, a.m11, a.tx, a.ty]
+}
+
+/// After `deformer` moved alone (Ctrl): every mesh weighted to it or a
+/// bone under it is bound again so it looks at `values` as it did in
+/// `before`: each bone's bind takes the bone's move, the old bind composed
+/// with the inverse of where the bone was and where it is now. True when a
+/// bind changed.
+pub fn keep_bound(before: &Model, after: &mut Model, values: &[f32], deformer: usize) -> bool {
+    keep_bound_all(before, after, values, &[deformer])
+}
+
+/// `keep_bound` for several deformers moved alone at once: each mesh
+/// weighted to any of them is bound again once.
+pub fn keep_bound_all(
+    before: &Model,
+    after: &mut Model,
+    values: &[f32],
+    deformers: &[usize],
+) -> bool {
+    let mut meshes: Vec<usize> = Vec::new();
+    for &d in deformers {
+        for mi in meshes_on(after, d) {
+            if !meshes.contains(&mi) {
+                meshes.push(mi);
+            }
+        }
+    }
+    if meshes.is_empty() {
+        return false;
+    }
+    let (then, now) = (posed(before, values), posed(after, values));
+    let rest = edit::rest_puppet(before);
+    let mut changed = false;
+    for mi in meshes {
+        let bones = mesh_bones(after, mi);
+        let Some(m) = after.art_meshes.get_mut(mi) else { continue };
+        let parent = m.parent_deformer;
+        let Some(skin) = &mut m.skin else { continue };
+        for b in bones {
+            let (Some(t), Some(n)) =
+                (then.bone_chain(b as usize, parent), now.bone_chain(b as usize, parent))
+            else {
+                continue;
+            };
+            if t == n {
+                continue;
+            }
+            let Some(old) = skin.bind_of(b).or_else(|| rest.bone_chain(b as usize, parent)) else {
+                continue;
+            };
+            let Some(t_inv) = affine(t).inverse() else { continue };
+            skin.set_bind(b, floats(affine(old).after(&t_inv).after(&affine(n))));
+            changed = true;
+        }
+    }
+    changed
+}
+
+/// A Ctrl joint drag on one bone: its origin's shift in every keyform
+/// (parent space) and the shift of what it holds (its own space), as
+/// `edit::move_rotation_pivot` takes them.
+pub type Pivot = (usize, Vec<(f32, f32)>, (f32, f32));
+
+/// How several picked bones move together.
+#[derive(Clone, Copy, Debug)]
+pub enum BonesMove<'a> {
+    /// Each turns by these degrees about its own joint.
+    Turn(f32),
+    /// Each grows by this factor about its own joint.
+    Scale(f32),
+    /// Each joint slides: (bone, dx, dy) in the bone's parent's space.
+    /// For `move_bones`.
+    Joints(&'a [(usize, f32, f32)]),
+    /// Each joint slides without what the bone holds. For
+    /// `move_bones_alone`.
+    Pivots(&'a [Pivot]),
+}
+
+/// The bones of `picked` with no other picked bone above them, in pick
+/// order.
+pub fn top_bones(model: &Model, picked: &[usize]) -> Vec<usize> {
+    let bones: Vec<usize> = picked.iter().copied().filter(|&b| is_bone(model, b)).collect();
+    let mut out: Vec<usize> = Vec::new();
+    for &b in &bones {
+        let above = bones.iter().any(|&o| o != b && edit::deformer_under(model, b, o));
+        if !above && !out.contains(&b) {
+            out.push(b);
+        }
+    }
+    out
+}
+
+/// Several picked bones moved together with the arrow, as one bone is:
+/// only the ones with no picked bone above them move, each in the keyform
+/// the parameters sit on, and the bones under them ride along, so no bone
+/// turns twice. Meshes weighted to them bend and stay bent. Gives whether
+/// anything changed and the bones left alone because their parameters sit
+/// between keys.
+pub fn move_bones(
+    model: &mut Model,
+    picked: &[usize],
+    values: &[f32],
+    mv: BonesMove,
+) -> (bool, Vec<usize>) {
+    let mut todo: Vec<(usize, usize)> = Vec::new();
+    let mut skipped = Vec::new();
+    for b in top_bones(model, picked) {
+        match crate::keyform::keyform_at(model, edit::Target::Deformer(b), values) {
+            Some(k) => todo.push((b, k)),
+            None => skipped.push(b),
+        }
+    }
+    if matches!(mv, BonesMove::Pivots(_)) {
+        return (false, skipped);
+    }
+    // every bind first, so no bone's edit moves into another's bind
+    let mut changed = false;
+    for &(b, _) in &todo {
+        changed |= pin_binds(model, b);
+    }
+    for &(b, k) in &todo {
+        changed |= match mv {
+            BonesMove::Turn(deg) => edit::rotate_rotation_at(model, b, k, deg),
+            BonesMove::Scale(f) => edit::scale_rotation_in(model, b, k, f),
+            BonesMove::Joints(list) => {
+                let mut moved = false;
+                for &(_, dx, dy) in list.iter().filter(|j| j.0 == b) {
+                    moved |= edit::move_rotation_origin_in(model, b, k, dx, dy);
+                }
+                moved
+            }
+            BonesMove::Pivots(_) => false,
+        };
+    }
+    (changed, skipped)
+}
+
+/// Ctrl: every picked bone moves alone, in every keyform, so what it
+/// holds stays on screen; a picked bone under another picked one moves
+/// by the same amount too. Every mesh weighted to them is then bound again
+/// so it stays where it was at `values`. True when anything changed.
+pub fn move_bones_alone(
+    model: &mut Model,
+    picked: &[usize],
+    values: &[f32],
+    mv: BonesMove,
+) -> bool {
+    let before = model.clone();
+    let mut bones: Vec<usize> = Vec::new();
+    for &b in picked {
+        if is_bone(model, b) && !bones.contains(&b) {
+            bones.push(b);
+        }
+    }
+    let mut changed = false;
+    for &b in &bones {
+        changed |= match mv {
+            BonesMove::Turn(deg) => edit::rotate_rotation_keep_children(model, b, deg),
+            BonesMove::Scale(f) => edit::scale_rotation_keep_children(model, b, f),
+            BonesMove::Pivots(list) => {
+                let mut moved = false;
+                for (_, deltas, child) in list.iter().filter(|p| p.0 == b) {
+                    moved |= edit::move_rotation_pivot(model, b, deltas, *child);
+                }
+                moved
+            }
+            BonesMove::Joints(_) => false,
+        };
+    }
+    if changed {
+        keep_bound_all(&before, model, values, &bones);
+    }
+    changed
+}
+
+fn normalise(ws: &mut [(u32, f32)]) {
+    let sum: f32 = ws.iter().map(|w| w.1).sum();
+    if sum > 1e-12 && sum.is_finite() {
+        for w in ws {
+            w.1 /= sum;
+        }
+    }
+}
+
+/// What a weight brush stroke does to the active bone's weight.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum WeightBrush {
+    Add,
+    Subtract,
+    /// Toward the mean of the vertex's neighbours.
+    Smooth,
+    /// Toward the brush's value.
+    Replace,
+}
+
+/// The bones a mesh is weighted to, in the order first met.
+pub fn mesh_bones(model: &Model, mesh: usize) -> Vec<u32> {
+    let mut out: Vec<u32> = Vec::new();
+    if let Some(s) = model.art_meshes.get(mesh).and_then(|m| m.skin.as_ref()) {
+        for &b in &s.bones {
+            if !out.contains(&b) {
+                out.push(b);
+            }
+        }
+    }
+    out
+}
+
+/// Each vertex's weight to `bone` (0 where it has none).
+pub fn vertex_weights(model: &Model, mesh: usize, bone: u32) -> Vec<f32> {
+    let Some(m) = model.art_meshes.get(mesh) else { return Vec::new() };
+    pairs_of(m.skin.as_ref(), m.vertex_count as usize)
+        .iter()
+        .map(|v| v.iter().filter(|p| p.0 == bone).map(|p| p.1).sum())
+        .collect()
+}
+
+/// One brush stroke on `mesh` for `bone`: each hit vertex's weight moves
+/// by its amount (0 to 1, the brush's falloff and strength), toward
+/// `value` for Replace. Then each vertex is renormalised: its other bones
+/// share what the bone does not take, in proportion, so the total stays 1;
+/// a vertex with only this bone keeps what was painted, the rest following
+/// its parent deformer. Weights under a hundredth drop. The mesh moves
+/// under the parent the bones need, as for [`auto_weights`]. A bone the
+/// mesh had no bind for is bound where it sits at the parameter `values`.
+#[allow(clippy::too_many_arguments)]
+pub fn paint_weights(
+    model: &mut Model,
+    mesh: usize,
+    bone: usize,
+    hits: &[(usize, f32)],
+    brush: WeightBrush,
+    value: f32,
+    values: &[f32],
+) -> Result<bool, BindError> {
+    let mut bones: Vec<usize> = mesh_bones(model, mesh).iter().map(|&b| b as usize).collect();
+    if !bones.contains(&bone) {
+        bones.push(bone);
+    }
+    let mut next = model.clone();
+    seat_mesh(&mut next, mesh, &bones)?;
+    let m = next.art_meshes.get_mut(mesh).ok_or(BindError::NoMesh)?;
+    let n = m.vertex_count as usize;
+    let mut pairs = pairs_of(m.skin.as_ref(), n);
+    let b32 = bone as u32;
+    let own = |v: &[(u32, f32)]| v.iter().filter(|p| p.0 == b32).map(|p| p.1).sum::<f32>();
+    let before: Vec<f32> = pairs.iter().map(|v| own(v.as_slice())).collect();
+    // neighbours along the triangles' edges, for Smooth
+    let mut near: Vec<Vec<usize>> = Vec::new();
+    if brush == WeightBrush::Smooth {
+        near = vec![Vec::new(); n];
+        for &[i, j, k] in m.indices.as_chunks::<3>().0 {
+            for (a, b) in [(i, j), (j, k), (k, i)] {
+                let (a, b) = (a as usize, b as usize);
+                if let Some(l) = near.get_mut(a).filter(|l| !l.contains(&b)) {
+                    l.push(b);
+                }
+                if let Some(l) = near.get_mut(b).filter(|l| !l.contains(&a)) {
+                    l.push(a);
+                }
+            }
+        }
+    }
+    let mut changed = false;
+    for &(v, amount) in hits {
+        let (Some(&w), Some(list)) = (before.get(v), pairs.get_mut(v)) else { continue };
+        let a = amount.clamp(0.0, 1.0);
+        let goal = match brush {
+            WeightBrush::Add => w + a,
+            WeightBrush::Subtract => w - a,
+            WeightBrush::Replace => w + (value.clamp(0.0, 1.0) - w) * a,
+            WeightBrush::Smooth => {
+                let ns = near.get(v).map(Vec::as_slice).unwrap_or(&[]);
+                if ns.is_empty() {
+                    continue;
+                }
+                let mean = ns.iter().filter_map(|&k| before.get(k)).sum::<f32>() / ns.len() as f32;
+                w + (mean - w) * a
+            }
+        };
+        let mut goal = goal.clamp(0.0, 1.0);
+        if goal < WEIGHT_FLOOR {
+            goal = 0.0;
+        }
+        if (goal - w).abs() < 1e-6 {
+            continue;
+        }
+        changed = true;
+        list.retain(|p| p.0 != b32);
+        let others: f32 = list.iter().map(|p| p.1).sum();
+        if others > 1e-6 {
+            let k = (1.0 - goal) / others;
+            for p in list.iter_mut() {
+                p.1 *= k;
+            }
+            list.retain(|p| p.1 >= WEIGHT_FLOOR);
+        }
+        if goal > 0.0 {
+            list.push((b32, goal));
+        }
+        // what rounding dropped goes back in proportion
+        if others > 1e-6 && !list.is_empty() {
+            normalise(list);
+        }
+    }
+    if !changed {
+        return Ok(false);
+    }
+    let old = m.skin.take();
+    m.skin = skin_from(&pairs);
+    if let (Some(old), Some(new)) = (&old, &mut m.skin) {
+        carry_binds(old, new, Some);
+    }
+    let puppet = posed(&next, values);
+    bind_at(&mut next, &puppet, mesh, true);
+    *model = next;
+    Ok(true)
+}
+
+/// Take a mesh's weights off: it follows its parent deformer alone again.
+pub fn remove_weights(model: &mut Model, mesh: usize) -> bool {
+    model.art_meshes.get_mut(mesh).and_then(|m| m.skin.take()).is_some()
+}
+
+/// Why an IK constraint can't be added.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum IkError {
+    /// The chain is one bone or two.
+    ChainLength,
+    /// Two bones that are not a bone and its child.
+    NotChain,
+    NotBone,
+    /// The target is in the chain or under it.
+    TargetInChain,
+    /// A bone of the chain is already in a chain.
+    Taken,
+    /// The target can't be placed before the chain.
+    Order,
+}
+
+/// Add an IK constraint: `chain` is one bone, or two where one is the
+/// other's child (in either order), and `target` the bone it reaches for.
+/// The target must evaluate first, so when it comes after the chain it and
+/// everything under it move ahead of the chain. Mix starts at 1 and the
+/// elbow bends counterclockwise. Returns the constraint's index.
+pub fn add_ik(model: &mut Model, chain: &[usize], target: usize) -> Result<usize, IkError> {
+    let (root, child) = match *chain {
+        [r] => (r, None),
+        [a, b] => {
+            let parent = |d: usize| model.deformers.get(d).and_then(|x| x.parent_deformer);
+            if parent(b) == Some(a as u32) {
+                (a, Some(b))
+            } else if parent(a) == Some(b as u32) {
+                (b, Some(a))
+            } else {
+                return Err(IkError::NotChain);
+            }
+        }
+        _ => return Err(IkError::ChainLength),
+    };
+    if !is_bone(model, root) || child.is_some_and(|c| !is_bone(model, c)) || !is_bone(model, target)
+    {
+        return Err(IkError::NotBone);
+    }
+    if edit::deformer_under(model, target, root) {
+        return Err(IkError::TargetInChain);
+    }
+    let taken = |d: usize| model.ik.iter().any(|c| c.bones.contains(&(d as u32)));
+    if taken(root) || child.is_some_and(taken) {
+        return Err(IkError::Taken);
+    }
+    let mut next = model.clone();
+    let (mut root, mut child, mut target) = (root, child, target);
+    if target > root {
+        // the target and what is under it go just before the chain
+        let n = next.deformers.len();
+        let moving: Vec<bool> = (0..n).map(|d| edit::deformer_under(&next, d, target)).collect();
+        let is_moving = |d: usize| moving.get(d).copied().unwrap_or(false);
+        let mut order: Vec<usize> = (0..root).filter(|&d| !is_moving(d)).collect();
+        order.extend((0..n).filter(|&d| is_moving(d)));
+        order.extend((root..n).filter(|&d| !is_moving(d)));
+        let mut new_of = vec![0usize; n];
+        for (new, &old) in order.iter().enumerate() {
+            if let Some(slot) = new_of.get_mut(old) {
+                *slot = new;
+            }
+        }
+        edit::put_in_order(&mut next, &order, &new_of);
+        let again = edit::sort_parents_first(&mut next);
+        let at = |d: usize| new_of.get(d).and_then(|&k| again.get(k)).copied().unwrap_or(d);
+        (root, child, target) = (at(root), child.map(at), at(target));
+        if target > root {
+            return Err(IkError::Order);
+        }
+    }
+    let mut n = next.ik.len();
+    let id = loop {
+        let id = format!("IK{n}");
+        if !next.ik.iter().any(|c| c.id == id) {
+            break id;
+        }
+        n += 1;
+    };
+    let mut bones = vec![root as u32];
+    bones.extend(child.map(|c| c as u32));
+    next.ik.push(IkConstraint {
+        id,
+        bones,
+        target: target as u32,
+        binding: Binding::default(),
+        mix: vec![1.0],
+        bend_positive: vec![true],
+    });
+    let ci = next.ik.len() - 1;
+    if !crate::ik::plans(&next).iter().any(|p| p.constraint == ci) {
+        return Err(IkError::Order);
+    }
+    *model = next;
+    Ok(ci)
+}
+
+/// Delete an IK constraint.
+pub fn delete_ik(model: &mut Model, ik: usize) -> bool {
+    if ik < model.ik.len() {
+        model.ik.remove(ik);
+        true
+    } else {
+        false
+    }
+}
+
+/// Set an IK constraint's mix (0 to 1) in one keyform.
+pub fn set_ik_mix(model: &mut Model, ik: usize, keyform: usize, mix: f32) -> bool {
+    match model.ik.get_mut(ik).and_then(|c| c.mix.get_mut(keyform)) {
+        Some(m) if mix.is_finite() => {
+            *m = mix.clamp(0.0, 1.0);
+            true
+        }
+        _ => false,
+    }
+}
+
+/// Set which way an IK constraint's elbow bends in one keyform.
+pub fn set_ik_bend(model: &mut Model, ik: usize, keyform: usize, positive: bool) -> bool {
+    match model.ik.get_mut(ik).and_then(|c| c.bend_positive.get_mut(keyform)) {
+        Some(b) if *b != positive => {
+            *b = positive;
+            true
+        }
+        _ => false,
+    }
+}
+
+fn is_blend_shape(model: &Model, param: usize) -> bool {
+    model.parameters.get(param).is_some_and(|p| p.blend_shape)
+}
+
+/// Add keys at `values` to an IK constraint's binding on `param`, as
+/// `edit::add_keys` does for objects. Blend shape parameters don't key IK.
+pub fn add_ik_keys(model: &mut Model, ik: usize, param: usize, values: &[f32]) -> bool {
+    if is_blend_shape(model, param) || param >= model.parameters.len() {
+        return false;
+    }
+    let Some(c) = model.ik.get_mut(ik) else { return false };
+    let IkConstraint { binding, mix, bend_positive, .. } = c;
+    let mut channels =
+        [Channel::F32 { elems: 1, data: mix }, Channel::Bool { data: bend_positive }];
+    edit::add_keys_to(binding, &mut channels, param, values)
+}
+
+/// Delete the key nearest `value` on an IK constraint's axis for `param`.
+pub fn delete_ik_key(model: &mut Model, ik: usize, param: usize, value: f32) -> bool {
+    let Some(c) = model.ik.get_mut(ik) else { return false };
+    let IkConstraint { binding, mix, bend_positive, .. } = c;
+    let mut channels =
+        [Channel::F32 { elems: 1, data: mix }, Channel::Bool { data: bend_positive }];
+    edit::delete_key_from(binding, &mut channels, param, value)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::edit::Target;
+    use ayatsuri_format::model::{ArtMesh, BindingAxis, Parameter, WarpData};
+
+    fn param(id: &str) -> Parameter {
+        Parameter {
+            id: id.into(),
+            min: -1.0,
+            max: 1.0,
+            default: 0.0,
+            repeat: false,
+            decimals: 3,
+            blend_shape: false,
+        }
+    }
+
+    fn deformer(id: &str, parent: Option<u32>, kind: DeformerKind) -> Deformer {
+        Deformer {
+            id: id.into(),
+            parent_part: None,
+            parent_deformer: parent,
+            visible: true,
+            enabled: true,
+            binding: Binding::default(),
+            kind,
+            multiply: Vec::new(),
+            screen: Vec::new(),
+            blend_shapes: Vec::new(),
+        }
+    }
+
+    /// A bone at `origin` in its parent's space, unturned, `length` long.
+    fn bone(id: &str, parent: Option<u32>, origin: (f32, f32), length: f32) -> Deformer {
+        let r = RotationData {
+            base_angle: 0.0,
+            opacities: vec![1.0],
+            angles: vec![0.0],
+            origins_x: vec![origin.0],
+            origins_y: vec![origin.1],
+            scales: vec![1.0],
+            reflect_x: vec![false],
+            reflect_y: vec![false],
+        };
+        deformer(id, parent, DeformerKind::Bone(BoneData::new(r, length)))
+    }
+
+    /// A 1x1 warp over [0,4]^2.
+    fn warp(id: &str) -> Deformer {
+        deformer(
+            id,
+            None,
+            DeformerKind::Warp(WarpData {
+                rows: 1,
+                cols: 1,
+                quad: true,
+                opacities: vec![1.0],
+                positions: vec![0.0, 0.0, 4.0, 0.0, 0.0, 4.0, 4.0, 4.0],
+            }),
+        )
+    }
+
+    fn mesh(parent: Option<u32>, positions: Vec<f32>) -> ArtMesh {
+        let n = positions.len() / 2;
+        ArtMesh {
+            id: "M".into(),
+            parent_part: None,
+            parent_deformer: parent,
+            visible: true,
+            enabled: true,
+            texture: 0,
+            flags: 0,
+            blend: Default::default(),
+            vertex_count: n as u32,
+            uvs: vec![0.0; n * 2],
+            indices: vec![0, 1, 2, 1, 2, 3],
+            masks: Vec::new(),
+            clip_group: None,
+            clip_inherit: false,
+            binding: Binding::default(),
+            opacities: vec![1.0],
+            draw_orders: vec![500.0],
+            positions,
+            blend_shapes: Vec::new(),
+            multiply: Vec::new(),
+            screen: Vec::new(),
+            skin: None,
+        }
+    }
+
+    const QUAD: [f32; 8] = [0.0, 0.0, 0.0, 1.0, 0.0, 2.0, 0.0, 3.0];
+
+    fn model(deformers: Vec<Deformer>, meshes: Vec<ArtMesh>) -> Model {
+        let mut m = Model::new();
+        m.parameters = vec![param("P0")];
+        m.deformers = deformers;
+        m.art_meshes = meshes;
+        m
+    }
+
+    fn sums(m: &Model, mesh: usize) -> Vec<f32> {
+        let mm = &m.art_meshes[mesh];
+        pairs_of(mm.skin.as_ref(), mm.vertex_count as usize)
+            .iter()
+            .map(|v| v.iter().map(|p| p.1).sum())
+            .collect()
+    }
+
+    fn two_bone_rig() -> Model {
+        // a warp first, so indices shift when it goes; two root bones
+        let mut m = model(
+            vec![warp("W"), bone("A", None, (0.0, 0.0), 1.5), bone("B", Some(1), (0.0, 1.5), 1.5)],
+            vec![mesh(None, QUAD.to_vec())],
+        );
+        m.art_meshes[0].skin = Some(Skin::from_pairs([
+            &[(1u32, 1.0f32)][..],
+            &[(1, 0.75), (2, 0.25)],
+            &[(1, 0.25), (2, 0.75)],
+            &[(2, 1.0)],
+        ]));
+        m.ik.push(IkConstraint {
+            id: "IK0".into(),
+            bones: vec![2],
+            target: 1,
+            binding: Binding::default(),
+            mix: vec![1.0],
+            bend_positive: vec![true],
+        });
+        m
+    }
+
+    #[test]
+    fn deleting_a_deformer_before_the_bones_shifts_weights_and_ik() {
+        let mut m = two_bone_rig();
+        assert!(edit::delete_deformer(&mut m, 0));
+        assert_eq!(mesh_bones(&m, 0), vec![0, 1]);
+        assert_eq!(m.ik[0].bones, vec![1]);
+        assert_eq!(m.ik[0].target, 0);
+    }
+
+    #[test]
+    fn deleting_a_bone_gives_its_weight_to_the_rest_and_drops_its_ik() {
+        let mut m = two_bone_rig();
+        assert!(edit::delete_deformer(&mut m, 1));
+        // B, now index 1 after the warp, holds what is left
+        assert_eq!(mesh_bones(&m, 0), vec![1]);
+        let s = sums(&m, 0);
+        assert_eq!(s[0], 0.0, "a vertex left with no bone follows its parent");
+        assert!(s[1..].iter().all(|x| (x - 1.0).abs() < 1e-6), "{s:?}");
+        assert!(m.ik.is_empty());
+    }
+
+    #[test]
+    fn a_new_parent_deformer_shifts_the_indices_past_it() {
+        let mut m = two_bone_rig();
+        let at = edit::create_deformer(
+            &mut m,
+            edit::NewDeformer::Rotation { origin: None },
+            &[Child::Deformer(1)],
+            None,
+            (0.0, 0.0, 1.0, 1.0),
+            None,
+            "R".into(),
+        )
+        .expect("made");
+        assert_eq!(at, 1);
+        assert_eq!(mesh_bones(&m, 0), vec![2, 3]);
+        assert_eq!((m.ik[0].bones.clone(), m.ik[0].target), (vec![3], 2));
+    }
+
+    #[test]
+    fn a_resort_renumbers_weights_and_ik() {
+        // B moves under the warp: re-sorted, the weights follow it
+        let mut m = two_bone_rig();
+        m.deformers[0].parent_deformer = None;
+        let order = vec![2usize, 0, 1];
+        let mut new_of = vec![0usize; 3];
+        for (new, &old) in order.iter().enumerate() {
+            new_of[old] = new;
+        }
+        m.deformers[2].parent_deformer = None;
+        edit::put_in_order(&mut m, &order, &new_of);
+        assert_eq!(m.deformers[0].id, "B");
+        assert_eq!(mesh_bones(&m, 0), vec![2, 0]);
+        assert_eq!((m.ik[0].bones.clone(), m.ik[0].target), (vec![0], 2));
+    }
+
+    #[test]
+    fn a_pasted_mesh_keeps_only_weights_on_bones() {
+        let mut m = two_bone_rig();
+        let mut copy = m.art_meshes[0].clone();
+        copy.skin = Some(Skin::from_pairs([
+            &[(0u32, 0.5f32), (1, 0.5)][..],
+            &[(1, 1.0)],
+            &[(0, 1.0)],
+            &[(7, 1.0)],
+        ]));
+        let i = edit::insert_art_mesh(&mut m, copy, None, None);
+        assert_eq!(mesh_bones(&m, i), vec![1]);
+        assert_eq!(sums(&m, i), vec![1.0, 1.0, 0.0, 0.0]);
+    }
+
+    #[test]
+    fn a_new_bone_runs_from_joint_to_tip() {
+        let mut m = model(vec![], vec![]);
+        let a = create_bone(&mut m, None, None, (1.0, 2.0), (4.0, 6.0), "A".into()).unwrap();
+        let ends = bone_ends(&edit::rest_puppet(&m), a).unwrap();
+        assert!(dist(ends.0, (1.0, 2.0)) < 1e-4 && dist(ends.1, (4.0, 6.0)) < 1e-4, "{ends:?}");
+        // chained: a child from the tip, under a turned and scaled parent
+        if let DeformerKind::Bone(b) = &mut m.deformers[a].kind {
+            b.rotation.scales = vec![2.0];
+        }
+        let b = create_bone(&mut m, Some(a), None, (4.0, 6.0), (4.0, 9.0), "B".into()).unwrap();
+        let ends = bone_ends(&edit::rest_puppet(&m), b).unwrap();
+        assert!(dist(ends.0, (4.0, 6.0)) < 1e-3 && dist(ends.1, (4.0, 9.0)) < 1e-3, "{ends:?}");
+        assert_eq!(m.deformers[b].parent_deformer, Some(a as u32));
+    }
+
+    #[test]
+    fn auto_weights_lean_on_the_nearest_bone_and_sum_to_one() {
+        let mut m = model(
+            vec![bone("A", None, (0.0, 0.0), 1.5), bone("B", Some(0), (0.0, 1.5), 1.5)],
+            vec![mesh(None, vec![1.0, 0.0, 1.0, 1.0, 1.0, 2.0, 1.0, 3.0])],
+        );
+        auto_weights(&mut m, 0, &[0, 1], 0.2, &[]).unwrap();
+        let a = vertex_weights(&m, 0, 0);
+        let b = vertex_weights(&m, 0, 1);
+        assert!(a[0] > 0.9 && b[3] > 0.9, "{a:?} {b:?}");
+        assert!(sums(&m, 0).iter().all(|s| (s - 1.0).abs() < 1e-5));
+        // smoother reaches further
+        let mut soft = m.clone();
+        auto_weights(&mut soft, 0, &[0, 1], 1.0, &[]).unwrap();
+        assert!(vertex_weights(&soft, 0, 1)[0] > b[0]);
+    }
+
+    #[test]
+    fn binding_moves_the_mesh_to_where_the_bones_are_and_keeps_its_place() {
+        let mut m = model(
+            vec![warp("W"), bone("A", None, (0.0, 0.0), 2.0)],
+            vec![mesh(Some(0), vec![0.1, 0.1, 0.2, 0.1, 0.1, 0.2, 0.2, 0.2])],
+        );
+        let before = edit::rest_puppet(&m).mesh_drawn_positions(0).unwrap();
+        auto_weights(&mut m, 0, &[1], 0.5, &[]).unwrap();
+        assert_eq!(m.art_meshes[0].parent_deformer, None);
+        let after = edit::rest_puppet(&m).mesh_drawn_positions(0).unwrap();
+        assert!(before.iter().zip(&after).all(|(a, b)| (a - b).abs() < 1e-4));
+        // bones under different warps have nothing in common
+        let mut m = model(
+            vec![warp("W"), warp("V"), bone("A", Some(0), (0.5, 0.5), 1.0)],
+            vec![mesh(None, QUAD.to_vec())],
+        );
+        m.deformers.push(bone("B", Some(1), (0.5, 0.5), 1.0));
+        assert_eq!(auto_weights(&mut m, 0, &[2, 3], 0.5, &[]), Err(BindError::NoCommonParent));
+        assert_eq!(auto_weights(&mut m, 0, &[0], 0.5, &[]), Err(BindError::NotBone));
+    }
+
+    #[test]
+    fn painting_keeps_each_vertex_whole() {
+        let mut m = two_bone_rig();
+        m.ik.clear();
+        assert!(
+            paint_weights(&mut m, 0, 1, &[(1, 0.2), (3, 0.5)], WeightBrush::Add, 1.0, &[]).unwrap()
+        );
+        let a = vertex_weights(&m, 0, 1);
+        assert!((a[1] - 0.95).abs() < 1e-5 && (a[3] - 0.5).abs() < 1e-5, "{a:?}");
+        assert!(sums(&m, 0).iter().all(|s| (s - 1.0).abs() < 1e-5), "{:?}", sums(&m, 0));
+        // a lone bone painted down leaves the rest to the parent
+        assert!(paint_weights(&mut m, 0, 1, &[(0, 0.4)], WeightBrush::Subtract, 1.0, &[]).unwrap());
+        assert!((sums(&m, 0)[0] - 0.6).abs() < 1e-5);
+        assert!(paint_weights(&mut m, 0, 2, &[(0, 1.0)], WeightBrush::Replace, 0.0, &[]).is_ok());
+        assert!(paint_weights(&mut m, 0, 1, &[(1, 1.0)], WeightBrush::Smooth, 1.0, &[]).unwrap());
+        assert!(remove_weights(&mut m, 0));
+        assert!(m.art_meshes[0].skin.is_none());
+    }
+
+    #[test]
+    fn ik_takes_a_chain_and_moves_a_late_target_ahead() {
+        let mut m = model(
+            vec![bone("A", None, (0.0, 0.0), 1.0), bone("B", Some(0), (0.0, 1.0), 1.0)],
+            vec![mesh(None, QUAD.to_vec())],
+        );
+        m.art_meshes[0].skin = Some(Skin::from_pairs([&[(1u32, 1.0f32)][..], &[], &[], &[]]));
+        m.deformers.push(bone("T", None, (1.0, 1.0), 0.5));
+        assert_eq!(add_ik(&mut m, &[0], 0), Err(IkError::TargetInChain));
+        assert_eq!(add_ik(&mut m, &[0, 2], 1), Err(IkError::NotChain));
+        let ci = add_ik(&mut m, &[1, 0], 2).unwrap();
+        let id = |m: &Model, i: u32| m.deformers[i as usize].id.clone();
+        assert_eq!(id(&m, m.ik[ci].target), "T");
+        assert_eq!(m.ik[ci].bones.iter().map(|&b| id(&m, b)).collect::<Vec<_>>(), ["A", "B"]);
+        assert!(m.ik[ci].target < m.ik[ci].bones[0]);
+        assert_eq!(id(&m, mesh_bones(&m, 0)[0]), "B", "weights follow the move");
+        assert_eq!(add_ik(&mut m, &[2], 0), Err(IkError::Taken));
+        // keyed mix and bend
+        m.parameters.push(param("P1"));
+        assert!(add_ik_keys(&mut m, ci, 1, &[-1.0, 1.0]));
+        assert_eq!(m.ik[ci].mix, vec![1.0, 1.0]);
+        assert!(set_ik_mix(&mut m, ci, 0, 0.25));
+        assert!(set_ik_bend(&mut m, ci, 1, false));
+        assert_eq!(m.ik[ci].bend_positive, vec![true, false]);
+        assert!(delete_ik_key(&mut m, ci, 1, 1.0));
+        assert_eq!(m.ik[ci].mix, vec![0.25]);
+        assert!(delete_ik(&mut m, ci));
+        assert!(m.ik.is_empty());
+    }
+
+    /// A column of points beside a bone's y axis.
+    const OFF: [f32; 8] = [1.0, 0.0, 1.0, 1.0, 1.0, 2.0, 1.0, 3.0];
+
+    fn drawn(m: &Model) -> Vec<f32> {
+        edit::rest_puppet(m).mesh_drawn_positions(0).unwrap()
+    }
+
+    fn close(a: &[f32], b: &[f32]) -> bool {
+        a.len() == b.len() && a.iter().zip(b).all(|(x, y)| (x - y).abs() < 1e-4)
+    }
+
+    fn one_bone() -> Model {
+        model(vec![bone("A", None, (0.0, 0.0), 3.0)], vec![mesh(None, OFF.to_vec())])
+    }
+
+    #[test]
+    fn a_bone_with_no_keys_turned_leaves_its_mesh_bent() {
+        let mut m = one_bone();
+        auto_weights(&mut m, 0, &[0], 0.5, &[]).unwrap();
+        assert!(m.art_meshes[0].skin.as_ref().unwrap().bind_of(0).is_some());
+        assert!(close(&drawn(&m), &OFF), "binding moves nothing");
+        assert!(!pin_binds(&mut m, 0), "already bound");
+        assert!(edit::rotate_rotation_at(&mut m, 0, 0, 30.0));
+        assert!(!close(&drawn(&m), &OFF), "the turn bends the mesh for good");
+    }
+
+    #[test]
+    fn editing_the_default_key_bends_the_mesh() {
+        let mut m = one_bone();
+        assert!(edit::add_keys(&mut m, Target::Deformer(0), 0, &[-1.0, 0.0, 1.0]));
+        auto_weights(&mut m, 0, &[0], 0.5, &[]).unwrap();
+        assert!(set_bone_field(&mut m, 0, 1, BoneField::Angle, 45.0));
+        assert!(!close(&drawn(&m), &OFF));
+    }
+
+    #[test]
+    fn a_skin_without_binds_reads_as_before_until_pinned() {
+        let mut m = one_bone();
+        m.art_meshes[0].skin =
+            Some(Skin::from_pairs([&[(0u32, 1.0f32)][..], &[(0, 1.0)], &[(0, 1.0)], &[(0, 1.0)]]));
+        let mut old = m.clone();
+        assert!(edit::rotate_rotation_at(&mut old, 0, 0, 30.0));
+        assert!(close(&drawn(&old), &OFF), "rest at the defaults: the bend is undone");
+        assert!(pin_binds(&mut m, 0));
+        assert!(close(&drawn(&m), &OFF), "pinning moves nothing");
+        assert!(edit::rotate_rotation_at(&mut m, 0, 0, 30.0));
+        assert!(!close(&drawn(&m), &OFF));
+    }
+
+    #[test]
+    fn moving_a_bone_alone_keeps_its_mesh_where_it_was() {
+        let mut m = one_bone();
+        auto_weights(&mut m, 0, &[0], 0.5, &[]).unwrap();
+        assert!(edit::rotate_rotation_at(&mut m, 0, 0, 20.0));
+        let bent = drawn(&m);
+        let before = m.clone();
+        assert!(edit::rotate_rotation_at(&mut m, 0, 0, 35.0));
+        assert!(edit::move_rotation_origin_in(&mut m, 0, 0, 0.5, -0.25));
+        assert!(keep_bound(&before, &mut m, &[0.0], 0));
+        assert!(close(&drawn(&m), &bent), "{:?} {bent:?}", drawn(&m));
+        // and it bends from there
+        assert!(edit::rotate_rotation_at(&mut m, 0, 0, 10.0));
+        assert!(!close(&drawn(&m), &bent));
+        // Set Bind Pose: the mesh shows its own shape in this pose
+        assert!(set_bind_pose(&mut m, 0, &[0.0]));
+        assert!(close(&drawn(&m), &OFF));
+    }
+
+    #[test]
+    fn binds_follow_deletes_and_new_strokes() {
+        let mut m = model(
+            vec![warp("W"), bone("A", None, (0.0, 0.0), 1.5), bone("B", Some(1), (0.0, 1.5), 1.5)],
+            vec![mesh(None, OFF.to_vec())],
+        );
+        auto_weights(&mut m, 0, &[1, 2], 0.5, &[]).unwrap();
+        assert!(edit::rotate_rotation_at(&mut m, 2, 0, 40.0));
+        let bent = drawn(&m);
+        assert!(!close(&bent, &OFF));
+        assert!(edit::delete_deformer(&mut m, 0));
+        let skin = m.art_meshes[0].skin.clone().unwrap();
+        assert_eq!(skin.bind_bones, vec![0, 1]);
+        assert!(close(&drawn(&m), &bent), "the bind came along");
+        // the bone gone, its bind goes too
+        assert!(edit::delete_deformer(&mut m, 0));
+        assert_eq!(m.art_meshes[0].skin.as_ref().unwrap().bind_bones, vec![0]);
+        // a first stroke on a bare mesh binds the bone where it is
+        let mut m = one_bone();
+        assert!(edit::rotate_rotation_at(&mut m, 0, 0, 25.0));
+        assert!(paint_weights(&mut m, 0, 0, &[(0, 1.0)], WeightBrush::Add, 1.0, &[]).unwrap());
+        assert!(m.art_meshes[0].skin.as_ref().unwrap().bind_of(0).is_some());
+        assert!(close(&drawn(&m), &OFF));
+    }
+
+    fn angle(m: &Model, b: usize, k: usize) -> f32 {
+        m.deformers[b].kind.rotation().unwrap().angles[k]
+    }
+
+    fn joint(m: &Model, b: usize) -> (f32, f32) {
+        bone_ends(&edit::rest_puppet(m), b).unwrap().0
+    }
+
+    #[test]
+    fn picked_bones_turn_together_each_about_its_own_joint() {
+        let mut m =
+            model(vec![bone("A", None, (0.0, 0.0), 1.0), bone("B", None, (2.0, 0.0), 1.0)], vec![]);
+        let (ja, jb) = (joint(&m, 0), joint(&m, 1));
+        let (changed, skipped) = move_bones(&mut m, &[0, 1], &[0.0], BonesMove::Turn(30.0));
+        assert!(changed && skipped.is_empty());
+        assert_eq!((angle(&m, 0, 0), angle(&m, 1, 0)), (30.0, 30.0));
+        assert!(close(&[ja.0, ja.1, jb.0, jb.1], &{
+            let (a, b) = (joint(&m, 0), joint(&m, 1));
+            [a.0, a.1, b.0, b.1]
+        }));
+        // scaled and slid the same way, each its own
+        let (changed, _) = move_bones(&mut m, &[0, 1], &[0.0], BonesMove::Scale(2.0));
+        assert!(changed);
+        assert_eq!(m.deformers[1].kind.rotation().unwrap().scales[0], 2.0);
+        let shift = [(0, 0.5, 0.0), (1, 0.0, -0.5)];
+        assert!(move_bones(&mut m, &[0, 1], &[0.0], BonesMove::Joints(&shift)).0);
+        assert!(close(&[joint(&m, 0).0, joint(&m, 1).1], &[0.5, -0.5]));
+    }
+
+    #[test]
+    fn a_picked_child_is_not_turned_twice() {
+        let mut m = model(
+            vec![bone("A", None, (0.0, 0.0), 1.0), bone("B", Some(0), (0.0, 1.0), 1.0)],
+            vec![],
+        );
+        assert_eq!(top_bones(&m, &[1, 0]), vec![0]);
+        assert!(move_bones(&mut m, &[1, 0], &[0.0], BonesMove::Turn(40.0)).0);
+        assert_eq!((angle(&m, 0, 0), angle(&m, 1, 0)), (40.0, 0.0), "the child rides along");
+    }
+
+    #[test]
+    fn a_bone_between_keys_is_skipped_and_the_rest_still_move() {
+        let mut m =
+            model(vec![bone("A", None, (0.0, 0.0), 1.0), bone("B", None, (2.0, 0.0), 1.0)], vec![]);
+        assert!(edit::add_keys(&mut m, Target::Deformer(0), 0, &[-1.0, 1.0]));
+        let (changed, skipped) = move_bones(&mut m, &[0, 1], &[0.0], BonesMove::Turn(15.0));
+        assert!(changed);
+        assert_eq!(skipped, vec![0]);
+        assert_eq!(angle(&m, 1, 0), 15.0);
+        assert!(m.deformers[0].kind.rotation().unwrap().angles.iter().all(|&a| a == 0.0));
+    }
+
+    #[test]
+    fn picked_bones_moved_alone_keep_their_mesh_where_it_was() {
+        let mut m = model(
+            vec![bone("A", None, (0.0, 0.0), 1.5), bone("B", Some(0), (0.0, 1.5), 1.5)],
+            vec![mesh(None, OFF.to_vec())],
+        );
+        auto_weights(&mut m, 0, &[0, 1], 0.5, &[]).unwrap();
+        assert!(edit::rotate_rotation_at(&mut m, 1, 0, 20.0));
+        let bent = drawn(&m);
+        let b_before = edit::rest_puppet(&m).rotation_state(1).unwrap().angle;
+        assert!(move_bones_alone(&mut m, &[0, 1], &[0.0], BonesMove::Turn(25.0)));
+        assert!(close(&drawn(&m), &bent), "{:?} {bent:?}", drawn(&m));
+        // both turned on screen by the same amount, the child too
+        let b_now = edit::rest_puppet(&m).rotation_state(1).unwrap().angle;
+        assert!((b_now - b_before - 25.0).abs() < 1e-3, "{b_before} {b_now}");
+        assert!(move_bones_alone(&mut m, &[0, 1], &[0.0], BonesMove::Scale(1.5)));
+        assert!(close(&drawn(&m), &bent));
+        // a bone under a picked one and not picked itself stays where it is
+        let ends = |m: &Model| bone_ends(&edit::rest_puppet(m), 1).unwrap();
+        let child = ends(&m);
+        assert!(move_bones_alone(&mut m, &[0], &[0.0], BonesMove::Turn(30.0)));
+        let now = ends(&m);
+        assert!(close(
+            &[child.0.0, child.0.1, child.1.0, child.1.1],
+            &[now.0.0, now.0.1, now.1.0, now.1.1]
+        ));
+        let pivots: [Pivot; 1] = [(0, vec![(0.25, 0.0)], (-0.25, 0.0))];
+        assert!(move_bones_alone(&mut m, &[0], &[0.0], BonesMove::Pivots(&pivots)));
+        assert!(close(&drawn(&m), &bent));
+    }
+
+    #[test]
+    fn bone_fields_fill_their_pools_on_first_set() {
+        let mut m = model(vec![bone("A", None, (0.0, 0.0), 1.0)], vec![]);
+        m.deformers[0].binding.axes.push(BindingAxis { parameter: 0, keys: vec![0.0] });
+        assert_eq!(bone_field(&m, 0, 0, BoneField::ScaleY), Some(1.0));
+        assert!(set_bone_field(&mut m, 0, 0, BoneField::ShearX, 10.0));
+        assert!(set_bone_field(&mut m, 0, 0, BoneField::ScaleY, 2.0));
+        assert_eq!(bone_field(&m, 0, 0, BoneField::ShearX), Some(10.0));
+        assert_eq!(bone_field(&m, 0, 0, BoneField::ShearY), Some(0.0));
+        assert_eq!(bone_field(&m, 0, 0, BoneField::ScaleY), Some(2.0));
+        assert!(set_bone_length(&mut m, 0, 3.0));
+        assert!(set_bone_inherit(&mut m, 0, Inherit::NoScale));
+        assert!(!set_bone_inherit(&mut m, 0, Inherit::NoScale));
+    }
+}

@@ -1,0 +1,14 @@
+{
+    "name": "Ayatsuri2D.Editor",
+    "rootNamespace": "Ayatsuri2D.Editor",
+    "references": ["Ayatsuri2D.Runtime"],
+    "includePlatforms": ["Editor"],
+    "excludePlatforms": [],
+    "allowUnsafeCode": true,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": false
+}

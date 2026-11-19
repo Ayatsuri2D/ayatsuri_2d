@@ -363,6 +363,10 @@ pub struct DisplayInfo {
     pub bezier_nets: Vec<(String, u32, u32, u32, Vec<f32>)>,
     /// Art mesh wire colours by mesh id, packed 0xRRGGBB.
     pub mesh_colors: Vec<(String, i32)>,
+    /// The Bones palette's folders: name plus the deformer indices of the
+    /// root bones inside, palette order (a bone's children go where its
+    /// root goes). Empty in older files, which show every bone loose.
+    pub bone_folders: Vec<(String, Vec<u32>)>,
 }
 
 /// A guide line on the canvas, as Cubism's Guide Line Settings has them.

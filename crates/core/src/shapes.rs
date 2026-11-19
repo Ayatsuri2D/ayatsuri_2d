@@ -4,7 +4,7 @@
 //! a tool that edits "keyform k" edits a shape keyform when the parameters
 //! sit on one (see `keyform_at`).
 
-use ayatsuri_format::model::{Binding, BlendShape, DeformerKind, Model};
+use ayatsuri_format::model::{Binding, BlendShape, BoneData, DeformerKind, Model};
 
 use crate::blend;
 use crate::blendshape::{self, Channel};
@@ -57,11 +57,26 @@ pub fn normal_pool(model: &Model, target: Target, channel: Channel) -> Option<(&
                 (_, Screen) => Some((&d.screen, 3)),
                 (DeformerKind::Warp(w), Positions) => Some((&w.positions, w.grid_points() * 2)),
                 (DeformerKind::Warp(w), Opacity) => Some((&w.opacities, 1)),
-                (DeformerKind::Rotation(r), Opacity) => Some((&r.opacities, 1)),
-                (DeformerKind::Rotation(r), Angle) => Some((&r.angles, 1)),
-                (DeformerKind::Rotation(r), OriginX) => Some((&r.origins_x, 1)),
-                (DeformerKind::Rotation(r), OriginY) => Some((&r.origins_y, 1)),
-                (DeformerKind::Rotation(r), Scale) => Some((&r.scales, 1)),
+                (
+                    DeformerKind::Rotation(r) | DeformerKind::Bone(BoneData { rotation: r, .. }),
+                    Opacity,
+                ) => Some((&r.opacities, 1)),
+                (
+                    DeformerKind::Rotation(r) | DeformerKind::Bone(BoneData { rotation: r, .. }),
+                    Angle,
+                ) => Some((&r.angles, 1)),
+                (
+                    DeformerKind::Rotation(r) | DeformerKind::Bone(BoneData { rotation: r, .. }),
+                    OriginX,
+                ) => Some((&r.origins_x, 1)),
+                (
+                    DeformerKind::Rotation(r) | DeformerKind::Bone(BoneData { rotation: r, .. }),
+                    OriginY,
+                ) => Some((&r.origins_y, 1)),
+                (
+                    DeformerKind::Rotation(r) | DeformerKind::Bone(BoneData { rotation: r, .. }),
+                    Scale,
+                ) => Some((&r.scales, 1)),
                 _ => None,
             }
         }
@@ -82,7 +97,7 @@ fn main_channels(model: &Model, target: Target) -> &'static [Channel] {
     match target {
         Target::ArtMesh(_) => &[Channel::Positions],
         Target::Deformer(i) => match model.deformers.get(i).map(|d| &d.kind) {
-            Some(DeformerKind::Rotation(_)) => {
+            Some(DeformerKind::Rotation(_) | DeformerKind::Bone(_)) => {
                 &[Channel::Angle, Channel::OriginX, Channel::OriginY, Channel::Scale]
             }
             _ => &[Channel::Positions],

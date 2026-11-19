@@ -13,7 +13,7 @@ ManifestDPIAware true
 !include "FileFunc.nsh"
 
 !define APP      "Ayatsuri2D"
-!define PUBLISHER "Yoru_KenomoVT"
+!define PUBLISHER "Ayatsuri2D"
 !define URL      "https://github.com/Ayatsuri2D/ayatsuri_2d"
 !define UNINST   "Software\Microsoft\Windows\CurrentVersion\Uninstall\${APP}"
 

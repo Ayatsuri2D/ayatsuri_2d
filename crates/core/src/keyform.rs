@@ -4,7 +4,7 @@
 // form. Every function leaves the model untouched when it returns false or
 // None.
 
-use ayatsuri_format::model::{ArtMesh, Binding, BlendShape, DeformerKind, Model};
+use ayatsuri_format::model::{ArtMesh, Binding, BlendShape, BoneData, DeformerKind, Model};
 
 use crate::edit::{KeySrc, Target, axis_lens, product, remap, with_object};
 
@@ -99,6 +99,24 @@ fn channels(model: &mut Model, target: Target) -> Option<(Binding, Vec<Chan<'_>>
                     Chan { data: &mut r.scales, elems: 1, kind: Kind::Plain },
                     Chan { data: &mut r.opacities, elems: 1, kind: Kind::Plain },
                 ],
+                DeformerKind::Bone(BoneData {
+                    rotation: r, scales_y, shears_x, shears_y, ..
+                }) => {
+                    let mut v = vec![
+                        Chan { data: &mut r.angles, elems: 1, kind: Kind::Angle },
+                        Chan { data: &mut r.origins_x, elems: 1, kind: Kind::OriginX },
+                        Chan { data: &mut r.origins_y, elems: 1, kind: Kind::OriginY },
+                        Chan { data: &mut r.scales, elems: 1, kind: Kind::Plain },
+                        Chan { data: &mut r.opacities, elems: 1, kind: Kind::Plain },
+                    ];
+                    // a bone's own pools, when it has them
+                    for data in [scales_y, shears_x, shears_y] {
+                        if !data.is_empty() {
+                            v.push(Chan { data, elems: 1, kind: Kind::Plain });
+                        }
+                    }
+                    v
+                }
             };
             colour_chans(&mut chans, multiply, screen);
             Some((binding, chans))
@@ -219,7 +237,11 @@ pub fn keyform_at(model: &Model, target: Target, values: &[f32]) -> Option<usize
     if let Some(k) = crate::shapes::keyform_at(model, target, values)? {
         return Some(k);
     }
-    let binding = binding_of(model, target)?;
+    keyform_on(model, binding_of(model, target)?, values)
+}
+
+/// `keyform_at` for any binding (an IK constraint's), blend shapes aside.
+pub fn keyform_on(model: &Model, binding: &Binding, values: &[f32]) -> Option<usize> {
     let lens = axis_lens(binding);
     let mut coords = Vec::with_capacity(lens.len());
     for axis in &binding.axes {
@@ -663,6 +685,7 @@ mod tests {
                 clip_inherit: false,
                 multiply: Vec::new(),
                 screen: Vec::new(),
+                skin: None,
             }],
             ..Model::new()
         }

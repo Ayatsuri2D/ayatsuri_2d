@@ -116,6 +116,15 @@ pub struct ParamGroup {
     pub color: Option<[u8; 3]>,
 }
 
+/// One folder of the Bones palette: the root bones inside, by deformer
+/// index, palette order. A bone's children go where its root goes.
+#[derive(Clone, Debug, PartialEq)]
+pub struct BoneFolder {
+    pub name: String,
+    pub bones: Vec<usize>,
+    pub open: bool,
+}
+
 pub struct Session {
     pub name: String,
     /// Credited in the .aom meta block.
@@ -180,6 +189,8 @@ pub struct Session {
     pub mesh_names: Vec<String>,
     /// Deformer names, apart from their IDs; empty shows the ID.
     pub deformer_names: Vec<String>,
+    /// The Bones palette's folders; a bone in none shows at the top level.
+    pub bone_folders: Vec<BoneFolder>,
     /// Parameters the user is dragging this frame; physics stays off them.
     pub params_held: Vec<usize>,
     /// Parameters picked in the palette (Ctrl/Shift+click), in pick order.
@@ -207,6 +218,9 @@ pub struct Session {
     departed: HashMap<String, MeshExtras>,
     /// The same for parts: name and visibility.
     parts_departed: HashMap<String, (String, bool)>,
+    /// The folder of each bone an edit removed, by id, so undoing the
+    /// delete puts it back in its folder.
+    bones_departed: HashMap<String, String>,
     pub deformer_shown: Vec<bool>,
     /// Label colors on parameter rows, palette only, saved in .aom.
     pub param_colors: Vec<Option<[u8; 3]>>,
@@ -360,7 +374,10 @@ fn model_bytes(m: &Model) -> usize {
         .iter()
         .map(|d| match &d.kind {
             DeformerKind::Warp(w) => (w.positions.len() + w.opacities.len()) * f,
-            DeformerKind::Rotation(r) => (r.angles.len() * 6) * f,
+            DeformerKind::Rotation(r)
+            | DeformerKind::Bone(ayatsuri_format::model::BoneData { rotation: r, .. }) => {
+                (r.angles.len() * 6) * f
+            }
         })
         .sum();
     let glues: usize = m.glues.iter().map(|g| g.weights.len() * f + g.indices.len() * 2).sum();
@@ -880,6 +897,14 @@ impl Session {
         let old = std::mem::replace(self, next);
         self.deformer_names =
             follow_deformer_names(&old.deformer_names, &before, self.puppet.model());
+        let mut bones_departed = old.bones_departed;
+        self.bone_folders = follow_bone_folders(
+            &old.bone_folders,
+            &mut bones_departed,
+            &before,
+            self.puppet.model(),
+        );
+        self.bones_departed = bones_departed;
         self.part_names = old.part_names;
         self.mesh_names = old.mesh_names;
         self.part_shown = old.part_shown;
@@ -972,6 +997,14 @@ impl Session {
         );
         self.deformer_names =
             follow_deformer_names(&old.deformer_names, old.puppet.model(), self.puppet.model());
+        let mut bones_departed = old.bones_departed;
+        self.bone_folders = follow_bone_folders(
+            &old.bone_folders,
+            &mut bones_departed,
+            old.puppet.model(),
+            self.puppet.model(),
+        );
+        self.bones_departed = bones_departed;
         self.part_names = part_names;
         self.mesh_names = mesh_names;
         self.part_shown = part_shown;
@@ -1093,6 +1126,16 @@ impl Session {
             if d.deformer_names.len() == s.deformer_names.len() {
                 s.deformer_names = d.deformer_names.clone();
             }
+            let nd = s.puppet.model().deformers.len();
+            s.bone_folders = d
+                .bone_folders
+                .iter()
+                .map(|(name, bones)| BoneFolder {
+                    name: name.clone(),
+                    bones: bones.iter().map(|&b| b as usize).filter(|&b| b < nd).collect(),
+                    open: true,
+                })
+                .collect();
             if let Some(pairs) = &d.combined {
                 s.combined = pairs
                     .iter()
@@ -1425,6 +1468,7 @@ impl Session {
             param_names,
             mesh_names: model_mesh_ids,
             deformer_names: vec![String::new(); n_deformers],
+            bone_folders: Vec::new(),
             params_held: Vec::new(),
             param_picked: Vec::new(),
             part_names,
@@ -1452,6 +1496,7 @@ impl Session {
             mesh_colors: Default::default(),
             departed: HashMap::new(),
             parts_departed: HashMap::new(),
+            bones_departed: HashMap::new(),
             deformer_shown: vec![true; n_defs],
             param_colors: vec![None; n_params],
             key_colors: Vec::new(),
@@ -1872,6 +1917,12 @@ impl Session {
         let part_from = self.follow_part_ids(&model);
         self.deformer_names =
             follow_deformer_names(&self.deformer_names, self.puppet.model(), &model);
+        self.bone_folders = follow_bone_folders(
+            &self.bone_folders,
+            &mut self.bones_departed,
+            self.puppet.model(),
+            &model,
+        );
         let mut puppet = Puppet::new(model);
         for (i, v) in values.iter().enumerate() {
             puppet.set_value(i, *v);
@@ -2055,6 +2106,11 @@ impl Session {
                     c.sort();
                     c
                 },
+                bone_folders: self
+                    .bone_folders
+                    .iter()
+                    .map(|f| (f.name.clone(), f.bones.iter().map(|&b| b as u32).collect()))
+                    .collect(),
             }),
         }
     }
@@ -2446,6 +2502,61 @@ fn follow_deformer_names(names: &[String], now: &Model, next: &Model) -> Vec<Str
         .collect()
 }
 
+/// Bone folders beside an edited model. Each bone follows its id, so
+/// deletes, inserts and re-sorts keep it in its folder; one whose id
+/// changed in place (Rename) stays by index. A bone the edit removed is
+/// noted in `departed`, and comes back into its folder (when that is still
+/// there) if an undo brings it back.
+fn follow_bone_folders(
+    folders: &[BoneFolder],
+    departed: &mut HashMap<String, String>,
+    now: &Model,
+    next: &Model,
+) -> Vec<BoneFolder> {
+    let same_count = now.deformers.len() == next.deformers.len();
+    let new_of = |i: usize| -> Option<usize> {
+        let id = &now.deformers.get(i)?.id;
+        if let Some(n) = next.deformers.iter().position(|d| &d.id == id) {
+            return Some(n);
+        }
+        // renamed: the same place holds an id the old model never had
+        let d = next.deformers.get(i).filter(|_| same_count)?;
+        (!now.deformers.iter().any(|o| o.id == d.id)).then_some(i)
+    };
+    let mut out: Vec<BoneFolder> = folders
+        .iter()
+        .map(|f| {
+            let mut bones = Vec::with_capacity(f.bones.len());
+            for &b in &f.bones {
+                match new_of(b) {
+                    Some(n) => bones.push(n),
+                    None => {
+                        if let Some(d) = now.deformers.get(b) {
+                            departed.insert(d.id.clone(), f.name.clone());
+                        }
+                    }
+                }
+            }
+            BoneFolder { name: f.name.clone(), bones, open: f.open }
+        })
+        .collect();
+    if departed.is_empty() {
+        return out;
+    }
+    for (i, d) in next.deformers.iter().enumerate() {
+        if now.deformers.iter().any(|o| o.id == d.id) {
+            continue;
+        }
+        let Some(name) = departed.remove(&d.id) else { continue };
+        if let Some(f) = out.iter_mut().find(|f| f.name == name)
+            && !f.bones.contains(&i)
+        {
+            f.bones.push(i);
+        }
+    }
+    out
+}
+
 impl Session {
     /// What a deformer is called on screen: its name, or its ID when it has
     /// none.
@@ -2767,6 +2878,7 @@ mod import_paint_tests {
                 clip_inherit: false,
                 multiply: Vec::new(),
                 screen: Vec::new(),
+                skin: None,
             });
             m
         };
@@ -2806,6 +2918,7 @@ mod import_paint_tests {
             clip_inherit: false,
             multiply: Vec::new(),
             screen: Vec::new(),
+            skin: None,
         };
         let mut m = Model::new();
         m.art_meshes = vec![mesh("A", 0), mesh("B", 2), mesh("C", 2)];
@@ -3077,5 +3190,66 @@ mod deformer_name_tests {
         let added =
             follow_deformer_names(&names(&["a", "b", "c"]), &now, &with(&["N", "A", "B", "C"]));
         assert_eq!(added, names(&["", "a", "b", "c"]));
+    }
+}
+
+#[cfg(test)]
+mod bone_folder_tests {
+    use super::*;
+    use ayatsuri_core::bone_edit::create_bone;
+
+    /// Bones A (with child B) and C, A in one folder and C in another.
+    fn session() -> Session {
+        let mut s =
+            Session::create(&egui::Context::default(), "t".into(), String::new(), Model::new())
+                .unwrap();
+        s.edit(|m| {
+            let a = create_bone(m, None, None, (0.0, 0.0), (0.0, 1.0), "A".into()).unwrap();
+            create_bone(m, Some(a), None, (0.0, 1.0), (0.0, 2.0), "B".into()).unwrap();
+            create_bone(m, None, None, (1.0, 0.0), (1.0, 1.0), "C".into()).is_some()
+        });
+        s.bone_folders = vec![
+            BoneFolder { name: "front_bang_bones".into(), bones: vec![0], open: true },
+            BoneFolder { name: "tail_bones".into(), bones: vec![2], open: true },
+        ];
+        s
+    }
+
+    fn members(s: &Session) -> Vec<Vec<String>> {
+        let m = s.puppet.model();
+        s.bone_folders
+            .iter()
+            .map(|f| f.bones.iter().map(|&b| m.deformers[b].id.clone()).collect())
+            .collect()
+    }
+
+    #[test]
+    fn a_deleted_bone_leaves_its_folder_and_the_rest_follow_their_ids() {
+        let mut s = session();
+        assert!(s.edit(|m| ayatsuri_core::edit::delete_deformer(m, 0)));
+        // C moved down one and is still in its folder; A is gone
+        assert_eq!(members(&s), vec![Vec::<String>::new(), vec!["C".to_string()]]);
+        // undo brings A back into the folder it was in
+        s.undo();
+        assert_eq!(members(&s), vec![vec!["A".to_string()], vec!["C".to_string()]]);
+        s.redo();
+        assert_eq!(members(&s), vec![Vec::<String>::new(), vec!["C".to_string()]]);
+    }
+
+    #[test]
+    fn renaming_a_bone_keeps_it_in_its_folder() {
+        let mut s = session();
+        assert!(s.edit(|m| ayatsuri_core::edit::rename_deformer(m, 2, "Tail")));
+        assert_eq!(members(&s), vec![vec!["A".to_string()], vec!["Tail".to_string()]]);
+    }
+
+    #[test]
+    fn bone_folders_come_back_after_a_save() {
+        let mut s = session();
+        let path = std::env::temp_dir().join(format!("ay-bone-folders-{}.aom", std::process::id()));
+        s.save_aom(&path).unwrap();
+        let back = Session::load(&egui::Context::default(), &path).unwrap();
+        let _ = std::fs::remove_file(&path);
+        assert_eq!(back.bone_folders, s.bone_folders);
     }
 }

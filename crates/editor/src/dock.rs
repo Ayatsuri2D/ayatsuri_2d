@@ -22,12 +22,15 @@ pub enum PanelKind {
     Log,
     Expressions,
     Mixer,
+    /// Shown only with Settings > Experimental > Bones on.
+    Bones,
 }
 
 impl PanelKind {
-    pub const ALL: [PanelKind; 11] = [
+    pub const ALL: [PanelKind; 12] = [
         PanelKind::Parts,
         PanelKind::Deformers,
+        PanelKind::Bones,
         PanelKind::Parameters,
         PanelKind::Inspector,
         PanelKind::ToolDetails,
@@ -53,6 +56,7 @@ impl PanelKind {
             PanelKind::Log => "Log",
             PanelKind::Expressions => "Expression",
             PanelKind::Mixer => "Audio Mixer",
+            PanelKind::Bones => "Bones",
         }
     }
 }
@@ -95,7 +99,7 @@ pub fn default_workspace() -> DockNode {
     use SplitSize::*;
     hsplit(
         FixedA(250.0),
-        vsplit(Ratio(0.5), tabs(&[Parts], 0), tabs(&[Deformers, Log], 0)),
+        vsplit(Ratio(0.5), tabs(&[Parts], 0), tabs(&[Deformers, Bones, Log], 0)),
         hsplit(
             FixedA(320.0),
             vsplit(
@@ -116,7 +120,7 @@ pub fn animation_workspace() -> DockNode {
         FixedB(260.0),
         hsplit(
             FixedA(250.0),
-            vsplit(Ratio(0.5), tabs(&[Parts], 0), tabs(&[Deformers, Log], 0)),
+            vsplit(Ratio(0.5), tabs(&[Parts], 0), tabs(&[Deformers, Bones, Log], 0)),
             tabs(&[Viewport], 0),
         ),
         tabs(&[Timeline, Expressions, Mixer], 0),

@@ -1,8 +1,23 @@
 # Changelog
 
-## Unreleased
+## 0.6.2 (2026-11-14)
+
+Bones, behind Settings > Experimental > Bones: weighted bones with
+painting, auto weights, IK, a Bones palette with folders and armatures in
+the Deformer palette. Also a Unity package, Revert to Original, draw order
+per key, smoother deform paths, the stroke pen out of Experimental,
+packaging recipes for Linux distributions, and a run of export and texture
+atlas fixes.
 
 ### Added
+- **Unity package** (`sdk/unity`, Unity 2022.3 or newer, Built-in and
+  URP): drop an `.aom`, or a `.moc3` bundle with its model3.json, into a
+  project and drag the model into a scene. Scripts set parameters and
+  part opacities, play motions and expressions, and turn physics and wind
+  on; the model draws as one mesh with stencil masks and Normal, Additive
+  and Multiply blending. Releases carry `ayatsuri2d-unity-<version>.tgz`
+  with the library for Windows, macOS, Linux, Android (ARM64) and iOS,
+  installed with Package Manager > Add package from tarball.
 
 - **Revert to Original** (Modeling > Edit Form), as in Cubism 5.2: the
   selected meshes and deformers go back to their original shape in the
@@ -18,9 +33,113 @@
   move in front or behind as a parameter turns (a hand passing in front
   of the body). Between keys the field shows the blended order and a
   change moves every key by the same amount, as before.
+- **Bones in the format and the runtime**: an `.aom` model can now hold
+  bones, and art meshes weighted to them, with as many bones per vertex
+  as the rig needs. A bone turns, moves and scales over its parameters like a
+  rotation deformer, and anything placed under it without weights follows
+  it the same way. A bone can also scale its two axes by different
+  amounts and shear them, keyed over parameters like its angle, and a
+  bone under such a bone takes on its whole shape. Each bone can choose
+  what it takes from its parent: everything, only its position, its
+  position and scale, or its position and turn with or without its
+  mirroring. A chain of one or two bones can reach for a target bone
+  (IK): one bone points at it, two bend at the joint between them, to the
+  side the rig chooses, so the end of the chain lands on it, and straighten
+  toward it when it is too far. How strongly the chain follows the target
+  can be keyed over parameters, and everything under the chain, weighted
+  meshes included, moves with it. A weighted mesh bends smoothly between the bones it is
+  weighted to, and sits exactly where it was drawn when every parameter
+  is at its default. Such models load and play in the runtime and in the
+  editor's viewport, and export to moc3 and cmo3 (see below).
+- **Bone tools in the editor**, behind Settings > Experimental > Bones,
+  which is off by default. The Bone tool draws a bone by dragging from
+  its joint to its tip; starting a drag on any bone's tip or joint dot
+  starts there and draws its child, so a chain is drawn one joint after another. Bones show in
+  the viewport as tapered shapes and in the Deformer palette like
+  rotation deformers, and take keys on parameters the same way: drag a
+  bone with the arrow to turn it, its joint to move it, and set its
+  angle, origin, scale on each axis, shear, length and what it takes from
+  its parent in the Inspector. Auto weights binds a mesh to the picked
+  bones by distance, with a Smoothness setting, and moves the mesh under
+  the deformer the bones need without moving it on screen. Weight Paint
+  brushes one bone's weights over a heat map (blue none, red all) with
+  Add, Subtract, Smooth and Replace, a radius, a strength and pen
+  pressure; each stroke is one undo step and keeps every point's weights
+  adding up. Turning or moving a bone bends the meshes weighted to it,
+  and they stay bent after you let go, whether or not the bone has keys;
+  hold Ctrl to move a bone without bending them (the bone shows its new
+  pose while it is dragged). Pick several bones at once with Ctrl or
+  Shift+click, a box dragged over them with the arrow, or the Deformer
+  palette, then drag any of them to turn, move or scale them all
+  together, each about its own joint, in one undo step. The Inspector lists a
+  weighted mesh's bones, can remove its weights, and has Set bind pose,
+  which makes the mesh show its own shape with the bones as they sit
+  now. Add IK makes one or two picked bones reach for the bone
+  picked last, with its mix and bend direction keyed over parameters in
+  the Inspector. Deleting, wrapping or reordering deformers keeps every
+  mesh's weights and IK on the right bones; a deleted bone's weight goes
+  to the other bones of each point.
+- **Bones export to moc3 and cmo3**: a model with bones, weights and IK
+  now exports, its bones baked into what Cubism's runtimes already read.
+  A bone that turns, moves and scales evenly goes out as a rotation
+  deformer and moves exactly as it did. One that shears, scales its axes
+  apart or takes only part of its parent's frame becomes a warp in its
+  place, exact at every key. A weighted mesh goes under the deepest bone
+  all its bones share, with a keyform at every key of the bones below
+  that one, and an IK chain gets its solved turns as keyforms, sampled
+  closely. Between keys the warps and meshes follow a curve through the
+  keys (extended interpolation, with keys added where an axis has only
+  two). Bones keyed on a blend shape parameter move their weighted meshes
+  too: the mesh gets a blend shape on that parameter, exact at the bones'
+  keys, with keys added between them. The export dialog says what the
+  bones became and how far the export strays from the editor, at the keys
+  and between them. The model in the editor keeps its bones.
+- **Bones palette** (with Settings > Experimental > Bones on, beside the
+  Deformer palette): every bone as its parent and child tree, filed in
+  folders you name, so a rig with many bones stays easy to find your way
+  around. A folder holds whole chains: drag any bone onto a folder (or
+  use Move to Folder) and its chain goes with it, and deleting a folder
+  moves its bones back to the top level. Rows pick bones the way the
+  Deformer palette does, Ctrl or Shift for several, and the canvas
+  follows; the first bone of an IK chain shows a target mark. Drawing a
+  bone with the Bone tool now asks for its name and ID first (Close makes
+  no bone), and a new chain drawn for a mesh files itself into a folder
+  named after that mesh, such as `front_bang_bones`. The Deformer palette
+  can leave bones out with its bone button. Folders are saved in the
+  `.aom`; older files open with every bone at the top level.
+- **Armatures in the Deformer palette**: with Bones on, each bone folder
+  also shows in the Deformer palette as an armature row, where its first
+  chain sits in the tree, with its bones under it. A folder whose chains
+  hang from different deformers shows under each of them, so every bone
+  stays under its real parent. Click an armature to pick all its bones
+  (Ctrl to add them to the pick), drop a bone on it to file its chain
+  there, and double-click or right-click it to rename it; opening and
+  closing it opens and closes the folder in the Bones palette too.
+  Searching for a folder's name shows its bones. The palette's bone
+  button hides armatures along with the bones.
+- **Bones show on the canvas as deformers do**: the Bone and Weight Paint
+  tools show every bone; with any other tool only the chains of the
+  picked bones show, along with the bones of the picked mesh and of the
+  mesh under the pointer (the bones it is weighted to, the bone it hangs
+  from, and the chains in its own `<mesh>_bones` folder).
+- **Packaging recipes for Linux distributions**: build recipes for Arch
+  Linux, Debian and Ubuntu, and Fedora, all building from source,
+  are ready for when the source is public, so Ayatsuri2D can be offered
+  through each system's own package manager. The app's store listing now
+  shows screenshots and the notes of every release.
 
 ### Fixed
 
+- Physics made in the editor works in VTube Studio. A new physics rig had
+  no gravity set, and the physics file went out with gravity (0, 0);
+  runtimes that pull pendulums along gravity then held every output at
+  one end, so hair sat swept to the side and never swung. A rig with no
+  gravity now goes out pulling straight down, as Cubism's do.
+- Export as cmo3 works for a model with no physics. The check run on
+  every written project wanted a physics setting selected, so a project
+  without one was refused before it was saved.
+- The Discord invite in the app, README and code of conduct works again:
+  it points at the new invite, which does not expire.
 - Meshes pasted from another project (or copied before saving and pasted
   after) no longer vanish when the texture atlas is made. The copy took
   the clip box of the mesh after it, so the atlas cut its art away, and
@@ -33,7 +152,8 @@
   triangles face away once mirrored, and Cubism's runtimes cull meshes
   that are not double-sided. Flip now turns Double-sided on for what it
   mirrors, new meshes start double-sided as in Cubism Editor, and the
-  moc3 export writes any mesh flipped by an older build double-sided.
+  moc3 export writes any mesh flipped by an older build double-sided,
+  without a warning.
 - Exported textures no longer draw a dark line along every mesh's edge in
   VTube Studio. The clear pixels around the art were black, and runtimes
   blend them into the edge; they now take the colour of the nearest art.
@@ -56,6 +176,26 @@
 
 ### Changed
 
+- Linux downloads are built on Ubuntu 24.04 and need glibc 2.39 or newer
+  (Ubuntu 24.04, Debian 13, Fedora 40 and later). Ubuntu 22.04, Mint 21
+  and Debian 12 can build from source.
+- CONTRIBUTING.md: AI tools may be used for code too. Every contribution
+  is reviewed, can be turned down, and should say which parts an AI tool
+  wrote.
+- Deform paths bend smoothly. Inside the path width the mesh keeps its
+  spacing and bends gently, instead of the points near the dragged
+  control point turning as one stiff piece with a kink at the edge of the
+  circle; a small width or 0% hardness follows the path freely, as
+  Temporary Path does. Ctrl+drag moves a control point without bending
+  the mesh, Shift+drag moves it straight, and the art bends while the
+  point is dragged, not only when it is let go.
+- The app's publisher, package maintainer and copyright now read
+  Ayatsuri2D, and the Linux app id is `io.github.Ayatsuri2D.Ayatsuri2D`. The
+  Linux installer removes the menu entry an older install left under the
+  previous id, so the menu shows Ayatsuri2D once.
+- Stroke mesh-mapping is no longer experimental: its pen is always in
+  Mesh Edit's tool details, and Settings > Experimental no longer lists
+  it.
 - The project moved to a private repository,
   github.com/Ayatsuri2D/ayatsuri_2d, and every link in the app,
   README and packages points there.
@@ -76,6 +216,10 @@ are now signed.
 
 ### Added
 
+- **Nix flake** (contributed by @Arzumify): `nix run` starts Ayatsuri2D
+  and `nix profile install` installs it, with the desktop entry, file type
+  and icons, and nixpkgs' ffmpeg for video export. `nix develop` gives a
+  shell with everything needed to build it.
 - **Scale and turn pieces in the Texture Atlas**: a selected piece has its
   own scale and quarter-turn buttons, and Scale with Fill page sizes every
   piece together, as far up as they still fit one page (a bigger page no
@@ -211,9 +355,8 @@ are now signed.
 
 ### Thanks
 
-- **[@seoriboi](https://github.com/seoriboi)** and
-  **[RikaYamano](https://www.twitch.tv/rikayamanovt)** suggested features
-  and reported bugs for this version. Thank you!
+- **[@seoriboi](https://github.com/seoriboi)** suggested features and
+  reported bugs for this version. Thank you!
 
 ## 0.6.0 (2026-10-29)
 

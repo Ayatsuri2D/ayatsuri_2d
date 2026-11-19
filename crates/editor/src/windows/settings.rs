@@ -1022,10 +1022,10 @@ impl EditorUi {
                 &mut self.prefs.experimental_inherit_clip,
             ),
             (
-                "Stroke mesh-mapping",
-                "A pen in Mesh Edit's tool details: drag along a strand of hair or a line and \
-                 get a mesh built along it, with width handles to shape it",
-                &mut self.prefs.experimental_stroke_mesh,
+                "Bones",
+                "Bone chains that bend meshes by painted weights, with inherit modes and IK. \
+                 They play in .aom and the SDK; moc3 export does not carry them yet",
+                &mut self.prefs.experimental_bones,
             ),
         ];
         for (name, hint, on) in features {

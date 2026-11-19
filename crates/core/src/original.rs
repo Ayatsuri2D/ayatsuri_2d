@@ -7,7 +7,7 @@
 //! every parameter's default.
 
 use ayatsuri_format::Model;
-use ayatsuri_format::model::{DeformerKind, OriginalHow, OriginalShape};
+use ayatsuri_format::model::{BoneData, DeformerKind, OriginalHow, OriginalShape};
 
 use crate::Puppet;
 use crate::edit::Target;
@@ -26,7 +26,7 @@ pub fn shape_now(puppet: &Puppet, target: Target) -> Option<Vec<f32>> {
         Target::ArtMesh(i) => puppet.mesh_drawn_positions(i),
         Target::Deformer(i) => match &puppet.model().deformers.get(i)?.kind {
             DeformerKind::Warp(_) => puppet.warp_grid(i).map(|(g, _, _)| g.to_vec()),
-            DeformerKind::Rotation(_) => {
+            DeformerKind::Rotation(_) | DeformerKind::Bone(_) => {
                 let r = puppet.rotation_state(i)?;
                 Some(vec![r.origin.x, r.origin.y, r.angle, r.scale])
             }
@@ -220,7 +220,7 @@ pub fn revert(puppet: &Puppet, target: Target) -> Option<Revert> {
                 DeformerKind::Warp(_) => {
                     Some(Revert::Warp(moves(d.parent_deformer, puppet.warp_local_grid(i)?)))
                 }
-                DeformerKind::Rotation(_) => {
+                DeformerKind::Rotation(_) | DeformerKind::Bone(_) => {
                     let now = puppet.rotation_state(i)?;
                     let (lx, ly) = puppet.rotation_local_origin(i)?;
                     let [gx, gy, ga, gs] = goal[..] else { return None };
@@ -249,7 +249,8 @@ pub fn apply(model: &mut Model, target: Target, keyform: usize, revert: &Revert)
             !moves.is_empty() && crate::edit::move_warp_points(model, i, Some(keyform), moves)
         }
         (Target::Deformer(i), &Revert::Rotation { dx, dy, angle, scale }) => {
-            let Some(DeformerKind::Rotation(r)) = model.deformers.get_mut(i).map(|d| &mut d.kind)
+            let Some(DeformerKind::Rotation(r) | DeformerKind::Bone(BoneData { rotation: r, .. })) =
+                model.deformers.get_mut(i).map(|d| &mut d.kind)
             else {
                 return false;
             };
@@ -362,6 +363,7 @@ mod tests {
             clip_inherit: false,
             multiply: Vec::new(),
             screen: Vec::new(),
+            skin: None,
         });
         let mi = m.art_meshes.len() - 1;
         assert!(edit::set_parent(&mut m, edit::Child::Mesh(mi), Some(w)).is_some());
