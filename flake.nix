@@ -97,7 +97,8 @@
                 for b in ayatsuri ayatsuri-launcher; do
                   wrapProgram "$out/bin/$b" \
                     --prefix LD_LIBRARY_PATH : "${lib.makeLibraryPath runtimeLibs}" \
-                    --prefix PATH : "${lib.makeBinPath [ pkgs.ffmpeg ]}"
+                    --prefix PATH : "${lib.makeBinPath [ pkgs.ffmpeg ]}" \
+                    --prefix AYATSURI_NIX : "true"
                 done
               '';
               meta = {
