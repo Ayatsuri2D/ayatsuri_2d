@@ -112,16 +112,19 @@
             });
 
           libayatsuri = let
-            commonArgs = makeCommonArgs "libayatsuri" "--locked -p ayatsuri-capi";
+            commonArgs = makeCommonArgs "libayatsuri" "--locked -p ayatsuri-capi" // {
+              CARGO_PROFILE = "capi-release";
+            };
             cargoArtifacts = makeCargoArtifacts commonArgs;
           in craneLib.buildPackage (commonArgs // {
             inherit cargoArtifacts;
 
             installPhaseCommand = ''
-              install -Dm 755 "./target/release/capi/ayatsuri.h" "$out/include/ayatsuri.h"
-              install -Dm 755 "./target/release/capi/libayatsuri_capi.*" "$out/lib"
-              install -Dm 755 "./target/release/capi/ayatsuri_capi.*" "$out/lib/"
-              install -Dm 755 "./target/release/capi/LICENSE" "$out/share/doc/libayatsuri"
+              install -Dm 755 "./crates/capi/include/ayatsuri.h" "$out/include/ayatsuri.h"
+              install -Dm 755 "./crates/capi/LICENSE" "$out/share/doc/libayatsuri/LICENSE"
+              
+              install -Dm 755 "./target/capi-release/libayatsuri_capi.a" "$out/lib/libayatsuri_capi.a"
+              install -Dm 755 "./target/capi-release/libayatsuri_capi.so" "$out/lib/libayatsuri_capi.so"
             '';
 
             meta = {

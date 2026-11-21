@@ -31,3 +31,29 @@ jobs:
         github_access_token: ${{ secrets.GITHUB_TOKEN }}
     - name: Run `nix flake check`
       run: nix flake check
+
+  build:
+    name: build app
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+    - uses: actions/checkout@v5
+    - uses: cachix/install-nix-action@v31
+      with:
+        github_access_token: ${{ secrets.GITHUB_TOKEN }}
+    - name: Run `nix build .#ayatsuri2d`
+      run: nix build .#ayatsuri2d
+
+  capi:
+    name: build capi
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+    - uses: actions/checkout@v5
+    - uses: cachix/install-nix-action@v31
+      with:
+        github_access_token: ${{ secrets.GITHUB_TOKEN }}
+    - name: Run `nix build .#libayatsuri`
+      run: nix build .#libayatsuri
