@@ -341,8 +341,13 @@ pub mod zip {
             .map(|d| d.as_secs() as libc::time_t)
             .unwrap_or(0);
         let mut tm: libc::tm = unsafe { std::mem::zeroed() };
-        // SAFETY: localtime_r writes into the tm we own; both pointers are valid for the call.
+        // SAFETY: both calls write into the tm we own; both pointers are valid for the call.
+        // Windows has no localtime_r; its localtime_s takes the same two pointers swapped
+        // and answers 0 on success.
+        #[cfg(not(windows))]
         let ok = unsafe { !libc::localtime_r(&now, &mut tm).is_null() };
+        #[cfg(windows)]
+        let ok = unsafe { libc::localtime_s(&mut tm, &now) == 0 };
         if !ok {
             return dos_date_time_of(1980, 1, 1, 0, 0, 0);
         }
