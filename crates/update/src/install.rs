@@ -130,21 +130,12 @@ fn wanted_suffix(install: &Install) -> Option<String> {
 pub struct Asset {
     pub name: String,
     pub browser_download_url: String,
-    /// The API address of the file: the only one a private release can be
-    /// downloaded from with a key.
-    #[serde(default)]
-    pub url: String,
 }
 
-/// A request for `asset`: through the API with the saved key when there is
-/// one, else the plain download link.
+/// A request for `asset` by its download link.
 fn asset_request(asset: &Asset) -> ureq::RequestBuilder<ureq::typestate::WithoutBody> {
-    let req = if crate::key().is_some() && !asset.url.is_empty() {
-        crate::with_key(ureq::get(&asset.url).header("Accept", "application/octet-stream"))
-    } else {
-        ureq::get(&asset.browser_download_url)
-    };
-    req.header("User-Agent", &format!("Ayatsuri2D/{}", env!("CARGO_PKG_VERSION")))
+    ureq::get(&asset.browser_download_url)
+        .header("User-Agent", &format!("Ayatsuri2D/{}", env!("CARGO_PKG_VERSION")))
 }
 
 /// What an update did.

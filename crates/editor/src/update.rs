@@ -47,6 +47,7 @@ pub(crate) struct UpdateState {
 
 impl UpdateState {
     pub(crate) fn new(check_at_start: bool) -> Self {
+        ayatsuri_update::forget_key();
         let latest = ayatsuri_update::cached();
         let now = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)

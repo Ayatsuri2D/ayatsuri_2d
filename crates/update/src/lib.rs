@@ -1,8 +1,7 @@
 //! Is there a newer Ayatsuri2D? One request to GitHub's releases list
-//! (betas included, drafts never), compared with the running version. The
-//! repository is private, so the request carries the GitHub key from the
-//! Discord server when one is saved. It only reports: nothing is downloaded
-//! or installed, and nothing about the user is sent beyond the request itself.
+//! (betas included, drafts never), compared with the running version. It
+//! only reports: nothing is downloaded or installed, and nothing about the
+//! user is sent beyond the request itself.
 //!
 //! The launcher checks at start and leaves the answer in `update.json` next
 //! to the editor's preferences; the editor reads it for its home screen and
@@ -70,49 +69,15 @@ pub const RELEASES_API: &str =
 /// Where people download from.
 pub const RELEASES_PAGE: &str = "https://github.com/Ayatsuri2D/ayatsuri_2d/releases";
 
-/// The releases are private: a GitHub key, shared with members of the
-/// Discord server, unlocks them. It is kept in this file in the preferences
-/// folder and sent only to api.github.com (the HTTP client drops it when
-/// GitHub redirects a download to its file host).
-fn key_path() -> Option<PathBuf> {
-    Some(config_dir()?.join("github-key"))
-}
-
-/// The saved GitHub key, if any.
-pub fn key() -> Option<String> {
-    let k = std::fs::read_to_string(key_path()?).ok()?;
-    let k = k.trim();
-    (!k.is_empty()).then(|| k.to_string())
-}
-
-/// Save the GitHub key; an empty one removes it.
-pub fn set_key(key: &str) -> Result<(), String> {
-    let path = key_path().ok_or("there is no preferences folder")?;
-    let key = key.trim();
-    if key.is_empty() {
-        return match std::fs::remove_file(&path) {
-            Err(e) if e.kind() != std::io::ErrorKind::NotFound => Err(e.to_string()),
-            _ => Ok(()),
-        };
-    }
-    if let Some(dir) = path.parent() {
-        std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
-    }
-    let mut open = std::fs::OpenOptions::new();
-    open.write(true).create(true).truncate(true);
-    #[cfg(unix)]
-    std::os::unix::fs::OpenOptionsExt::mode(&mut open, 0o600);
-    use std::io::Write;
-    open.open(&path).and_then(|mut f| f.write_all(key.as_bytes())).map_err(|e| e.to_string())
-}
-
-/// `req` with the saved key, when there is one.
-pub(crate) fn with_key(
-    req: ureq::RequestBuilder<ureq::typestate::WithoutBody>,
-) -> ureq::RequestBuilder<ureq::typestate::WithoutBody> {
-    match key() {
-        Some(k) => req.header("Authorization", &format!("Bearer {k}")),
-        None => req,
+/// Releases were private until November 2026, and a GitHub key saved from
+/// Settings unlocked them. The repository is public now, so the key is no
+/// longer sent anywhere; this removes one left over from those versions.
+pub fn forget_key() {
+    let Some(path) = config_dir().map(|d| d.join("github-key")) else { return };
+    match std::fs::remove_file(&path) {
+        Ok(()) => log::info!("update: the old GitHub key was removed; releases are public now"),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+        Err(e) => log::warn!("update: could not remove the old GitHub key {}: {e}", path.display()),
     }
 }
 
@@ -215,17 +180,11 @@ pub fn fetch_with_assets(current: &str) -> Result<(Latest, Vec<install::Asset>),
         .get(RELEASES_API)
         .header("User-Agent", &format!("Ayatsuri2D/{current}"))
         .header("Accept", "application/vnd.github+json");
-    let body = with_key(req)
+    let body = req
         .call()
         .map_err(|e| match e {
-            // a private repository answers 404 to anyone without access
-            ureq::Error::StatusCode(401 | 403 | 404) if key().is_none() => {
-                "updates need the GitHub key from the Discord server (Settings > Updates)"
-                    .to_string()
-            }
-            ureq::Error::StatusCode(401 | 403 | 404) => {
-                "the GitHub key was not accepted; ask in the Discord server for the current one"
-                    .to_string()
+            ureq::Error::StatusCode(code) => {
+                format!("GitHub did not give the releases list (HTTP {code})")
             }
             e => e.to_string(),
         })?
