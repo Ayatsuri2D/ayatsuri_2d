@@ -12,6 +12,12 @@
   own place, scale, opacity and visibility in View > Guide Line > Guide
   Images…, and they are saved with the project but never exported.
 
+### Changed
+- **Updates no longer need a GitHub key.** The repository is public again,
+  so the update check and the in-app update download go to GitHub without
+  one. The key field is gone from Settings > Updates, and a key saved by an
+  earlier version is deleted at start.
+
 ### Fixed
 - **cmo3 projects using Cubism 5.3 blend modes** (Darken, Screen, Color
   Dodge and the rest) were written with a Cubism 5.0 target, so the Editor
