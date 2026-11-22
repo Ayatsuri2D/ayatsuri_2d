@@ -1,6 +1,12 @@
 # Changelog
 
-## Unreleased
+## 0.6.3 (2026-11-22)
+
+A bug-fix release for cmo3: projects exported for Cubism Editor had their
+layers shifted in the Model Image view and lost 5.3 blend modes, and
+models with a layer on the canvas edge could not be exported at all.
+Also PNG and JPEG import as layers and as guide images, updates without
+a GitHub key, and a hand-run macOS test build.
 
 ### Added
 - **Import Image as Layer** (File menu): a PNG or JPEG joins the model as
