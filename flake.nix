@@ -4,6 +4,10 @@
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixpkgs-unstable";
     crane.url = "github:ipetkov/crane";
+    flake-compat = {
+      url = "github:NixOS/flake-compat";
+      flake = false;
+    };
   };
 
   outputs = { nixpkgs, crane, ... }:
@@ -20,6 +24,13 @@
             pkgs = nixpkgs.legacyPackages.${system};
             inherit (pkgs) lib;
             craneLib = crane.mkLib pkgs;
+            meta = {
+              description = cargoToml.workspace.package.description;
+              homepage = "https://ayatsuri-2d.org";
+              license = with lib.licenses; [ gpl3Only mit asl20 ];
+              mainProgram = "ayatsuri-launcher";
+              platforms = lib.platforms.linux;
+            };
 
             # the workspace, plus what the crates embed at build time
             # (assets, the changelog, the C header) and the Linux files the
@@ -56,22 +67,23 @@
               libGL
             ];
 
-            commonArgs = {
-              pname = "ayatsuri2d";
-              inherit version src;
+            makeCommonArgs = pname: cargoExtraArgs: {
+              inherit pname cargoExtraArgs version src;
               strictDeps = true;
-              # only the two apps, not the whole workspace
-              cargoExtraArgs = "--locked -p ayatsuri -p ayatsuri-launcher";
               # the workspace tests run in the repository's CI
               doCheck = false;
               buildInputs = [ pkgs.alsa-lib pkgs.libxkbcommon ];
               nativeBuildInputs = [ pkgs.pkg-config pkgs.makeWrapper ];
             };
 
-            cargoArtifacts = craneLib.buildDepsOnly commonArgs;
+            makeCargoArtifacts = commonArgs: craneLib.buildDepsOnly commonArgs;
 
-            ayatsuri = craneLib.buildPackage (commonArgs // {
-              inherit cargoArtifacts;
+            ayatsuri = let
+              # only the two apps, not the whole workspace
+              commonArgs = makeCommonArgs "ayatsuri2d" "--locked -p ayatsuri -p ayatsuri-launcher";
+              cargoArtifacts = makeCargoArtifacts commonArgs;
+            in craneLib.buildPackage (commonArgs // {
+              inherit cargoArtifacts meta;
               installPhaseCommand = ''
                 install -Dm755 target/release/ayatsuri "$out/bin/ayatsuri"
                 install -Dm755 target/release/ayatsuri-launcher "$out/bin/ayatsuri-launcher"
@@ -86,28 +98,46 @@
 
                 doc="$out/share/doc/ayatsuri2d"
                 install -Dm644 -t "$doc" LICENSE LICENSING.md README.md assets/credits.tsv
-
+              '';
+              postFixup = ''
                 # nixpkgs' ffmpeg comes first on PATH, so video export uses
                 # it and the app never offers to download its own
                 for b in ayatsuri ayatsuri-launcher; do
                   wrapProgram "$out/bin/$b" \
                     --prefix LD_LIBRARY_PATH : "${lib.makeLibraryPath runtimeLibs}" \
-                    --prefix PATH : "${lib.makeBinPath [ pkgs.ffmpeg ]}"
+                    --prefix PATH : "${lib.makeBinPath [ pkgs.ffmpeg ]}" \
+                    --prefix AYATSURI_NIX : "true"
                 done
               '';
-              meta = {
-                description = cargoToml.workspace.package.description;
-                homepage = "https://ayatsuri-2d.org";
-                license = with lib.licenses; [ gpl3Only mit asl20 ];
-                mainProgram = "ayatsuri-launcher";
-                platforms = lib.platforms.linux;
-              };
             });
-          in
-          f { inherit pkgs craneLib ayatsuri runtimeLibs; });
+
+          libayatsuri = let
+            commonArgs = makeCommonArgs "libayatsuri" "--locked -p ayatsuri-capi" // {
+              CARGO_PROFILE = "capi-release";
+            };
+            cargoArtifacts = makeCargoArtifacts commonArgs;
+          in craneLib.buildPackage (commonArgs // {
+            inherit cargoArtifacts;
+
+            installPhaseCommand = ''
+              install -Dm 755 "./crates/capi/include/ayatsuri.h" "$out/include/ayatsuri.h"
+              install -Dm 755 "./crates/capi/LICENSE" "$out/share/doc/libayatsuri/LICENSE"
+              
+              install -Dm 755 "./target/capi-release/libayatsuri_capi.a" "$out/lib/libayatsuri_capi.a"
+              install -Dm 755 "./target/capi-release/libayatsuri_capi.so" "$out/lib/libayatsuri_capi.so"
+            '';
+
+            meta = {
+              description = "The C ABI of the Ayatsuri2D runtime";
+              license = [pkgs.lib.licenses.mit pkgs.lib.licensesSpdx."Apache-2.0"];
+            };
+          });
+        in f { inherit pkgs craneLib ayatsuri libayatsuri runtimeLibs; }
+      );
     in
     {
-      packages = forAllSystems ({ ayatsuri, ... }: {
+      packages = forAllSystems ({ ayatsuri, libayatsuri, ... }: {
+        inherit libayatsuri;
         default = ayatsuri;
         ayatsuri2d = ayatsuri;
       });
