@@ -14,6 +14,7 @@ mod breath;
 mod color_pick;
 mod discord;
 pub mod dock;
+mod doro;
 mod export;
 mod expressions;
 mod ffmpeg;

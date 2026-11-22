@@ -663,6 +663,7 @@ pub struct EditorUi {
     /// The home header's dithered accent wash, keyed by pixel size and
     /// colours so it is only rebuilt on resize or a theme change.
     home_wash: Option<(WashKey, egui::TextureHandle)>,
+    doro: crate::doro::Doro,
     show_ws_save: bool,
     /// Change the draw order of all ArtMeshes, while open: Auto setup, and
     /// the Manual setup interval.
@@ -1895,6 +1896,7 @@ impl Default for EditorUi {
             theme_applied: false,
             logo: None,
             home_wash: None,
+            doro: Default::default(),
             show_ws_save: false,
             draw_spread: None,
             ws_name: String::new(),
@@ -4960,6 +4962,7 @@ impl EditorUi {
         self.workspace_windows(ui);
         self.param_edit_window(ui);
         self.param_menu_windows(ui);
+        self.doro.paint(ui.ctx());
     }
 
     /// Cubism's Edit Mesh dialog, shown while mesh edit mode is live: the
@@ -5484,6 +5487,7 @@ impl EditorUi {
     }
 
     fn home(&mut self, ui: &mut Ui) {
+        self.doro.home_input(ui.ctx());
         let rect = ui.available_rect_before_wrap();
         ui.painter().rect_filled(rect, 0.0, theme::pal().chrome);
         // a Photoshop-style home: brand band, actions, recents with previews
