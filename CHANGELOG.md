@@ -1,5 +1,19 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+- **Hidden layers vanished on import.** A layer the artist had hidden,
+  or left at 0% opacity (a flat shape kept as a mask, most often), was
+  left out when a PSD, Krita or Clip Studio file was opened or
+  re-imported. Such layers now come in as hidden meshes with their
+  pixels whole, as Cubism keeps them; the eye in the Part palette shows
+  them again.
+- **Hidden meshes came back shown after a save.** What the eye in the
+  Part, Deformer and Bones palettes hid is now saved in the `.aom` and
+  hidden again when the project opens. It stays a view setting: exports
+  are unchanged.
+
 ## 0.6.3 (2026-11-22)
 
 A bug-fix release for cmo3: projects exported for Cubism Editor had their

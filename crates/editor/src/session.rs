@@ -418,6 +418,40 @@ pub(crate) fn prune_pages(model: &mut Model, pngs: Vec<Vec<u8>>) -> (Vec<Vec<u8>
 }
 
 /// `prune_pages`, carrying a flag per page along with the pages kept.
+/// The indices whose flag is off, for saving which rows the eye hid.
+fn hidden_indices(shown: &[bool]) -> Vec<u32> {
+    shown.iter().enumerate().filter(|(_, on)| !**on).map(|(i, _)| i as u32).collect()
+}
+
+impl Session {
+    /// Hide these meshes, parts and deformers the way the palettes' eye
+    /// does: a view setting kept in the `.aom`, not the rig's own flags.
+    pub(crate) fn hide(&mut self, meshes: &[u32], parts: &[u32], deformers: &[u32]) {
+        if meshes.is_empty() && parts.is_empty() && deformers.is_empty() {
+            return;
+        }
+        for &i in meshes {
+            if let Some(v) = self.mesh_shown.get_mut(i as usize) {
+                *v = false;
+                self.puppet.set_mesh_visible(i as usize, false);
+            }
+        }
+        for &i in parts {
+            if let Some(v) = self.part_shown.get_mut(i as usize) {
+                *v = false;
+                self.puppet.set_part_opacity(i as usize, 0.0);
+            }
+        }
+        for &i in deformers {
+            if let Some(v) = self.deformer_shown.get_mut(i as usize) {
+                *v = false;
+                self.puppet.set_deformer_visible(i as usize, false);
+            }
+        }
+        self.puppet.update();
+    }
+}
+
 pub(crate) fn prune_pages_with<T>(
     model: &mut Model,
     pngs: Vec<Vec<u8>>,
@@ -526,9 +560,6 @@ fn reimport_into(
     let mut layers = Vec::new();
     let mut seen: HashMap<String, usize> = HashMap::new();
     for layer in doc.layers {
-        if !layer.visible || layer.opacity <= 0.0 {
-            continue;
-        }
         let key = format!("{}/{}", layer.groups.join("/"), layer.name);
         let n = seen.entry(key.clone()).or_insert(0);
         let hit = mesh_by_key.get(&(key.clone(), *n)).copied();
@@ -755,6 +786,7 @@ impl Session {
         let tex_names = (0..imported.textures.len()).map(|i| format!("texture_{i:02}")).collect();
         let part_names = imported.part_names.clone();
         let mesh_names = imported.mesh_names.clone();
+        let hidden = imported.hidden.clone();
         let mut s =
             Self::from_parts(ctx, name, imported.model, imported.textures, tex_names, None, path)?;
         s.layer_pages = vec![true; s.texture_pngs.len()];
@@ -764,6 +796,8 @@ impl Session {
         if mesh_names.len() == s.mesh_names.len() {
             s.mesh_names = mesh_names;
         }
+        let hidden: Vec<u32> = hidden.iter().map(|&i| i as u32).collect();
+        s.hide(&hidden, &[], &[]);
         s.modified = true;
         Ok(s)
     }
@@ -1066,7 +1100,13 @@ impl Session {
         let mut part_shown = old.part_shown.clone();
         part_shown.resize(part_shown.len() + added_parts, true);
         let mut mesh_shown = old.mesh_shown.clone();
+        let first_new = mesh_shown.len();
         mesh_shown.resize(mesh_shown.len() + added_meshes, true);
+        for &h in &imported.hidden {
+            if let Some(v) = mesh_shown.get_mut(first_new + h) {
+                *v = false;
+            }
+        }
         let mut original_meshes = old.original_meshes.clone();
         original_meshes.extend(
             self.puppet
@@ -1183,6 +1223,7 @@ impl Session {
             s.guides = d.guides.clone();
             s.guide_images = d.guide_images.clone();
             s.guide_textures = vec![None; s.guide_images.len()];
+            s.hide(&d.hidden_meshes, &d.hidden_parts, &d.hidden_deformers);
             let index_of: HashMap<&str, usize> = s
                 .puppet
                 .model()
@@ -2171,6 +2212,9 @@ impl Session {
                 model_groups: self.model_groups.clone(),
                 guides: self.guides.clone(),
                 guide_images: self.guide_images.clone(),
+                hidden_meshes: hidden_indices(&self.mesh_shown),
+                hidden_parts: hidden_indices(&self.part_shown),
+                hidden_deformers: hidden_indices(&self.deformer_shown),
                 bezier_nets: {
                     let defs = &self.puppet.model().deformers;
                     let mut nets: Vec<(String, u32, u32, u32, Vec<f32>)> = self
@@ -2901,6 +2945,29 @@ mod import_paint_tests {
         assert_eq!(s.mesh_shown, vec![true, false]);
         // taken IDs are refused
         assert!(!s.edit(|m| ayatsuri_core::edit::rename_art_mesh(m, 1, "ArtMesh0")));
+    }
+
+    #[test]
+    fn what_the_eye_hid_is_hidden_again_after_save_and_open() {
+        let ctx = Context::default();
+        let mut s = Session::create(&ctx, "t".into(), String::new(), Model::new()).unwrap();
+        let art = ayatsuri_import::from_layers(&doc(
+            200,
+            100,
+            &[("Hair", "Head", 60, 20, 16), ("Bang", "Head", 5, 5, 8)],
+        ))
+        .unwrap();
+        s.add_imported(&ctx, art, Path::new("a.psd")).unwrap();
+        s.hide(&[1], &[], &[]);
+        assert_eq!(s.mesh_shown, vec![true, false]);
+        let dir = std::env::temp_dir().join(format!("ayatsuri-hide-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("t.aom");
+        s.save_aom(&path).unwrap();
+        let back = Session::load_aom(&ctx, &path).unwrap();
+        assert_eq!(back.mesh_shown, vec![true, false], "the hidden mesh stays hidden");
+        assert!(back.puppet.model().art_meshes[1].visible, "the rig's own flag is untouched");
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

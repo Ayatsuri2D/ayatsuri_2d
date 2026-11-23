@@ -499,6 +499,7 @@ pub fn build(ex: Extract, name: &str) -> Result<Cmo3, ImportError> {
             mesh_names: names,
             skipped: imported.skipped,
             scaled: imported.scaled,
+            hidden: Vec::new(),
         },
         param_names,
         param_groups,
