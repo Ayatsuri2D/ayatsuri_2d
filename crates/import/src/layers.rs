@@ -102,6 +102,9 @@ pub struct Imported {
     pub skipped: usize,
     /// Layers bigger than a texture page, stored downscaled.
     pub scaled: usize,
+    /// Meshes (by index) made from layers the artist had hidden or at 0%
+    /// opacity: the editor shows them hidden, as the paint program did.
+    pub hidden: Vec<usize>,
 }
 
 /// A trimmed box inside a layer: x, y, width, height.
@@ -243,16 +246,21 @@ fn build_with(doc: &Document, atlas: bool) -> Result<Imported, ImportError> {
         parent
     };
 
-    // keep only layers with pixels; trim each to its alpha
+    // keep only layers with pixels; trim each to its alpha. A layer the
+    // artist hid, or left at 0% opacity (a mask drawn as a flat shape,
+    // most often), comes in too, as a hidden mesh with its pixels whole:
+    // Cubism keeps such layers and so does the artist's own file
     let mut kept: Vec<(&Layer, Bounds)> = Vec::new();
     let mut skipped = 0;
+    let mut hidden = Vec::new();
     for l in &doc.layers {
-        if !l.visible || l.opacity <= 0.0 {
-            skipped += 1;
-            continue;
-        }
         match trim(l, doc.width, doc.height) {
-            Some(b) => kept.push((l, b)),
+            Some(b) => {
+                if !l.visible || l.opacity <= 0.0 {
+                    hidden.push(kept.len());
+                }
+                kept.push((l, b));
+            }
             None => skipped += 1,
         }
     }
@@ -267,7 +275,9 @@ fn build_with(doc: &Document, atlas: bool) -> Result<Imported, ImportError> {
             for col in 0..*tw {
                 let src = (((ty + row) * layer.width + (tx + col)) * 4) as usize;
                 let Some(px) = layer.rgba.get(src..src + 4) else { continue };
-                let a = (px.get(3).copied().unwrap_or(0) as f32 * layer.opacity).round() as u8;
+                // a 0% layer keeps its pixels: baked at 0 it would be nothing
+                let opacity = if layer.opacity <= 0.0 { 1.0 } else { layer.opacity };
+                let a = (px.get(3).copied().unwrap_or(0) as f32 * opacity).round() as u8;
                 img.put_pixel(
                     col,
                     row,
@@ -385,7 +395,7 @@ fn build_with(doc: &Document, atlas: bool) -> Result<Imported, ImportError> {
     model.canvas = canvas;
     model.parts = parts;
     model.art_meshes = meshes;
-    Ok(Imported { model, textures, part_names, mesh_names, skipped, scaled })
+    Ok(Imported { model, textures, part_names, mesh_names, skipped, scaled, hidden })
 }
 
 #[cfg(test)]
@@ -430,5 +440,32 @@ mod tests {
         assert_eq!((glow.blend, glow.opacities), (screen, vec![1.0]));
         assert!(part("Plain").is_none(), "a Normal folder at full opacity looks the same direct");
         assert_eq!(part("Faded").map(|o| o.opacities), Some(vec![0.5]));
+    }
+
+    #[test]
+    fn hidden_and_zero_opacity_layers_come_in_as_hidden_meshes_with_their_pixels() {
+        let mut off = layer("off", "Masks", 0);
+        off.visible = false;
+        let mut clear = layer("clear", "Masks", 20);
+        clear.opacity = 0.0;
+        let mut faint = layer("faint", "Masks", 40);
+        faint.opacity = 0.5;
+        let doc =
+            Document { width: 64, height: 16, layers: vec![off, clear, faint], folders: vec![] };
+        let built = build(&doc).unwrap();
+        assert_eq!(built.mesh_names, vec!["off", "clear", "faint"], "nothing is dropped");
+        assert_eq!(built.hidden, vec![0, 1], "the hidden and the 0% layer are hidden meshes");
+        assert_eq!(built.skipped, 0);
+        // the 0% layer keeps its pixels whole; the 50% one is baked as before
+        let alpha_of = |i: usize| {
+            let m = &built.model.art_meshes[i];
+            let page =
+                image::load_from_memory(&built.textures[m.texture as usize]).unwrap().into_rgba8();
+            let (w, h) = (page.width() as f32, page.height() as f32);
+            let (u, v) = ((m.uvs[0] + m.uvs[4]) / 2.0, (m.uvs[1] + m.uvs[5]) / 2.0);
+            page.get_pixel((u * w) as u32, (v * h) as u32).0[3]
+        };
+        assert_eq!(alpha_of(1), 255);
+        assert_eq!(alpha_of(2), 128);
     }
 }

@@ -370,6 +370,12 @@ pub struct DisplayInfo {
     /// Guide images: pictures laid under or over the model to draw and
     /// place parts against. Not part of the model; empty in older files.
     pub guide_images: Vec<GuideImage>,
+    /// Meshes, parts and deformers the eye in the palettes has hidden, by
+    /// index. An editor view setting, not the rig's own visibility, so an
+    /// export is unchanged; empty in older files, which open with all shown.
+    pub hidden_meshes: Vec<u32>,
+    pub hidden_parts: Vec<u32>,
+    pub hidden_deformers: Vec<u32>,
 }
 
 /// A guide image on the canvas: the file as it came in, where it sits
