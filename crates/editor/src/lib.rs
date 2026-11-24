@@ -12,6 +12,7 @@ mod audio;
 mod bend_path;
 mod breath;
 mod color_pick;
+mod diagnose;
 mod discord;
 pub mod dock;
 mod doro;
