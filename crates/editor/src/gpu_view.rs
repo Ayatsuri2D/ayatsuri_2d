@@ -127,6 +127,7 @@ pub fn callback(
     packet.pages = pages;
     packet.pages_uploaded = Some(pages_uploaded);
     packet.drop_pages = drop_pages;
+    crate::diagnose::packet(&packet);
     egui_wgpu::Callback::new_paint_callback(rect, ModelPaint { packet: Mutex::new(Some(packet)) })
 }
 

@@ -751,6 +751,7 @@ impl Session {
             _ => Self::load_moc3(ctx, path)?,
         };
         info!("opened {} in {:.0} ms", path.display(), started.elapsed().as_secs_f32() * 1000.0);
+        crate::diagnose::model(&session);
         Ok(session)
     }
 

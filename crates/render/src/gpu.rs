@@ -26,7 +26,7 @@ pub struct Vertex {
 /// A clip box that clips nothing.
 pub const NO_CLIP: [f32; 4] = [-1.0e6, -1.0e6, 1.0e6, 1.0e6];
 
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum BlendMode {
     Normal,
     Additive,
@@ -45,7 +45,7 @@ const ALPHA_MODES: u32 = 5;
 const MODE_STRIDE: u64 = 256;
 
 /// How a draw consults the mask buffer.
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum MaskMode {
     None,
     Normal,

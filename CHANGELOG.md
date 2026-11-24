@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+### Changed
+- **The log says what a model looks like.** With the log level at debug
+  (Settings > General), opening a model writes one line per layer as the
+  file gave it (bounds, visibility, opacity, clipping, blend, how much of
+  it is painted), one per part and page, one per mesh as the renderer
+  sees it at the default pose, and a summary of the first frame handed
+  to the GPU. A model that draws wrong on a machine we cannot sit at can
+  be diagnosed from the log, without the file.
+
 ### Fixed
 - **Hidden layers vanished on import.** A layer the artist had hidden,
   or left at 0% opacity (a flat shape kept as a mask, most often), was

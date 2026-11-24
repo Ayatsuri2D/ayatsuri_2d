@@ -269,7 +269,31 @@ fn build_with(doc: &Document, atlas: bool) -> Result<Imported, ImportError> {
     // texel density since the mesh keeps its canvas-space size
     let mut tiles: Vec<image::RgbaImage> = Vec::with_capacity(kept.len());
     let mut scaled = 0usize;
-    for (layer, (tx, ty, tw, th)) in &kept {
+    let verbose = log::log_enabled!(log::Level::Debug);
+    for (n, (layer, (tx, ty, tw, th))) in kept.iter().enumerate() {
+        if verbose {
+            // every layer as the file gave it, for the reports we cannot
+            // open the file of: flags, bounds, and how much of it is ink
+            let ink = layer.rgba.as_chunks::<4>().0.iter().filter(|px| px[3] > 0).count();
+            log::debug!(
+                "layer {n} {:?} in {:?}: at {},{} {}x{}, ink {}%, trimmed to {},{} {}x{}, visible {}, opacity {:.2}, clip to below {}, blend {:?}",
+                layer.name,
+                layer.groups,
+                layer.x,
+                layer.y,
+                layer.width,
+                layer.height,
+                ink * 100 / (layer.width as usize * layer.height as usize).max(1),
+                tx,
+                ty,
+                tw,
+                th,
+                layer.visible,
+                layer.opacity,
+                layer.clip_to_below,
+                layer.blend
+            );
+        }
         let mut img = image::RgbaImage::new(*tw, *th);
         for row in 0..*th {
             for col in 0..*tw {
@@ -298,6 +322,17 @@ fn build_with(doc: &Document, atlas: bool) -> Result<Imported, ImportError> {
             scaled += 1;
         }
         tiles.push(img);
+    }
+    if verbose {
+        for f in &doc.folders {
+            log::debug!(
+                "folder {:?}: blend {:?}, opacity {:.2}, drawn offscreen {}",
+                f.path,
+                f.blend,
+                f.opacity,
+                f.needs_layer()
+            );
+        }
     }
     let sizes: Vec<(u32, u32)> = tiles.iter().map(|t| (t.width(), t.height())).collect();
     let (spots, mut atlases): (Vec<Spot>, Vec<image::RgbaImage>) = if atlas {
