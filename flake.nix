@@ -53,7 +53,8 @@
               ];
             };
 
-            # winit and wgpu open these at run time by name, so they go on
+            # winit, wgpu and rfd (libdbus, for the portal file dialog) open
+            # these at run time by name, so they go on
             # the library path of the wrapped binaries; both display servers
             # are included and winit picks one when the app starts
             runtimeLibs = with pkgs; [
@@ -65,6 +66,7 @@
               libxrandr
               vulkan-loader
               libGL
+              dbus
             ];
 
             makeCommonArgs = pname: cargoExtraArgs: {
@@ -122,7 +124,7 @@
             installPhaseCommand = ''
               install -Dm 755 "./crates/capi/include/ayatsuri.h" "$out/include/ayatsuri.h"
               install -Dm 755 "./crates/capi/LICENSE" "$out/share/doc/libayatsuri/LICENSE"
-              
+
               install -Dm 755 "./target/capi-release/libayatsuri_capi.a" "$out/lib/libayatsuri_capi.a"
               install -Dm 755 "./target/capi-release/libayatsuri_capi.so" "$out/lib/libayatsuri_capi.so"
             '';
