@@ -12,6 +12,8 @@
   be diagnosed from the log, without the file.
 
 ### Fixed
+- **A right-click on a 2D pad snaps to the key dot under it**, as it does
+  on a slider, so the menu that opens acts on that key.
 - **Hidden layers vanished on import.** A layer the artist had hidden,
   or left at 0% opacity (a flat shape kept as a mask, most often), was
   left out when a PSD, Krita or Clip Studio file was opened or
