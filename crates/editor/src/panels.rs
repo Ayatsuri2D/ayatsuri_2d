@@ -9750,6 +9750,28 @@ impl EditorUi {
         }
         let clip = crate::mesh_clip::copy_objects(s, &defs, &meshes);
         ctx.copy_text(clip.to_text());
+        // the meshes' points go on the point clipboard too, so Mesh Edit on
+        // another mesh can paste them at the same canvas spots (Cubism's
+        // mesh duplication): one mesh's points and faces, or several meshes'
+        // joined, each face renumbered into the joined list
+        let mut points: Vec<Pos2> = Vec::new();
+        let mut faces: Vec<[usize; 3]> = Vec::new();
+        for &mi in &meshes {
+            let Some(g) = s.puppet.mesh_geometry(mi) else { continue };
+            let base = points.len();
+            points.extend(g.positions.as_chunks::<2>().0.iter().map(|p| pos2(p[0], p[1])));
+            faces.extend(
+                g.indices
+                    .as_chunks::<3>()
+                    .0
+                    .iter()
+                    .map(|t| [base + t[0] as usize, base + t[1] as usize, base + t[2] as usize]),
+            );
+        }
+        if !points.is_empty() {
+            let from = meshes.iter().map(|&mi| s.mesh_name(mi)).collect::<Vec<_>>().join(", ");
+            self.point_clip = Some(PointClip { points, faces, from });
+        }
         log::info!(
             "{} {} deformer(s) and {} art mesh(es)",
             if cut && defs.is_empty() { "cut" } else { "copied" },

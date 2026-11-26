@@ -1,7 +1,6 @@
 # Changelog
 
 ## Unreleased
-
 ### Added
 - **A Godot 4 addon.** `ayatsuri2d-godot-<version>.zip` unzips into a
   Godot 4.2 project and adds an `AyatsuriModel` node that loads an `.aom`
@@ -12,6 +11,17 @@
   masks are drawn; inverted masks and the advanced blends of moc3 5.3 are
   not yet. It runs on the same runtime library as the Unity package, for
   Windows, Linux and macOS.
+- **Work Time** (Window menu): how long the open project has been worked
+  on, counted only while you are doing something (it stops half a minute
+  after your last input and resumes on the next) and saved in the `.aom`,
+  so it carries across sessions. Pause and reset buttons. For pricing a
+  commission by the hours it took.
+- **Mesh duplication**, as in Cubism: copy an art mesh (Ctrl+C with it
+  selected), open another mesh in Mesh Edit and paste (Ctrl+V): the
+  copied mesh's points and faces land at the same canvas spots. Several
+  meshes copy together. Points that land on existing ones merge; clear
+  the target first for an exact duplicate, then mirror it with Mirror
+  Edit for the other side.
 
 ### Changed
 - **The log says what a model looks like.** With the log level at debug
@@ -21,13 +31,6 @@
   sees it at the default pose, and a summary of the first frame handed
   to the GPU. A model that draws wrong on a machine we cannot sit at can
   be diagnosed from the log, without the file.
-
-### Added
-- **Work Time** (Window menu): how long the open project has been worked
-  on, counted only while you are doing something (it stops half a minute
-  after your last input and resumes on the next) and saved in the `.aom`,
-  so it carries across sessions. Pause and reset buttons. For pricing a
-  commission by the hours it took.
 
 ### Fixed
 - **A right-click on a 2D pad snaps to the key dot under it**, as it does
