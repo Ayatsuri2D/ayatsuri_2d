@@ -11,6 +11,14 @@
   to the GPU. A model that draws wrong on a machine we cannot sit at can
   be diagnosed from the log, without the file.
 
+### Added
+- **Mesh duplication**, as in Cubism: copy an art mesh (Ctrl+C with it
+  selected), open another mesh in Mesh Edit and paste (Ctrl+V): the
+  copied mesh's points and faces land at the same canvas spots. Several
+  meshes copy together. Points that land on existing ones merge; clear
+  the target first for an exact duplicate, then mirror it with Mirror
+  Edit for the other side.
+
 ### Fixed
 - **Hidden layers vanished on import.** A layer the artist had hidden,
   or left at 0% opacity (a flat shape kept as a mask, most often), was
