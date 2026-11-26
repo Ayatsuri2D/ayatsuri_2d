@@ -10,6 +10,9 @@ and draw the meshes it hands back with whatever you draw with.
 {libs}
 - `examples/host.c`: a complete C host that loads a model, sets parameters,
   plays a motion, runs physics and walks the drawables.
+- A `lib/*ayatsuri2d_godot.*` library, on the desktop platforms, is the
+  Godot 4 addon's GDExtension: `cargo xtask godot --pack` puts it into the
+  addon. Godot loads it; nothing links against it.
 - `LICENSE`, `LICENSE-MIT` and `THIRD-PARTY.md`: the licences, below.
 
 ## Linking

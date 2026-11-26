@@ -1,0 +1,30 @@
+[package]
+name = "ayatsuri-godot"
+description = "The Godot 4 addon: an AyatsuriModel node that loads and draws .aom and moc3 models on the C ABI runtime"
+version.workspace = true
+authors.workspace = true
+repository.workspace = true
+edition.workspace = true
+# Apache-2.0 like the C ABI it wraps, so a closed game can ship the addon.
+# See LICENSE.
+license = "Apache-2.0"
+
+[lib]
+name = "ayatsuri2d_godot"
+crate-type = ["cdylib"]
+
+# The Godot entry point and the views over the runtime's drawables need
+# `unsafe`; everything else in the crate is safe Rust over those few lines.
+[lints.clippy]
+unwrap_used = "deny"
+expect_used = "deny"
+panic = "deny"
+indexing_slicing = "deny"
+
+[dependencies]
+ayatsuri-capi = { workspace = true }
+serde_json = { workspace = true }
+# Pinned: the generated bindings and the entry symbol are this version's.
+# `api-4-2` is the oldest engine the bindings can target; the addon asks
+# Godot for 4.2 or newer in its .gdextension file.
+godot = { version = "=0.5.6", features = ["api-4-2"] }

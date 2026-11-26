@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+### Added
+- **A Godot 4 addon.** `ayatsuri2d-godot-<version>.zip` unzips into a
+  Godot 4.2 project and adds an `AyatsuriModel` node that loads an `.aom`
+  or a `.moc3` bundle and draws it on the 2D canvas at its size in pixels.
+  Scripts set parameters and part opacities, play motions and
+  expressions, run physics and wind, and get a `motion_event` signal for
+  the events a motion fires. Normal, Additive and Multiply blending and
+  masks are drawn; inverted masks and the advanced blends of moc3 5.3 are
+  not yet. It runs on the same runtime library as the Unity package, for
+  Windows, Linux and macOS.
+
 ### Changed
 - **The log says what a model looks like.** With the log level at debug
   (Settings > General), opening a model writes one line per layer as the

@@ -130,7 +130,7 @@ fn pack(sdks: &[PathBuf]) -> Result<()> {
     Ok(())
 }
 
-fn copy_tree(from: &Path, to: &Path) -> Result<()> {
+pub(super) fn copy_tree(from: &Path, to: &Path) -> Result<()> {
     std::fs::create_dir_all(to)?;
     for entry in std::fs::read_dir(from)? {
         let entry = entry?;
