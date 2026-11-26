@@ -1665,5 +1665,8 @@
   "Idle: counting resumes on your next input": "Ledig: tel weer by jou volgende invoer",
   "Resume": "Hervat",
   "Reset to zero": "Terugstel na nul",
-  "Counts only while you work: it stops half a minute after your last input and starts again on the next.": "Tel net terwyl jy werk: dit stop 'n halwe minuut na jou laaste invoer en begin weer by die volgende."
+  "Counts only while you work: it stops half a minute after your last input and starts again on the next.": "Tel net terwyl jy werk: dit stop 'n halwe minuut na jou laaste invoer en begin weer by die volgende.",
+  "Height": "Hoogte",
+  "Keep the canvas shape": "Behou die doekvorm",
+  "On, the height follows the width in the canvas's proportions. Off, set both: the canvas is fitted inside and centred, and the rest is background.": "Aan: die hoogte volg die breedte in die doek se verhoudings. Af: stel albei; die doek pas binne-in, gesentreer, en die res is agtergrond."
 }

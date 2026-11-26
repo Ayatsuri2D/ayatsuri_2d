@@ -1665,5 +1665,8 @@
   "Idle: counting resumes on your next input": "空闲：下次操作时继续计时",
   "Resume": "继续",
   "Reset to zero": "归零",
-  "Counts only while you work: it stops half a minute after your last input and starts again on the next.": "仅在工作时计时：最后一次操作 30 秒后停止，下次操作时重新开始。"
+  "Counts only while you work: it stops half a minute after your last input and starts again on the next.": "仅在工作时计时：最后一次操作 30 秒后停止，下次操作时重新开始。",
+  "Height": "高度",
+  "Keep the canvas shape": "保持画布比例",
+  "On, the height follows the width in the canvas's proportions. Off, set both: the canvas is fitted inside and centred, and the rest is background.": "开启时高度按画布比例跟随宽度。关闭时可分别设置宽高：画布居中放入，其余为背景。"
 }

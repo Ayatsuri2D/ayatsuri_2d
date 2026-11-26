@@ -16,6 +16,10 @@ pub struct RenderPrefs {
     pub folder: Option<PathBuf>,
     pub format: Option<String>,
     pub width: u32,
+    /// The frame height when `free_size` is on; the height follows the
+    /// canvas otherwise.
+    pub height: u32,
+    pub free_size: bool,
     pub fps: u32,
     pub sps: f32,
     pub hold: f32,

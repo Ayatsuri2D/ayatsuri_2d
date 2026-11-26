@@ -1665,5 +1665,8 @@
   "Idle: counting resumes on your next input": "대기 중: 다음 입력에서 측정을 다시 시작합니다",
   "Resume": "다시 시작",
   "Reset to zero": "0으로 되돌리기",
-  "Counts only while you work: it stops half a minute after your last input and starts again on the next.": "작업 중에만 측정합니다. 마지막 입력 후 30초가 지나면 멈추고 다음 입력에서 다시 시작합니다."
+  "Counts only while you work: it stops half a minute after your last input and starts again on the next.": "작업 중에만 측정합니다. 마지막 입력 후 30초가 지나면 멈추고 다음 입력에서 다시 시작합니다.",
+  "Height": "높이",
+  "Keep the canvas shape": "캔버스 비율 유지",
+  "On, the height follows the width in the canvas's proportions. Off, set both: the canvas is fitted inside and centred, and the rest is background.": "켜면 높이가 캔버스 비율을 따릅니다. 끄면 너비와 높이를 따로 정하고, 캔버스는 안쪽 가운데에 맞춰지며 나머지는 배경이 됩니다."
 }

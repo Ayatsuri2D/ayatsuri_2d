@@ -108,6 +108,9 @@ struct Spec {
     preset: Preset,
     fps: u32,
     width: u32,
+    /// The frame's height when it is not the canvas's shape: the canvas
+    /// is fitted inside and centred, the rest is background.
+    height: Option<u32>,
     transparent: bool,
     work_area: bool,
     hold: f32,
@@ -184,6 +187,10 @@ pub struct RenderWin {
     baked: Vec<Animation>,
     fps: u32,
     width: u32,
+    /// The frame's height, used when `free_size` is on.
+    height: u32,
+    /// Width and height set apart; off, the height follows the canvas.
+    free_size: bool,
     work_area: bool,
     transparent: bool,
     hold: f32,
@@ -314,6 +321,8 @@ impl RenderWin {
             folder: self.folder.clone(),
             format: Some(self.preset.key().to_string()),
             width: self.width,
+            height: self.height,
+            free_size: self.free_size,
             fps: self.fps,
             sps: self.sps,
             hold: self.hold,
@@ -357,6 +366,8 @@ impl RenderWin {
             baked: Vec::new(),
             fps,
             width: if p.width > 0 { p.width } else { (canvas_width.max(1.0) as u32).min(1920) },
+            height: if p.height > 0 { p.height } else { 1080 },
+            free_size: p.free_size,
             work_area: true,
             transparent: p.transparent,
             hold: if p.hold > 0.0 { p.hold } else { 2.0 },
@@ -415,7 +426,16 @@ impl RenderWin {
             newest = Some(f);
         }
         if let Some(f) = newest {
-            let img = egui::ColorImage::from_rgba_unmultiplied([f.w, f.h], &f.px);
+            // a frame of its own shape shows as the export will: the canvas
+            // in the middle, background around it
+            let (fw, fh, fpx) = if self.free_size {
+                let (ow, oh) = out_size(self.width, Some(self.height), &f.canvas);
+                let transparent = self.transparent && self.preset.alpha();
+                letterbox_to_aspect(f.w, f.h, f.px.clone(), ow, oh, transparent)
+            } else {
+                (f.w, f.h, f.px.clone())
+            };
+            let img = egui::ColorImage::from_rgba_unmultiplied([fw, fh], &fpx);
             match &mut self.preview {
                 Some(t) => t.set(img, egui::TextureOptions::LINEAR),
                 None => {
@@ -922,6 +942,95 @@ fn textures(pngs: &[Vec<u8>], canvas_w: f32, width: u32) -> Vec<ayatsuri_render:
 }
 
 /// Onto white, for formats without transparency.
+/// The frame a width and an optional height make for this canvas: the
+/// height follows the canvas's proportions unless one is given.
+fn out_size(width: u32, height: Option<u32>, c: &Canvas) -> (u32, u32) {
+    let w = width.max(1);
+    let h = match height {
+        Some(h) => h.max(1),
+        None => (w as f32 * c.height / c.width.max(1.0)).round().max(1.0) as u32,
+    };
+    (w, h)
+}
+
+/// How wide the canvas is drawn inside a frame of `width` by `height`:
+/// the full width when the frame is the canvas's shape or taller, less
+/// when the frame is wider, so the whole canvas fits.
+fn inner_width(width: u32, height: Option<u32>, c: &Canvas) -> u32 {
+    let Some(h) = height else { return width };
+    let (cw, ch) = (c.width.max(1.0), c.height.max(1.0));
+    let by_height = (h as f32 * cw / ch).floor() as u32;
+    width.min(by_height).max(1)
+}
+
+/// A frame drawn at the canvas's shape, placed in the middle of a frame
+/// `out_w` by `out_h` with background around it: clear when the output is
+/// transparent, white otherwise (the same white `flatten` lands on). A
+/// frame larger than the target on an axis is cut evenly on both sides.
+fn letterbox(
+    w: usize,
+    h: usize,
+    px: Vec<u8>,
+    out_w: usize,
+    out_h: usize,
+    transparent: bool,
+) -> (usize, usize, Vec<u8>) {
+    if (w, h) == (out_w, out_h) {
+        return (w, h, px);
+    }
+    let fill: [u8; 4] = if transparent { [0, 0, 0, 0] } else { [255, 255, 255, 255] };
+    let mut out = fill.repeat(out_w * out_h);
+    let cols = w.min(out_w);
+    let rows = h.min(out_h);
+    let (sx, sy) = ((w - cols) / 2, (h - rows) / 2);
+    let (dx, dy) = ((out_w - cols) / 2, (out_h - rows) / 2);
+    for row in 0..rows {
+        let src = ((sy + row) * w + sx) * 4;
+        let dst = ((dy + row) * out_w + dx) * 4;
+        if let (Some(from), Some(to)) =
+            (px.get(src..src + cols * 4), out.get_mut(dst..dst + cols * 4))
+        {
+            to.copy_from_slice(from);
+        }
+    }
+    (out_w, out_h, out)
+}
+
+/// `letterbox` into the smallest frame of the `out_w` by `out_h` shape
+/// that holds this frame whole, for a preview at any size.
+fn letterbox_to_aspect(
+    w: usize,
+    h: usize,
+    px: Vec<u8>,
+    out_w: u32,
+    out_h: u32,
+    transparent: bool,
+) -> (usize, usize, Vec<u8>) {
+    let want = out_h as f32 / out_w.max(1) as f32;
+    let have = h as f32 / w.max(1) as f32;
+    let (tw, th) = if want > have {
+        (w, (w as f32 * want).round().max(1.0) as usize)
+    } else {
+        ((h as f32 / want.max(1e-6)).round().max(1.0) as usize, h)
+    };
+    letterbox(w, h, px, tw, th, transparent)
+}
+
+/// A drawn frame as the job wants it: as drawn when the frame is the
+/// canvas's shape, else centred in the frame of the job's size.
+fn boxed(spec: &Spec, f: (usize, usize, Vec<u8>)) -> (usize, usize, Vec<u8>) {
+    let Some(h) = spec.height else { return f };
+    let transparent = spec.transparent && spec.preset.alpha();
+    letterbox(
+        f.0,
+        f.1,
+        f.2,
+        spec.width.clamp(16, 8192) as usize,
+        h.clamp(16, 8192) as usize,
+        transparent,
+    )
+}
+
 fn flatten(px: &mut [u8]) {
     for p in px.as_chunks_mut::<4>().0 {
         let a = p[3] as u32;
@@ -1266,7 +1375,7 @@ impl Drawer {
             // a timelapse's steps have other meshes: they draw unclipped
             let art: &[[f32; 4]] = if spec.timelapse.is_none() { &spec.art } else { &[] };
             if let Some(f) = g.draw(puppet, self.width, art) {
-                return f;
+                return boxed(spec, f);
             }
             log::warn!("render: the GPU could not draw a frame, drawing on the CPU");
             self.gpu = None;
@@ -1277,7 +1386,7 @@ impl Drawer {
             let canvas_w = spec.model.canvas.width.max(1.0);
             textures(&spec.pngs, canvas_w, (width * ss) as u32)
         });
-        crate::thumb::render_aa(puppet, tex, width, ss)
+        boxed(spec, crate::thumb::render_aa(puppet, tex, width, ss))
     }
 }
 
@@ -1286,7 +1395,9 @@ fn run(
     tx: &Sender<Progress>,
     stop: &std::sync::atomic::AtomicBool,
 ) -> Result<String, String> {
-    let width = spec.width.clamp(16, 8192) as usize;
+    // with a height of its own the canvas is drawn at the width that fits
+    // the frame, and `boxed` puts it in the middle
+    let width = inner_width(spec.width.clamp(16, 8192), spec.height, &spec.model.canvas) as usize;
     let mut out = Out { spec: &spec, tx, stop, sink: None, path: PathBuf::new(), written: 0 };
     let mut draw = Drawer::new(&spec, width);
     let result = frames(&spec, &mut draw, &mut out);
@@ -1699,9 +1810,33 @@ impl EditorUi {
                         ui.label(tr("Width"));
                         ui.horizontal(|ui| {
                             ui.add(egui::DragValue::new(&mut win.width).range(16..=8192).suffix(" px"));
-                            let c = s.puppet.model().canvas;
-                            let h = (win.width as f32 * c.height / c.width.max(1.0)).round() as u32;
-                            ui.weak(trf("× {height} px", &[("height", &h)]));
+                            if !win.free_size {
+                                let c = s.puppet.model().canvas;
+                                let (_, h) = out_size(win.width, None, &c);
+                                ui.weak(trf("× {height} px", &[("height", &h)]));
+                            }
+                        });
+                        ui.end_row();
+                        ui.label(tr("Height"));
+                        ui.horizontal(|ui| {
+                            ui.add_enabled(
+                                win.free_size,
+                                egui::DragValue::new(&mut win.height).range(16..=8192).suffix(" px"),
+                            );
+                            let mut keep = !win.free_size;
+                            if ui
+                                .checkbox(&mut keep, tr("Keep the canvas shape"))
+                                .on_hover_text(tr(
+                                    "On, the height follows the width in the canvas's proportions. Off, set both: the canvas is fitted inside and centred, and the rest is background.",
+                                ))
+                                .changed()
+                            {
+                                win.free_size = !keep;
+                                if win.free_size {
+                                    let c = s.puppet.model().canvas;
+                                    win.height = out_size(win.width, None, &c).1;
+                                }
+                            }
                         });
                         ui.end_row();
                         ui.label(tr("Background"));
@@ -1847,6 +1982,7 @@ impl EditorUi {
                 preset: win.preset,
                 fps: win.fps,
                 width: win.width,
+                height: win.free_size.then_some(win.height),
                 transparent: win.transparent && win.preset.alpha(),
                 work_area: win.work_area,
                 hold: win.hold,
@@ -2003,7 +2139,8 @@ impl RenderWin {
     /// height when the window is short.
     fn fit(&mut self, avail_w: f32, avail_h: f32, s: &crate::session::Session) -> (f32, f32) {
         let c = s.puppet.model().canvas;
-        let aspect = (c.height / c.width.max(1.0)).max(0.1);
+        let (ow, oh) = out_size(self.width, self.free_size.then_some(self.height), &c);
+        let aspect = (oh as f32 / ow.max(1) as f32).max(0.1);
         let mut pw = (avail_w - SIDE_W - 14.0).max(MIN_PLAYER_W).floor();
         let mut fh = (pw * aspect).floor();
         // a short window: the frame shrinks and the player narrows with it,
@@ -2040,7 +2177,7 @@ impl RenderWin {
             Source::Timelapse => tr("Timelapse").to_string(),
         };
         let c = s.puppet.model().canvas;
-        let out_h = (self.width as f32 * c.height / c.width.max(1.0)).round() as u32;
+        let (out_w, out_h) = out_size(self.width, self.free_size.then_some(self.height), &c);
         p.text(
             pos2(strip.min.x + 10.0, strip.center().y),
             Align2::LEFT_CENTER,
@@ -2051,7 +2188,7 @@ impl RenderWin {
         p.text(
             pos2(strip.max.x - 10.0, strip.center().y),
             Align2::RIGHT_CENTER,
-            format!("{}×{}  {} fps  {}", self.width, out_h, self.fps, tr(self.preset.label())),
+            format!("{}×{}  {} fps  {}", out_w, out_h, self.fps, tr(self.preset.label())),
             FontId::monospace(10.5),
             Color32::from_gray(120),
         );
@@ -2938,6 +3075,7 @@ mod tests {
             preset,
             fps: 30,
             width: 1920,
+            height: None,
             transparent: true,
             work_area: false,
             hold: 1.0,
@@ -2969,5 +3107,55 @@ mod tests {
         }
         eprintln!("{frames} frames in {:?}: {r:?}", t.elapsed());
         assert!(r.is_ok(), "{r:?}");
+    }
+}
+
+#[cfg(test)]
+mod frame_shape_tests {
+    use super::*;
+
+    fn canvas(w: f32, h: f32) -> Canvas {
+        Canvas { width: w, height: h, pixels_per_unit: 1.0, ..Canvas::default() }
+    }
+
+    #[test]
+    fn the_height_follows_the_canvas_unless_given() {
+        let c = canvas(1000.0, 2000.0);
+        assert_eq!(out_size(500, None, &c), (500, 1000));
+        assert_eq!(out_size(1920, Some(1080), &c), (1920, 1080));
+    }
+
+    #[test]
+    fn a_wide_frame_draws_the_tall_canvas_narrower_so_it_fits() {
+        let c = canvas(1000.0, 2000.0);
+        assert_eq!(inner_width(1920, Some(1080), &c), 540);
+        assert_eq!(inner_width(1920, None, &c), 1920);
+        // a frame taller than the canvas's shape keeps the full width
+        assert_eq!(inner_width(500, Some(5000), &c), 500);
+    }
+
+    #[test]
+    fn letterbox_centres_the_frame_and_fills_the_rest() {
+        // a 2x2 red frame into a 4x2 clear frame: columns 1 and 2 are red
+        let red = [255u8, 0, 0, 255].repeat(4);
+        let (w, h, px) = letterbox(2, 2, red, 4, 2, true);
+        assert_eq!((w, h), (4, 2));
+        let at = |x: usize, y: usize| px.get((y * 4 + x) * 4..(y * 4 + x) * 4 + 4).unwrap_or(&[]);
+        assert_eq!(at(0, 0), [0, 0, 0, 0]);
+        assert_eq!(at(1, 0), [255, 0, 0, 255]);
+        assert_eq!(at(2, 1), [255, 0, 0, 255]);
+        assert_eq!(at(3, 1), [0, 0, 0, 0]);
+        // opaque output pads with white
+        let (_, _, px) = letterbox(2, 2, [1u8; 16].to_vec(), 2, 4, false);
+        assert_eq!(px.get(0..4), Some(&[255u8, 255, 255, 255][..]));
+        assert_eq!(px.get(8..12), Some(&[1u8, 1, 1, 1][..]));
+    }
+
+    #[test]
+    fn a_preview_takes_the_frame_shape_at_its_own_size() {
+        let (w, h, _) = letterbox_to_aspect(100, 200, vec![0; 100 * 200 * 4], 1920, 1080, true);
+        assert_eq!((w, h), (356, 200));
+        let (w, h, _) = letterbox_to_aspect(100, 200, vec![0; 100 * 200 * 4], 1000, 4000, true);
+        assert_eq!((w, h), (100, 400));
     }
 }
