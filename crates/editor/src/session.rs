@@ -245,6 +245,11 @@ pub struct Session {
     pub timelapse_on: bool,
     /// The project's own Record timelapse setting; None follows Settings.
     pub timelapse_pref: Option<bool>,
+    /// Active work on this project, in seconds, as the .aom carries it plus
+    /// what this session has added. See `EditorUi::count_work`.
+    pub work_seconds: f64,
+    /// The work timer is paused by hand (not saved).
+    pub work_paused: bool,
     /// Per texture page: it holds one paint layer, as it came in. Meshes
     /// drawing from such pages wait for the texture atlas, which is made
     /// when the rigger asks (Texture Atlas, or the export's button), as in
@@ -1214,6 +1219,7 @@ impl Session {
         s.timelapse.record(s.puppet.model());
         s.author = payload.meta.author;
         s.timelapse_pref = payload.meta.timelapse;
+        s.work_seconds = payload.meta.work_seconds as f64;
         s.animations = payload.animations;
         s.expressions = payload.expressions;
         s.compositions = payload.compositions;
@@ -1636,6 +1642,8 @@ impl Session {
             timelapse: crate::timelapse::Recorder::default(),
             timelapse_on: true,
             timelapse_pref: None,
+            work_seconds: 0.0,
+            work_paused: false,
             layer_pages: Vec::new(),
             art_by_page: HashMap::new(),
             bezier_nets: HashMap::new(),
@@ -2170,6 +2178,7 @@ impl Session {
                 author: self.author.clone(),
                 tool: format!("Ayatsuri2D {}", env!("CARGO_PKG_VERSION")),
                 timelapse: self.timelapse_pref,
+                work_seconds: self.work_seconds.round() as u64,
                 layer_pages: layer_pages
                     .iter()
                     .enumerate()

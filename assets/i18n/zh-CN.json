@@ -1656,5 +1656,14 @@
   "Guide Images": "参考图像",
   "Above the model": "在模型上方",
   "Guide images are saved with the project and never exported.": "参考图像随项目保存，不会被导出。",
-  "No guide images yet: File > Import Guide Image… adds one.": "还没有参考图像：文件 > 导入参考图像… 可以添加。"
+  "No guide images yet: File > Import Guide Image… adds one.": "还没有参考图像：文件 > 导入参考图像… 可以添加。",
+  "Work Time…": "工作时间…",
+  "Work Time": "工作时间",
+  "on {name}, saved with the project": "{name} 的累计时间，随项目一起保存",
+  "Paused": "已暂停",
+  "Counting": "计时中",
+  "Idle: counting resumes on your next input": "空闲：下次操作时继续计时",
+  "Resume": "继续",
+  "Reset to zero": "归零",
+  "Counts only while you work: it stops half a minute after your last input and starts again on the next.": "仅在工作时计时：最后一次操作 30 秒后停止，下次操作时重新开始。"
 }

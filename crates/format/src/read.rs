@@ -95,6 +95,7 @@ mod tests {
                 tool: "test".into(),
                 timelapse: None,
                 layer_pages: Vec::new(),
+                work_seconds: 0,
             },
             model,
             textures: vec![serde_bytes::ByteBuf::from(vec![1u8, 2, 3])],

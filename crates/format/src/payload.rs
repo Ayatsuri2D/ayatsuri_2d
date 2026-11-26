@@ -21,6 +21,10 @@ pub struct Meta {
     /// The texture pages that hold one paint layer each, as it came in,
     /// before the texture atlas was made from them. Empty in older files.
     pub layer_pages: Vec<u32>,
+    /// Seconds of active work on this project so far, counted by the editor
+    /// only while the user is editing (input within the last half minute).
+    /// Zero in older files.
+    pub work_seconds: u64,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]

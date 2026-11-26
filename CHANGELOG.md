@@ -11,6 +11,13 @@
   to the GPU. A model that draws wrong on a machine we cannot sit at can
   be diagnosed from the log, without the file.
 
+### Added
+- **Work Time** (Window menu): how long the open project has been worked
+  on, counted only while you are doing something (it stops half a minute
+  after your last input and resumes on the next) and saved in the `.aom`,
+  so it carries across sessions. Pause and reset buttons. For pricing a
+  commission by the hours it took.
+
 ### Fixed
 - **Hidden layers vanished on import.** A layer the artist had hidden,
   or left at 0% opacity (a flat shape kept as a mask, most often), was

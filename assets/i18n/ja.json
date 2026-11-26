@@ -1656,5 +1656,14 @@
   "Guide Images": "ガイド画像",
   "Above the model": "モデルの上",
   "Guide images are saved with the project and never exported.": "ガイド画像はプロジェクトと一緒に保存され、書き出されることはありません。",
-  "No guide images yet: File > Import Guide Image… adds one.": "ガイド画像はまだありません。ファイル > ガイド画像を読み込み… で追加できます。"
+  "No guide images yet: File > Import Guide Image… adds one.": "ガイド画像はまだありません。ファイル > ガイド画像を読み込み… で追加できます。",
+  "Work Time…": "作業時間…",
+  "Work Time": "作業時間",
+  "on {name}, saved with the project": "{name} の合計。プロジェクトと一緒に保存されます",
+  "Paused": "一時停止中",
+  "Counting": "計測中",
+  "Idle: counting resumes on your next input": "待機中: 次の操作で計測を再開します",
+  "Resume": "再開",
+  "Reset to zero": "ゼロに戻す",
+  "Counts only while you work: it stops half a minute after your last input and starts again on the next.": "作業中のみ計測します。最後の操作から30秒で停止し、次の操作で再開します。"
 }

@@ -385,7 +385,7 @@
   "PARAMETERS BEING DRIVEN": "PARAMETERS WAT BEHEER WORD",
   "Nothing right now. Values an app sends show here while they are live.": "Tans niks. Waardes wat 'n toep stuur, verskyn hier terwyl hulle lewendig is.",
   "TRAFFIC": "VERKEER",
-  "Pause": "Pouseer",
+  "Pause": "Onderbreek",
   "Show parameter stream": "Wys parameterstroom",
   "SetParameterValues and friends, which apps send every frame": "SetParameterValues en dies meer, wat toeps elke raam stuur",
   "No messages yet.": "Nog geen boodskappe nie.",
@@ -1656,5 +1656,14 @@
   "Guide Images": "Gidsbeelde",
   "Above the model": "Bo die model",
   "Guide images are saved with the project and never exported.": "Gidsbeelde word saam met die projek gestoor en nooit uitgevoer nie.",
-  "No guide images yet: File > Import Guide Image… adds one.": "Nog geen gidsbeelde nie: Lêer > Voer gidsbeeld in… voeg een by."
+  "No guide images yet: File > Import Guide Image… adds one.": "Nog geen gidsbeelde nie: Lêer > Voer gidsbeeld in… voeg een by.",
+  "Work Time…": "Werktyd…",
+  "Work Time": "Werktyd",
+  "on {name}, saved with the project": "aan {name}, saam met die projek gestoor",
+  "Paused": "Onderbreek",
+  "Counting": "Tel",
+  "Idle: counting resumes on your next input": "Ledig: tel weer by jou volgende invoer",
+  "Resume": "Hervat",
+  "Reset to zero": "Terugstel na nul",
+  "Counts only while you work: it stops half a minute after your last input and starts again on the next.": "Tel net terwyl jy werk: dit stop 'n halwe minuut na jou laaste invoer en begin weer by die volgende."
 }

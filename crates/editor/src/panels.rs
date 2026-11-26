@@ -656,6 +656,9 @@ pub struct EditorUi {
     folder_from: Vec<usize>,
     new_model: Option<ModelNew>,
     pub(crate) show_model_info: bool,
+    pub(crate) show_work_time: bool,
+    /// When the user last did anything, for the work timer.
+    pub(crate) last_activity: Option<std::time::Instant>,
     pub(crate) gpu: bool,
     theme_applied: bool,
     last_layout: DockNode,
@@ -718,7 +721,7 @@ pub struct EditorUi {
     /// playback and physics step by it, not by egui's predicted frame time,
     /// so uneven frames cannot make them fall behind the clock.
     frame_at: Option<std::time::Instant>,
-    frame_dt: f32,
+    pub(crate) frame_dt: f32,
     /// The frame limiter's beat: whether the last frame asked for another
     /// animation frame, and when the last animation frame started.
     anim_wanted: std::cell::Cell<bool>,
@@ -1892,6 +1895,8 @@ impl Default for EditorUi {
             folder_from: Vec::new(),
             new_model: None,
             show_model_info: false,
+            show_work_time: false,
+            last_activity: None,
             gpu: false,
             theme_applied: false,
             logo: None,
@@ -2429,7 +2434,7 @@ impl EditorUi {
     /// frame. One comparison a frame and a line only on a change, so the
     /// log says what the user did without a line per frame.
     fn log_state_changes(&mut self) {
-        let states: [(&str, bool); 30] = [
+        let states: [(&str, bool); 31] = [
             ("Settings", self.show_settings),
             ("API window", self.show_api_window),
             ("Model Statistics", self.show_stats),
@@ -2447,6 +2452,7 @@ impl EditorUi {
             ("Model Template", self.template_dlg.is_some()),
             ("New Project", self.new_model.is_some()),
             ("Project", self.show_model_info),
+            ("Work Time", self.show_work_time),
             ("Save Workspace", self.show_ws_save),
             ("Manage Workspaces", self.show_ws_manage),
             ("Guide Line Settings", self.show_guide_settings),
@@ -2850,6 +2856,7 @@ impl EditorUi {
         let gap = self.frame_at.map_or(0.0, |t| now.duration_since(t).as_secs_f32());
         self.frame_dt = if gap > 0.0 && gap <= 0.1 { gap } else { 1.0 / 60.0 };
         self.frame_at = Some(now);
+        self.count_work(ui.ctx(), now);
         // where undo stood when this frame began, for the crash rollback
         self.frame_undo_depth = self.session.as_ref().map_or(0, |s| s.undo_depth());
         // overlay colours: saved choices, else the theme, so mesh lines follow
@@ -4248,6 +4255,13 @@ impl EditorUi {
                         self.open_timelapse();
                         ui.close();
                     }
+                    if ui
+                        .add_enabled(self.session.is_some(), egui::Button::new(crate::i18n::tr("Work Time…")).shortcut_text(self.sc("work-time")))
+                        .clicked()
+                    {
+                        self.show_work_time = true;
+                        ui.close();
+                    }
                     if ui.add(egui::Button::new(crate::i18n::tr("Settings…")).shortcut_text(self.sc("settings"))).clicked() {
                         self.show_settings = true;
                         ui.close();
@@ -4951,6 +4965,7 @@ impl EditorUi {
         self.template_window(ui);
         self.model_new_window(ui);
         self.model_info_window(ui);
+        self.work_time_window(ui);
         self.new_anim_window(ui);
         self.anim_details_window(ui);
         self.export_window(ui);
@@ -7885,6 +7900,7 @@ impl EditorUi {
             "animation-details" if have => self.open_anim_details(),
             "auto-key" => self.anim_autokey = !self.anim_autokey,
             "timelapse" if have => self.open_timelapse(),
+            "work-time" if have => self.show_work_time = true,
             "workspace-save" => self.show_ws_save = true,
             "workspace-manage" => self.show_ws_manage = true,
             "layout-export" => self.pick_layout(true),
@@ -17976,6 +17992,7 @@ pub(crate) const KEY_ACTIONS: &[(&str, &str, &str, egui::Modifiers, egui::Key)] 
         ("Animation", "anim-layer-dup", "Duplicate the layer", M::SHIFT, K::D),
         ("Animation", "anim-layer-split", "Split the layer at the playhead", CS, K::D),
         ("Window", "timelapse", "Timelapse…", N, K::F35),
+        ("Window", "work-time", "Work Time…", N, K::F35),
         ("Window", "workspace-save", "Save as New Workspace…", N, K::F35),
         ("Window", "workspace-manage", "Manage Workspaces…", N, K::F35),
         ("Window", "layout-export", "Export Current Layout…", N, K::F35),
