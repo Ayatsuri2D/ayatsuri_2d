@@ -1656,5 +1656,8 @@
   "Guide Images": "Gidsbeelde",
   "Above the model": "Bo die model",
   "Guide images are saved with the project and never exported.": "Gidsbeelde word saam met die projek gestoor en nooit uitgevoer nie.",
-  "No guide images yet: File > Import Guide Image… adds one.": "Nog geen gidsbeelde nie: Lêer > Voer gidsbeeld in… voeg een by."
+  "No guide images yet: File > Import Guide Image… adds one.": "Nog geen gidsbeelde nie: Lêer > Voer gidsbeeld in… voeg een by.",
+  "Height": "Hoogte",
+  "Keep the canvas shape": "Behou die doekvorm",
+  "On, the height follows the width in the canvas's proportions. Off, set both: the canvas is fitted inside and centred, and the rest is background.": "Aan: die hoogte volg die breedte in die doek se verhoudings. Af: stel albei; die doek pas binne-in, gesentreer, en die res is agtergrond."
 }

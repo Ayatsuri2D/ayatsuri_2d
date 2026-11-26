@@ -1656,5 +1656,8 @@
   "Guide Images": "ガイド画像",
   "Above the model": "モデルの上",
   "Guide images are saved with the project and never exported.": "ガイド画像はプロジェクトと一緒に保存され、書き出されることはありません。",
-  "No guide images yet: File > Import Guide Image… adds one.": "ガイド画像はまだありません。ファイル > ガイド画像を読み込み… で追加できます。"
+  "No guide images yet: File > Import Guide Image… adds one.": "ガイド画像はまだありません。ファイル > ガイド画像を読み込み… で追加できます。",
+  "Height": "高さ",
+  "Keep the canvas shape": "キャンバスの比率を保つ",
+  "On, the height follows the width in the canvas's proportions. Off, set both: the canvas is fitted inside and centred, and the rest is background.": "オンでは高さがキャンバスの比率に従います。オフでは幅と高さを別々に設定でき、キャンバスは中央に収まり、残りは背景になります。"
 }

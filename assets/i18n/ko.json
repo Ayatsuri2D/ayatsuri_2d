@@ -1656,5 +1656,8 @@
   "Guide Images": "가이드 이미지",
   "Above the model": "모델 위",
   "Guide images are saved with the project and never exported.": "가이드 이미지는 프로젝트와 함께 저장되며 내보내지지 않습니다.",
-  "No guide images yet: File > Import Guide Image… adds one.": "아직 가이드 이미지가 없습니다. 파일 > 가이드 이미지 가져오기… 로 추가하세요."
+  "No guide images yet: File > Import Guide Image… adds one.": "아직 가이드 이미지가 없습니다. 파일 > 가이드 이미지 가져오기… 로 추가하세요.",
+  "Height": "높이",
+  "Keep the canvas shape": "캔버스 비율 유지",
+  "On, the height follows the width in the canvas's proportions. Off, set both: the canvas is fitted inside and centred, and the rest is background.": "켜면 높이가 캔버스 비율을 따릅니다. 끄면 너비와 높이를 따로 정하고, 캔버스는 안쪽 가운데에 맞춰지며 나머지는 배경이 됩니다."
 }

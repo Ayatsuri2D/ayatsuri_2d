@@ -1656,5 +1656,8 @@
   "Guide Images": "参考图像",
   "Above the model": "在模型上方",
   "Guide images are saved with the project and never exported.": "参考图像随项目保存，不会被导出。",
-  "No guide images yet: File > Import Guide Image… adds one.": "还没有参考图像：文件 > 导入参考图像… 可以添加。"
+  "No guide images yet: File > Import Guide Image… adds one.": "还没有参考图像：文件 > 导入参考图像… 可以添加。",
+  "Height": "高度",
+  "Keep the canvas shape": "保持画布比例",
+  "On, the height follows the width in the canvas's proportions. Off, set both: the canvas is fitted inside and centred, and the rest is background.": "开启时高度按画布比例跟随宽度。关闭时可分别设置宽高：画布居中放入，其余为背景。"
 }

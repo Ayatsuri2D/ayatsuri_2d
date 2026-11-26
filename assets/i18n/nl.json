@@ -1656,5 +1656,8 @@
   "Guide Images": "Hulpafbeeldingen",
   "Above the model": "Boven het model",
   "Guide images are saved with the project and never exported.": "Hulpafbeeldingen worden met het project opgeslagen en nooit geëxporteerd.",
-  "No guide images yet: File > Import Guide Image… adds one.": "Nog geen hulpafbeeldingen: Bestand > Hulpafbeelding importeren… voegt er een toe."
+  "No guide images yet: File > Import Guide Image… adds one.": "Nog geen hulpafbeeldingen: Bestand > Hulpafbeelding importeren… voegt er een toe.",
+  "Height": "Hoogte",
+  "Keep the canvas shape": "Canvasvorm behouden",
+  "On, the height follows the width in the canvas's proportions. Off, set both: the canvas is fitted inside and centred, and the rest is background.": "Aan: de hoogte volgt de breedte in de verhoudingen van het canvas. Uit: stel beide in; het canvas past erin, gecentreerd, en de rest is achtergrond."
 }
