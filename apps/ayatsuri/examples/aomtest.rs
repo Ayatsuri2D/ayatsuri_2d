@@ -29,6 +29,7 @@ fn main() -> Result<(), String> {
             tool: "aomtest".into(),
             timelapse: None,
             layer_pages: Vec::new(),
+            work_seconds: 0,
         },
         model,
         textures: Vec::new(),

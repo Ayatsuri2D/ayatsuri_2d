@@ -11,6 +11,7 @@ pub(crate) mod recovery;
 pub(crate) mod render;
 pub(crate) mod settings;
 mod stats;
+mod work_time;
 
 pub(crate) use dialog::{Dialog, dialog_shown_lately, form, mark_shown};
 

@@ -1656,5 +1656,14 @@
   "Guide Images": "Hulpafbeeldingen",
   "Above the model": "Boven het model",
   "Guide images are saved with the project and never exported.": "Hulpafbeeldingen worden met het project opgeslagen en nooit geëxporteerd.",
-  "No guide images yet: File > Import Guide Image… adds one.": "Nog geen hulpafbeeldingen: Bestand > Hulpafbeelding importeren… voegt er een toe."
+  "No guide images yet: File > Import Guide Image… adds one.": "Nog geen hulpafbeeldingen: Bestand > Hulpafbeelding importeren… voegt er een toe.",
+  "Work Time…": "Werktijd…",
+  "Work Time": "Werktijd",
+  "on {name}, saved with the project": "aan {name}, opgeslagen met het project",
+  "Paused": "Gepauzeerd",
+  "Counting": "Loopt",
+  "Idle: counting resumes on your next input": "Inactief: het tellen gaat door bij je volgende invoer",
+  "Resume": "Hervatten",
+  "Reset to zero": "Op nul zetten",
+  "Counts only while you work: it stops half a minute after your last input and starts again on the next.": "Telt alleen terwijl je werkt: het stopt een halve minuut na je laatste invoer en begint weer bij de volgende."
 }
