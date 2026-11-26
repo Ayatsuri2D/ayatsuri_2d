@@ -6,12 +6,14 @@
 //! with its release list from CHANGELOG.md. `capi` builds the C library and writes its
 //! header off the Rust source; `sdk` packs it for one platform, as releases
 //! ship it. `unity` checks the Unity package against the header and packs
-//! it with those libraries. `ci` runs every gate.
+//! it with those libraries; `godot` does the same for the Godot addon. `ci`
+//! runs every gate.
 
 use std::error::Error;
 use std::path::Path;
 use std::process::Command;
 
+mod godot;
 mod metainfo;
 mod unity;
 
@@ -31,6 +33,22 @@ const RULES: &[(&str, &[&str], &str)] = &[
         "crates/capi",
         &["openmoc3", "psd", "zip", "image", "quick-xml"],
         "the ABI takes only the moc3 and JSON side of the import crate",
+    ),
+    // the Godot addon is Apache-2.0 over the ABI: nothing GPL, nothing from
+    // the editor or the renderer, and only the import crate's moc3 side
+    (
+        "crates/godot",
+        &[
+            "ayatsuri-editor",
+            "ayatsuri-render",
+            "ayatsuri-pen",
+            "openmoc3",
+            "psd",
+            "zip",
+            "image",
+            "quick-xml",
+        ],
+        "the Godot addon takes only the ABI and the MIT runtime crates",
     ),
     // Nothing below the editor knows the UI toolkit exists.
     ("crates/format", &["egui", "eframe"], "format is UI-free"),
@@ -224,6 +242,7 @@ fn ci() -> Result<()> {
     metainfo::metainfo(true)?;
     capi(&["--check".to_string()])?;
     unity::unity(&[])?;
+    godot::godot(&[])?;
     layers()
 }
 
@@ -366,13 +385,18 @@ fn label_of(triple: &str) -> String {
 /// licence files, word for word; its licence name and link when it ships
 /// none.
 fn third_party_notices() -> Result<String> {
+    third_party_notices_for(&["ayatsuri-capi"])
+}
+
+/// The notices for the dependencies of `roots` (workspace package names).
+fn third_party_notices_for(roots: &[&str]) -> Result<String> {
     let meta = metadata()?;
     let mut text = String::from(
         "# Third-party software in the Ayatsuri2D library\n\n\
          The library links the Rust crates below. Each one's licence follows,\n\
          as its authors ship it.\n",
     );
-    for p in third_party(&meta, &["ayatsuri-capi"]) {
+    for p in third_party(&meta, roots) {
         let field = |k: &str| p[k].as_str().unwrap_or("").trim().to_string();
         text.push_str(&format!(
             "\n## {} {}\n\nLicence: {}  \nSource: {}\n",
@@ -409,8 +433,17 @@ fn third_party_notices() -> Result<String> {
     Ok(text)
 }
 
+/// The Godot addon's library is built for every desktop target beside the
+/// C library. Android and iOS are left out in this first version: Godot
+/// loads a GDExtension there from an .aar or an .xcframework, which the
+/// pack does not make yet, and the addon's README says so.
+fn godot_target(triple: &str) -> bool {
+    !(triple.contains("android") || triple.contains("apple-ios"))
+}
+
 /// `cargo xtask sdk [--target <triple>]... [--label <name>]`: the C library
-/// packed for one platform, as a release ships it, under `target/sdk/`.
+/// packed for one platform, as a release ships it, under `target/sdk/`,
+/// with the Godot addon's library beside it for the desktop platforms.
 /// With no target it builds for this machine and runs the C host check
 /// first; two Apple targets are joined into one universal library.
 fn sdk(args: &[String]) -> Result<()> {
@@ -439,24 +472,29 @@ fn sdk(args: &[String]) -> Result<()> {
     // the header and, for this machine, the library with its host check
     if targets.is_empty() {
         capi(&[])?;
+        if godot_target(&host) {
+            run("cargo", &["build", "--profile", "capi-release", "-p", "ayatsuri-godot"])?;
+        }
     } else {
         capi(&["--header".to_string()])?;
         for t in &targets {
-            run(
-                "cargo",
-                &[
-                    "build",
-                    "--locked",
-                    "--profile",
-                    "capi-release",
-                    "-p",
-                    "ayatsuri-capi",
-                    "--target",
-                    t,
-                ],
-            )?;
+            let mut packages = vec!["ayatsuri-capi"];
+            if godot_target(t) {
+                packages.push("ayatsuri-godot");
+            }
+            let mut args = vec!["build", "--locked", "--profile", "capi-release"];
+            for p in &packages {
+                args.extend(["-p", p]);
+            }
+            args.extend(["--target", t]);
+            run("cargo", &args)?;
         }
     }
+    let with_godot = if targets.is_empty() {
+        godot_target(&host)
+    } else {
+        targets.iter().all(|t| godot_target(t))
+    };
     let dirs: Vec<std::path::PathBuf> = if targets.is_empty() {
         vec!["target/capi-release".into()]
     } else {
@@ -466,9 +504,15 @@ fn sdk(args: &[String]) -> Result<()> {
         let mut names = Vec::new();
         for entry in std::fs::read_dir(dir)? {
             let name = entry?.file_name().to_string_lossy().into_owned();
-            let ours = name.starts_with("libayatsuri_capi") || name.starts_with("ayatsuri_capi");
+            let capi = name.starts_with("libayatsuri_capi") || name.starts_with("ayatsuri_capi");
             let lib = [".so", ".a", ".dylib", ".dll", ".lib"].iter().any(|e| name.ends_with(e));
-            if ours && lib {
+            // the addon's library is only ever loaded by Godot: the shared
+            // one, not the import library MSVC writes beside it
+            let godot = with_godot
+                && (name.starts_with("libayatsuri2d_godot")
+                    || name.starts_with("ayatsuri2d_godot"))
+                && [".so", ".dylib", ".dll"].iter().any(|e| name.ends_with(e));
+            if (capi && lib) || godot {
                 names.push(name);
             }
         }
@@ -536,7 +580,8 @@ fn main() {
             "capi" => capi(&std::env::args().skip(2).collect::<Vec<_>>()),
             "sdk" => sdk(&std::env::args().skip(2).collect::<Vec<_>>()),
             "unity" => unity::unity(&std::env::args().skip(2).collect::<Vec<_>>()),
-            _ => Err("usage: cargo xtask <layers|credits [--check]|metainfo [--check]|ci|capi [--header|--check]|sdk [--target T]... [--label L]|unity [--pack <sdk dir>...]|soak <model.aom> [seconds]>"
+            "godot" => godot::godot(&std::env::args().skip(2).collect::<Vec<_>>()),
+            _ => Err("usage: cargo xtask <layers|credits [--check]|metainfo [--check]|ci|capi [--header|--check]|sdk [--target T]... [--label L]|unity [--pack <sdk dir>...]|godot [--pack <sdk dir>...]|soak <model.aom> [seconds]>"
                 .into()),
         };
     if let Err(e) = result {

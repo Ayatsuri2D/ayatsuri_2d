@@ -1,0 +1,12 @@
+; Ayatsuri2D for Godot 4. The libraries under bin/ are put there by
+; `cargo xtask godot --pack`; a checkout of this folder has none.
+[configuration]
+entry_symbol = "gdext_rust_init"
+compatibility_minimum = 4.2
+reloadable = true
+
+[libraries]
+linux.x86_64 = "res://addons/ayatsuri2d/bin/linux-x64/libayatsuri2d_godot.so"
+linux.arm64 = "res://addons/ayatsuri2d/bin/linux-arm64/libayatsuri2d_godot.so"
+windows.x86_64 = "res://addons/ayatsuri2d/bin/windows-x64/ayatsuri2d_godot.dll"
+macos = "res://addons/ayatsuri2d/bin/macos-universal/libayatsuri2d_godot.dylib"

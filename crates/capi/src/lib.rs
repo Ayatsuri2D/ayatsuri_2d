@@ -43,7 +43,7 @@ pub use handle::{
     ay2d_texture_count,
 };
 pub use info::{
-    ay2d_mesh_name, ay2d_mesh_part, ay2d_model_group, ay2d_model_group_count,
+    ay2d_mesh_blend, ay2d_mesh_name, ay2d_mesh_part, ay2d_model_group, ay2d_model_group_count,
     ay2d_model_group_name, ay2d_parameter_group, ay2d_parameter_group_count,
     ay2d_parameter_group_name, ay2d_parameter_keys, ay2d_parameter_name, ay2d_parameter_repeat,
     ay2d_part_name, ay2d_part_parent,

@@ -20224,6 +20224,27 @@ fn combined_pad(
         s.puppet.set_value(pb, bmin + fb * (bmax - bmin));
         s.dirty = true;
     }
+    // right-click near a key dot: the pad sticks to it, exactly, the way a
+    // slider does, so the menu that opens acts on that key
+    if resp.secondary_clicked()
+        && let Some(ptr) = resp.interact_pointer_pos()
+    {
+        let nearest = |keys: &[f32], at: f32, of: &dyn Fn(f32) -> f32| {
+            keys.iter()
+                .copied()
+                .map(|k| (k, (of(k) - at).abs()))
+                .filter(|&(_, d)| d <= 6.0)
+                .min_by(|x, y| x.1.total_cmp(&y.1))
+                .map(|(k, _)| k)
+        };
+        if let (Some(ka), Some(kb)) = (nearest(&keys_a, ptr.x, &xa), nearest(&keys_b, ptr.y, &yb))
+            && ((va - ka).abs() > (amax - amin) * 1e-4 || (vb - kb).abs() > (bmax - bmin) * 1e-4)
+        {
+            s.puppet.set_value(pa, ka);
+            s.puppet.set_value(pb, kb);
+            s.dirty = true;
+        }
+    }
     resp.context_menu(|ui| {
         // the slider popup for each of the pad's two parameters
         ui.menu_button(truncate(&name_a, 18), |ui| {
