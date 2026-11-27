@@ -32,6 +32,7 @@ pub mod palette;
 pub mod physics;
 pub mod shapes;
 pub mod skin;
+pub mod sphere;
 pub mod stroke_mesh;
 
 use ayatsuri_format::model::{

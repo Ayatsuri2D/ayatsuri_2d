@@ -1705,5 +1705,20 @@
   "Copy a form first (Ctrl+Shift+C with the parameters on a key)": "Kopieer eers 'n vorm (Ctrl+Shift+C met die parameters op 'n sleutel)",
   "Select an object of the kind the form came from, with the parameters on a key": "Kies 'n voorwerp van die soort waar die vorm vandaan kom, met die parameters op 'n sleutel",
   "The shapes do not match: the object needs the same number of points as the copied one": "Die vorms pas nie: die voorwerp het dieselfde aantal punte nodig as die gekopieerde een",
-  "Into {name}, keyform {k}": "In {name}, keyform {k}"
+  "Into {name}, keyform {k}": "In {name}, keyform {k}",
+  "Sphere Warp…": "Sfeerwarp…",
+  "Sphere Warp": "Sfeerwarp",
+  "Select a warp deformer": "Kies 'n warpvervormer",
+  "Write the keyforms of {name} as a sphere turning with two parameters.": "Skryf die keyforms van {name} as 'n sfeer wat met twee parameters draai.",
+  "Parameter X": "Parameter X",
+  "Parameter Y": "Parameter Y",
+  "Depth": "Diepte",
+  "1 lifts the grid into a full hemisphere, 0 keeps it flat": "1 lig die rooster tot 'n volle halfsfeer, 0 hou dit plat",
+  "Max angle": "Maksimum hoek",
+  "The turn at the end of each parameter's range farther from its default": "Die draai aan die punt van elke parameter se reeks wat die verste van sy verstekwaarde lê",
+  "Pick two different parameters.": "Kies twee verskillende parameters.",
+  "A blend shape parameter cannot turn a sphere.": "'n Blendshape-parameter kan nie 'n sfeer draai nie.",
+  "The keys for {name} must be numbers, like -30, 0, 30.": "Die keys vir {name} moet getalle wees, soos -30, 0, 30.",
+  "{name} already has keys on {params}; their keyforms will be overwritten.": "{name} het reeds keys op {params}; hul keyforms sal oorskryf word.",
+  "The default key is the front. The result is plain warp keyforms, so every key can be edited afterwards.": "Die verstek-key is die voorkant. Die resultaat is gewone warp-keyforms, so elke key kan agterna geredigeer word."
 }

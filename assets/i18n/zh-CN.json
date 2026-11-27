@@ -1705,5 +1705,20 @@
   "Copy a form first (Ctrl+Shift+C with the parameters on a key)": "请先复制一个形状（参数位于关键点上时按 Ctrl+Shift+C）",
   "Select an object of the kind the form came from, with the parameters on a key": "请选择与形状来源同类的对象，并把参数放在关键点上",
   "The shapes do not match: the object needs the same number of points as the copied one": "形状不匹配：对象需要与复制的对象有相同数量的点",
-  "Into {name}, keyform {k}": "写入 {name} 的关键形状 {k}"
+  "Into {name}, keyform {k}": "写入 {name} 的关键形状 {k}",
+  "Sphere Warp…": "球面变形…",
+  "Sphere Warp": "球面变形",
+  "Select a warp deformer": "请选择一个弯曲变形器",
+  "Write the keyforms of {name} as a sphere turning with two parameters.": "将 {name} 的关键形状写成随两个参数转动的球面。",
+  "Parameter X": "参数 X",
+  "Parameter Y": "参数 Y",
+  "Depth": "深度",
+  "1 lifts the grid into a full hemisphere, 0 keeps it flat": "1 将网格抬升为完整半球，0 保持平面",
+  "Max angle": "最大角度",
+  "The turn at the end of each parameter's range farther from its default": "每个参数范围中离默认值较远一端的转动角度",
+  "Pick two different parameters.": "请选择两个不同的参数。",
+  "A blend shape parameter cannot turn a sphere.": "混合变形参数无法转动球面。",
+  "The keys for {name} must be numbers, like -30, 0, 30.": "{name} 的键必须是数字，例如 -30, 0, 30。",
+  "{name} already has keys on {params}; their keyforms will be overwritten.": "{name} 在 {params} 上已有键，其关键形状将被覆盖。",
+  "The default key is the front. The result is plain warp keyforms, so every key can be edited afterwards.": "默认键即正面。结果是普通的弯曲变形关键形状，因此之后可以编辑每个键。"
 }
