@@ -656,6 +656,7 @@ pub struct EditorUi {
     folder_from: Vec<usize>,
     new_model: Option<ModelNew>,
     pub(crate) show_model_info: bool,
+    pub(crate) random_pose: crate::windows::random_pose::RandomPose,
     pub(crate) show_work_time: bool,
     /// When the user last did anything, for the work timer.
     pub(crate) last_activity: Option<std::time::Instant>,
@@ -809,6 +810,10 @@ pub struct EditorUi {
     focus_search: bool,
     /// Copy Form: (1 mesh / 2 warp, local positions).
     form_clip: Option<(u8, Vec<f32>)>,
+    /// The same copy as a whole keyform (every channel), for Blend Form,
+    /// when the parameters sat on a key at copy time.
+    pub(crate) form_clip_full: Option<ayatsuri_core::keyform::Form>,
+    pub(crate) blend_dlg: Option<crate::windows::blend_form::BlendDialog>,
     /// Mesh edit mode: the mesh whose vertices are being edited, if any.
     mesh_edit: Option<usize>,
     mesh_drag: Option<MeshDrag>,
@@ -1895,6 +1900,7 @@ impl Default for EditorUi {
             folder_from: Vec::new(),
             new_model: None,
             show_model_info: false,
+            random_pose: Default::default(),
             show_work_time: false,
             last_activity: None,
             gpu: false,
@@ -1973,6 +1979,8 @@ impl Default for EditorUi {
             focus_request: false,
             focus_search: false,
             form_clip: None,
+            form_clip_full: None,
+            blend_dlg: None,
             mesh_edit: None,
             mesh_drag: None,
             mesh_mode: 0,
@@ -2434,7 +2442,7 @@ impl EditorUi {
     /// frame. One comparison a frame and a line only on a change, so the
     /// log says what the user did without a line per frame.
     fn log_state_changes(&mut self) {
-        let states: [(&str, bool); 31] = [
+        let states: [(&str, bool); 33] = [
             ("Settings", self.show_settings),
             ("API window", self.show_api_window),
             ("Model Statistics", self.show_stats),
@@ -2452,6 +2460,8 @@ impl EditorUi {
             ("Model Template", self.template_dlg.is_some()),
             ("New Project", self.new_model.is_some()),
             ("Project", self.show_model_info),
+            ("Random Pose", self.random_pose.show),
+            ("Blend Form", self.blend_dlg.is_some()),
             ("Work Time", self.show_work_time),
             ("Save Workspace", self.show_ws_save),
             ("Manage Workspaces", self.show_ws_manage),
@@ -2857,6 +2867,7 @@ impl EditorUi {
         self.frame_dt = if gap > 0.0 && gap <= 0.1 { gap } else { 1.0 / 60.0 };
         self.frame_at = Some(now);
         self.count_work(ui.ctx(), now);
+        self.random_pose_step(ui.ctx());
         // where undo stood when this frame began, for the crash rollback
         self.frame_undo_depth = self.session.as_ref().map_or(0, |s| s.undo_depth());
         // overlay colours: saved choices, else the theme, so mesh lines follow
@@ -3809,6 +3820,20 @@ impl EditorUi {
                             ui.close();
                             self.reset_parameters();
                         }
+                        if ui
+                            .add_enabled(
+                                self.session.is_some(),
+                                egui::Button::new(crate::i18n::tr("Random Pose…"))
+                                    .shortcut_text(self.sc("random-pose")),
+                            )
+                            .on_hover_text(crate::i18n::tr(
+                                "Move parameters at random to check the rig; values only, no keyform changes",
+                            ))
+                            .clicked()
+                        {
+                            ui.close();
+                            self.open_random_pose();
+                        }
                         ui.separator();
                         if ui
                             .add_enabled(
@@ -3962,6 +3987,24 @@ impl EditorUi {
                     });
                     ui.menu_button(crate::i18n::tr("Edit Form"), |ui| {
                         let flippable = self.edit_target().is_some();
+                        if ui
+                            .add_enabled(
+                                flippable && self.form_clip_full.is_some(),
+                                egui::Button::new(crate::i18n::tr("Blend Form…"))
+                                    .shortcut_text(self.sc("blend-form")),
+                            )
+                            .on_hover_text(crate::i18n::tr(
+                                "Mix the copied form into the keyform the parameters sit on, by an amount you pick",
+                            ))
+                            .on_disabled_hover_text(crate::i18n::tr(
+                                "Copy a form first (Ctrl+Shift+C with the parameters on a key)",
+                            ))
+                            .clicked()
+                        {
+                            ui.close();
+                            self.open_blend_form();
+                        }
+                        ui.separator();
                         for (label, horizontal, id) in
                             [("Flip Horizontally", true, "flip-h"), ("Flip Vertically", false, "flip-v")]
                         {
@@ -4965,6 +5008,8 @@ impl EditorUi {
         self.template_window(ui);
         self.model_new_window(ui);
         self.model_info_window(ui);
+        self.random_pose_window(ui);
+        self.blend_form_window(ui);
         self.work_time_window(ui);
         self.new_anim_window(ui);
         self.anim_details_window(ui);
@@ -6225,7 +6270,7 @@ impl EditorUi {
     }
     // ---- Parameter palette -------------------------------------------------
 
-    fn edit_target(&self) -> Option<(ayatsuri_core::edit::Target, String)> {
+    pub(crate) fn edit_target(&self) -> Option<(ayatsuri_core::edit::Target, String)> {
         let s = self.session.as_ref()?;
         match self.selected? {
             Sel::Mesh(i) => Some((ayatsuri_core::edit::Target::ArtMesh(i), s.mesh_name(i))),
@@ -7650,7 +7695,7 @@ impl EditorUi {
         }
     }
 
-    fn reset_parameters(&mut self) {
+    pub(crate) fn reset_parameters(&mut self) {
         if let Some(s) = &mut self.session {
             for i in 0..s.puppet.model().parameters.len() {
                 let Some(d) = s.puppet.model().parameters.get(i).map(|p| p.default) else {
@@ -7721,6 +7766,8 @@ impl EditorUi {
             "glue-bind" if have => self.run_mesh_action(MeshAction::Bind),
             "glue-unbind" if have => self.run_mesh_action(MeshAction::Unbind),
             "reset-params" => self.reset_parameters(),
+            "random-pose" => self.open_random_pose(),
+            "random-pose-play" => self.random_pose_toggle(),
             "four-corners" if have => self.run_param_cmd(ParamCmd::FourCorners),
             "motion-mirror" if have => {
                 if let Some(pi) = self.sel_param {
@@ -7861,6 +7908,7 @@ impl EditorUi {
             }
             "copy-form" => self.copy_form(),
             "paste-form" => self.paste_form(),
+            "blend-form" => self.open_blend_form(),
             "revert-original" | "update-original" | "clear-originals" if have => {
                 self.original_cmd(id);
             }
@@ -8440,6 +8488,14 @@ impl EditorUi {
             Some(Sel::Deformer(d)) => s.puppet.warp_local_grid(d).map(|l| (2, l)),
             _ => None,
         };
+        self.form_clip_full = self.edit_target().and_then(|(target, _)| {
+            let s = self.session.as_ref()?;
+            let values: Vec<f32> =
+                (0..s.puppet.model().parameters.len()).map(|i| s.puppet.value(i)).collect();
+            let k = ayatsuri_core::keyform::keyform_at(s.puppet.model(), target, &values)?;
+            let mut m = s.puppet.model().clone();
+            ayatsuri_core::keyform::copy_form(&mut m, target, k)
+        });
         if let Some((_, l)) = &self.form_clip {
             log::info!("form copied ({} points)", l.len() / 2);
         }
@@ -18004,6 +18060,8 @@ pub(crate) const KEY_ACTIONS: &[(&str, &str, &str, egui::Modifiers, egui::Key)] 
         ("Modeling", "glue-unbind", "Unbind glue", CS, K::G),
         ("Modeling", "reset-params", "Reset parameters to default", C, K::Num1),
         ("Modeling", "four-corners", "Generate four corner forms", C, K::Num4),
+        ("Modeling", "random-pose", "Random Pose…", N, K::F35),
+        ("Modeling", "random-pose-play", "Start or stop Random Pose", N, K::F35),
         ("Modeling", "motion-mirror", "Motion Mirroring on the selected parameter", N, K::F35),
         ("Modeling", "lock-selected", "Lock/unlock selected", C, K::Num2),
         ("Modeling", "toggle-visible", "Show/hide selected", C, K::Num3),
@@ -18050,6 +18108,7 @@ pub(crate) const KEY_ACTIONS: &[(&str, &str, &str, egui::Modifiers, egui::Key)] 
         ("Edit", "search", "Search", C, K::F),
         ("Edit", "copy-form", "Copy form", CS, K::C),
         ("Edit", "paste-form", "Paste form", CS, K::V),
+        ("Edit", "blend-form", "Blend form", CS, K::B),
         ("Modeling", "revert-original", "Revert to Original", N, K::F35),
         ("Modeling", "update-original", "Update Original Shape", N, K::F35),
         ("Modeling", "clear-originals", "Delete Original Shape of All Deformers", N, K::F35),

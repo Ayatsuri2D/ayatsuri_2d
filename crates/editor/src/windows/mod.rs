@@ -4,9 +4,11 @@
 pub(crate) mod about;
 mod api;
 pub(crate) mod atlas;
+pub(crate) mod blend_form;
 mod dialog;
 pub(crate) mod export_moc3;
 mod model_info;
+pub(crate) mod random_pose;
 pub(crate) mod recovery;
 pub(crate) mod render;
 pub(crate) mod settings;
