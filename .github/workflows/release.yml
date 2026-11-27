@@ -96,7 +96,10 @@ jobs:
 
   sdk:
     name: SDK ${{ matrix.label }}
-    # the C library for each platform: header, libraries, example, licences
+    # the C library for each platform: header, libraries, example, licences,
+    # plus the Godot addons' libraries on the desktop platforms. The Godot 3
+    # one runs bindgen at build time, which loads the libclang the hosted
+    # runner images ship (see crates/godot3/VENDORED.md).
     strategy:
       fail-fast: false
       matrix:
@@ -182,9 +185,11 @@ jobs:
           if-no-files-found: error
 
   godot:
-    name: Godot addon
-    # the addon's GDExtension library for Windows, Linux (x64 and ARM64)
-    # and macOS, zipped with the addon for a Godot 4 project
+    name: Godot addons
+    # the Godot 4 addon's GDExtension library and the Godot 3 addon's
+    # GDNative library for Windows, Linux (x64 and ARM64) and macOS, each
+    # zipped with its addon folder: ayatsuri2d-godot-<version>.zip and
+    # ayatsuri2d-godot3-<version>.zip
     needs: [sdk]
     runs-on: ubuntu-latest
     steps:
@@ -203,6 +208,8 @@ jobs:
           for f in sdk-downloads/*.tar.gz; do tar -xzf "$f" -C sdk-unpacked; done
           for f in sdk-downloads/*.zip; do unzip -q "$f" -d sdk-unpacked; done
           cargo xtask godot --pack sdk-unpacked/*
+          # the Godot 3 addon, from the same SDK downloads, as a second zip
+          cargo xtask godot3 --pack sdk-unpacked/*
       - uses: actions/upload-artifact@v4
         with:
           name: godot

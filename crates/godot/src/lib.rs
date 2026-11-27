@@ -5,21 +5,20 @@
 //! ```text
 //! node.rs      the AyatsuriModel class: properties, functions, the frame
 //! painter.rs   RenderingServer canvas items, one per drawable
-//! plan.rs      the decisions, with no Godot type: units, blends, order,
-//!              what a model3.json names
-//! runtime.rs   the ay2d_* calls as safe Rust
+//! plan         (ayatsuri-godot-plan) the decisions, with no Godot type:
+//!              units, blends, order, what a model3.json names
+//! runtime      (ayatsuri-godot-plan) the ay2d_* calls as safe Rust
 //! ```
 //!
-//! Godot 3 is not supported: GDNative is deprecated and the Rust bindings
-//! for it ended in 2023. The C ABI (`ayatsuri.h`) remains for anyone who
-//! wants to bind it by hand.
+//! Godot 3 has its own addon, `ayatsuri-godot3`, a GDNative library over
+//! the same two shared modules.
 
 use godot::prelude::{ExtensionLibrary, gdextension};
 
+use ayatsuri_godot_plan::{plan, runtime};
+
 mod node;
 mod painter;
-mod plan;
-mod runtime;
 
 pub use node::AyatsuriModel;
 

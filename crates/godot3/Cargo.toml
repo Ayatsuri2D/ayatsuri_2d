@@ -1,0 +1,33 @@
+[package]
+name = "ayatsuri-godot3"
+description = "The Godot 3 addon: an AyatsuriModel NativeScript that loads and draws .aom and moc3 models on the C ABI runtime, over GDNative"
+version.workspace = true
+authors.workspace = true
+repository.workspace = true
+edition.workspace = true
+# Apache-2.0 like the C ABI it wraps, so a closed game can ship the addon.
+# See LICENSE.
+license = "Apache-2.0"
+
+[lib]
+name = "ayatsuri2d_godot3"
+crate-type = ["cdylib"]
+
+# The GDNative entry points and the server singletons need `unsafe` (every
+# VisualServer call is unsafe in the gdnative crate); the rest of the crate
+# is safe Rust over those lines.
+[lints.clippy]
+unwrap_used = "deny"
+expect_used = "deny"
+panic = "deny"
+indexing_slicing = "deny"
+
+[dependencies]
+ayatsuri-capi = { workspace = true }
+# the runtime wrapper and the drawing decisions, shared with the Godot 4 addon
+ayatsuri-godot-plan = { workspace = true }
+# Pinned: the last release of the archived Godot 3 binding (MIT). Its
+# bindings are Godot 3.5.1's GDNative API, which Godot 3.6 keeps. The
+# `gdnative-sys` it pulls in is the vendored copy under vendor/, through
+# the workspace's [patch.crates-io]; see VENDORED.md.
+gdnative = { version = "=0.11.3", default-features = false }

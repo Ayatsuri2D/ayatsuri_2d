@@ -11,6 +11,15 @@
   masks are drawn; inverted masks and the advanced blends of moc3 5.3 are
   not yet. It runs on the same runtime library as the Unity package, for
   Windows, Linux and macOS.
+- **A Godot 3 addon.** `ayatsuri2d-godot3-<version>.zip` unzips into a
+  Godot 3.5 or 3.6 project and adds `AyatsuriModel` as a NativeScript for
+  a `Node2D`, with the Godot 4 addon's methods, properties and
+  `motion_event` signal, name for name, and the same units. It is a
+  GDNative library over the revived Rust binding (`gdnative` 0.11.3, with
+  its binding generator moved to a current bindgen), on the same runtime
+  as the other addons. Masks, inverted masks included, are drawn through
+  an offscreen mask sheet and a small shader, since Godot 3 has no canvas
+  groups. For Windows, Linux (x64 and ARM64) and macOS.
 - **Work Time** (Window menu): how long the open project has been worked
   on, counted only while you are doing something (it stops half a minute
   after your last input and resumes on the next) and saved in the `.aom`,

@@ -23,7 +23,8 @@ indexing_slicing = "deny"
 
 [dependencies]
 ayatsuri-capi = { workspace = true }
-serde_json = { workspace = true }
+# the runtime wrapper and the drawing decisions, shared with the Godot 3 addon
+ayatsuri-godot-plan = { workspace = true }
 # Pinned: the generated bindings and the entry symbol are this version's.
 # `api-4-2` is the oldest engine the bindings can target; the addon asks
 # Godot for 4.2 or newer in its .gdextension file.

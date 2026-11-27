@@ -122,11 +122,13 @@ Not drawn yet in this first version:
 
 ## Godot 3
 
-This addon does not run in Godot 3. Its GDNative interface is deprecated,
-and the Rust bindings for it ended in 2023 and no longer build. The C
-library and its header, `ayatsuri.h`, remain in every release for anyone
-who wants to bind it by hand, in Godot 3 (a GDNative library written in C
-over `ayatsuri.h`) or anywhere else that calls C.
+This addon does not run in Godot 3: it is a GDExtension, which Godot 3
+does not load. Godot 3.5 and 3.6 have their own addon,
+`ayatsuri2d-godot3-<version>.zip` in the same release, a GDNative library
+with the same methods, properties and signal (a NativeScript on a `Node2D`
+instead of a node class; see its README). The C library and its header,
+`ayatsuri.h`, remain in every release for anyone who wants to bind it by
+hand anywhere else that calls C.
 
 ## Licence
 

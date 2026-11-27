@@ -1,0 +1,8 @@
+[gd_resource type="NativeScript" load_steps=2 format=2]
+
+[ext_resource path="res://addons/ayatsuri2d/ayatsuri2d.gdnlib" type="GDNativeLibrary" id=1]
+
+[resource]
+resource_name = "AyatsuriModel"
+class_name = "AyatsuriModel"
+library = ExtResource( 1 )

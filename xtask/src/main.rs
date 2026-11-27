@@ -6,14 +6,15 @@
 //! with its release list from CHANGELOG.md. `capi` builds the C library and writes its
 //! header off the Rust source; `sdk` packs it for one platform, as releases
 //! ship it. `unity` checks the Unity package against the header and packs
-//! it with those libraries; `godot` does the same for the Godot addon. `ci`
-//! runs every gate.
+//! it with those libraries; `godot` and `godot3` do the same for the Godot 4
+//! and Godot 3 addons. `ci` runs every gate.
 
 use std::error::Error;
 use std::path::Path;
 use std::process::Command;
 
 mod godot;
+mod godot3;
 mod metainfo;
 mod unity;
 
@@ -49,6 +50,27 @@ const RULES: &[(&str, &[&str], &str)] = &[
             "quick-xml",
         ],
         "the Godot addon takes only the ABI and the MIT runtime crates",
+    ),
+    // the Godot 3 addon likewise, over the gdnative crates (MIT)
+    (
+        "crates/godot3",
+        &[
+            "ayatsuri-editor",
+            "ayatsuri-render",
+            "ayatsuri-pen",
+            "openmoc3",
+            "psd",
+            "zip",
+            "image",
+            "quick-xml",
+        ],
+        "the Godot 3 addon takes only the ABI and the MIT runtime crates",
+    ),
+    // and the half the two share has no engine in it at all
+    (
+        "crates/godot-plan",
+        &["ayatsuri-editor", "ayatsuri-render", "ayatsuri-pen", "openmoc3", "godot", "gdnative"],
+        "the shared Godot logic is engine-free and over the ABI only",
     ),
     // Nothing below the editor knows the UI toolkit exists.
     ("crates/format", &["egui", "eframe"], "format is UI-free"),
@@ -243,6 +265,7 @@ fn ci() -> Result<()> {
     capi(&["--check".to_string()])?;
     unity::unity(&[])?;
     godot::godot(&[])?;
+    godot3::godot3(&[])?;
     layers()
 }
 
@@ -433,17 +456,22 @@ fn third_party_notices_for(roots: &[&str]) -> Result<String> {
     Ok(text)
 }
 
-/// The Godot addon's library is built for every desktop target beside the
-/// C library. Android and iOS are left out in this first version: Godot
-/// loads a GDExtension there from an .aar or an .xcframework, which the
-/// pack does not make yet, and the addon's README says so.
+/// The Godot addons' libraries are built for every desktop target beside
+/// the C library. Android and iOS are left out in this first version:
+/// Godot loads an extension there from an .aar or an .xcframework, which
+/// the pack does not make yet, and the addons' READMEs say so.
 fn godot_target(triple: &str) -> bool {
     !(triple.contains("android") || triple.contains("apple-ios"))
 }
 
+/// The packages the Godot addons are built from, on the targets
+/// `godot_target` allows: the Godot 4 GDExtension and the Godot 3 GDNative
+/// library.
+const GODOT_PACKAGES: &[&str] = &["ayatsuri-godot", "ayatsuri-godot3"];
+
 /// `cargo xtask sdk [--target <triple>]... [--label <name>]`: the C library
 /// packed for one platform, as a release ships it, under `target/sdk/`,
-/// with the Godot addon's library beside it for the desktop platforms.
+/// with the Godot addons' libraries beside it for the desktop platforms.
 /// With no target it builds for this machine and runs the C host check
 /// first; two Apple targets are joined into one universal library.
 fn sdk(args: &[String]) -> Result<()> {
@@ -473,14 +501,18 @@ fn sdk(args: &[String]) -> Result<()> {
     if targets.is_empty() {
         capi(&[])?;
         if godot_target(&host) {
-            run("cargo", &["build", "--profile", "capi-release", "-p", "ayatsuri-godot"])?;
+            let mut args = vec!["build", "--profile", "capi-release"];
+            for p in GODOT_PACKAGES {
+                args.extend(["-p", p]);
+            }
+            run("cargo", &args)?;
         }
     } else {
         capi(&["--header".to_string()])?;
         for t in &targets {
             let mut packages = vec!["ayatsuri-capi"];
             if godot_target(t) {
-                packages.push("ayatsuri-godot");
+                packages.extend(GODOT_PACKAGES);
             }
             let mut args = vec!["build", "--locked", "--profile", "capi-release"];
             for p in &packages {
@@ -506,8 +538,10 @@ fn sdk(args: &[String]) -> Result<()> {
             let name = entry?.file_name().to_string_lossy().into_owned();
             let capi = name.starts_with("libayatsuri_capi") || name.starts_with("ayatsuri_capi");
             let lib = [".so", ".a", ".dylib", ".dll", ".lib"].iter().any(|e| name.ends_with(e));
-            // the addon's library is only ever loaded by Godot: the shared
-            // one, not the import library MSVC writes beside it
+            // the addons' libraries (`ayatsuri2d_godot` for Godot 4,
+            // `ayatsuri2d_godot3` for Godot 3) are only ever loaded by
+            // Godot: the shared one, not the import library MSVC writes
+            // beside it
             let godot = with_godot
                 && (name.starts_with("libayatsuri2d_godot")
                     || name.starts_with("ayatsuri2d_godot"))
@@ -581,7 +615,8 @@ fn main() {
             "sdk" => sdk(&std::env::args().skip(2).collect::<Vec<_>>()),
             "unity" => unity::unity(&std::env::args().skip(2).collect::<Vec<_>>()),
             "godot" => godot::godot(&std::env::args().skip(2).collect::<Vec<_>>()),
-            _ => Err("usage: cargo xtask <layers|credits [--check]|metainfo [--check]|ci|capi [--header|--check]|sdk [--target T]... [--label L]|unity [--pack <sdk dir>...]|godot [--pack <sdk dir>...]|soak <model.aom> [seconds]>"
+            "godot3" => godot3::godot3(&std::env::args().skip(2).collect::<Vec<_>>()),
+            _ => Err("usage: cargo xtask <layers|credits [--check]|metainfo [--check]|ci|capi [--header|--check]|sdk [--target T]... [--label L]|unity [--pack <sdk dir>...]|godot [--pack <sdk dir>...]|godot3 [--pack <sdk dir>...]|soak <model.aom> [seconds]>"
                 .into()),
         };
     if let Err(e) = result {

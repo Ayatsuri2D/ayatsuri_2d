@@ -2,6 +2,10 @@
 resolver = "3"
 members = ["crates/*", "apps/*", "xtask"]
 default-members = ["crates/*", "apps/*", "xtask"]
+# The Godot 3 addon's vendored binding crate is a dependency, not a member:
+# it keeps its upstream lints and build script as they are (see
+# crates/godot3/VENDORED.md).
+exclude = ["crates/godot3/vendor/gdnative-sys"]
 
 [workspace.package]
 version = "0.6.3"
@@ -23,6 +27,7 @@ ayatsuri-editor = { path = "crates/editor" }
 ayatsuri-import = { path = "crates/import" }
 ayatsuri-update = { path = "crates/update" }
 ayatsuri-pen = { path = "crates/pen" }
+ayatsuri-godot-plan = { path = "crates/godot-plan" }
 openmoc3 = { path = "crates/openmoc3" }
 
 # foundation
@@ -57,6 +62,13 @@ indexing_slicing = "deny"
 todo = "warn"
 dbg_macro = "warn"
 too_many_arguments = "allow"
+
+# gdnative-sys 0.11.3 as published generates its bindings with bindgen
+# 0.63, which reads every struct as opaque on libclang 16 and newer. The
+# vendored copy asks for bindgen 0.72; nothing else in it changed. See
+# crates/godot3/VENDORED.md.
+[patch.crates-io]
+gdnative-sys = { path = "crates/godot3/vendor/gdnative-sys" }
 
 [profile.dev]
 opt-level = 1

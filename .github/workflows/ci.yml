@@ -24,7 +24,9 @@ jobs:
           components: rustfmt, clippy
       - uses: Swatinem/rust-cache@v2
       - name: System libraries
-        run: sudo apt-get update && sudo apt-get install -y libxkbcommon-dev libwayland-dev libx11-dev libasound2-dev
+        # libclang: the Godot 3 addon's binding crate runs bindgen at build
+        # time (crates/godot3/VENDORED.md); the image ships one, this makes sure
+        run: sudo apt-get update && sudo apt-get install -y libxkbcommon-dev libwayland-dev libx11-dev libasound2-dev libclang-dev
       - run: cargo xtask ci
 
   build:
