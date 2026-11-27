@@ -1,0 +1,10 @@
+Ayatsuri2D for Godot 3 is Apache-2.0, like the C interface it is built
+on; the full text is in LICENSE-APACHE beside this file in a packed
+release. The runtime inside the library (ayatsuri-core, ayatsuri-format,
+ayatsuri-import) is MIT (LICENSE-MIT), and the Rust crates linked into the
+library, among them the MIT gdnative binding and the Godot headers it
+carries, keep their own licences, reproduced in THIRD-PARTY.md. A
+closed-source game may ship this addon; keep these files with it.
+
+Ayatsuri2D is made separately from Live2D Inc. Live2D and Cubism are Live2D
+Inc. trademarks; they are named only to say which files this addon reads.

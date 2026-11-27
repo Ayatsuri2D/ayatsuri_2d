@@ -1,0 +1,22 @@
+[package]
+name = "ayatsuri-godot-plan"
+description = "The Godot-free half of the Godot addons: the C ABI runtime as safe Rust, and the drawing decisions (units, blends, draw order, model3.json)"
+version.workspace = true
+authors.workspace = true
+repository.workspace = true
+edition.workspace = true
+# Apache-2.0 like the C ABI it wraps and the addons that link it.
+# See LICENSE.
+license = "Apache-2.0"
+
+# The views over the runtime's drawables need `unsafe`; everything else in
+# the crate is safe Rust over those few lines.
+[lints.clippy]
+unwrap_used = "deny"
+expect_used = "deny"
+panic = "deny"
+indexing_slicing = "deny"
+
+[dependencies]
+ayatsuri-capi = { workspace = true }
+serde_json = { workspace = true }

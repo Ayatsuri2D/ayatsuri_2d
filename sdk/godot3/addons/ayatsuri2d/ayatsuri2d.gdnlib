@@ -1,0 +1,24 @@
+; Ayatsuri2D for Godot 3. The libraries under bin/ are put there by
+; `cargo xtask godot3 --pack`; a checkout of this folder has none.
+; Godot takes the first [entry] key whose feature tags it all has, so the
+; arm64 line comes before the one every 64-bit Linux matches.
+[general]
+
+singleton=false
+load_once=true
+symbol_prefix="godot_"
+reloadable=true
+
+[entry]
+
+X11.arm64="res://addons/ayatsuri2d/bin/linux-arm64/libayatsuri2d_godot3.so"
+X11.x86_64="res://addons/ayatsuri2d/bin/linux-x64/libayatsuri2d_godot3.so"
+Windows.64="res://addons/ayatsuri2d/bin/windows-x64/ayatsuri2d_godot3.dll"
+OSX.64="res://addons/ayatsuri2d/bin/macos-universal/libayatsuri2d_godot3.dylib"
+
+[dependencies]
+
+X11.arm64=[  ]
+X11.x86_64=[  ]
+Windows.64=[  ]
+OSX.64=[  ]
