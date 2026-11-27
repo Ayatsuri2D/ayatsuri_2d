@@ -1668,5 +1668,20 @@
   "Counts only while you work: it stops half a minute after your last input and starts again on the next.": "作業中のみ計測します。最後の操作から30秒で停止し、次の操作で再開します。",
   "Height": "高さ",
   "Keep the canvas shape": "キャンバスの比率を保つ",
-  "On, the height follows the width in the canvas's proportions. Off, set both: the canvas is fitted inside and centred, and the rest is background.": "オンでは高さがキャンバスの比率に従います。オフでは幅と高さを別々に設定でき、キャンバスは中央に収まり、残りは背景になります。"
+  "On, the height follows the width in the canvas's proportions. Off, set both: the canvas is fitted inside and centred, and the rest is background.": "オンでは高さがキャンバスの比率に従います。オフでは幅と高さを別々に設定でき、キャンバスは中央に収まり、残りは背景になります。",
+  "Sphere Warp…": "球面ワープ…",
+  "Sphere Warp": "球面ワープ",
+  "Select a warp deformer": "ワープデフォーマーを選択してください",
+  "Write the keyforms of {name} as a sphere turning with two parameters.": "{name} のキーフォームを、2つのパラメータで回転する球面として書き込みます。",
+  "Parameter X": "パラメータ X",
+  "Parameter Y": "パラメータ Y",
+  "Depth": "深さ",
+  "1 lifts the grid into a full hemisphere, 0 keeps it flat": "1 でグリッドを完全な半球に持ち上げ、0 で平面のままにします",
+  "Max angle": "最大角度",
+  "The turn at the end of each parameter's range farther from its default": "各パラメータの範囲のうち、デフォルトから遠い端での回転角",
+  "Pick two different parameters.": "異なる2つのパラメータを選択してください。",
+  "A blend shape parameter cannot turn a sphere.": "ブレンドシェイプのパラメータでは球面を回転できません。",
+  "The keys for {name} must be numbers, like -30, 0, 30.": "{name} のキーは -30, 0, 30 のような数値にしてください。",
+  "{name} already has keys on {params}; their keyforms will be overwritten.": "{name} には既に {params} のキーがあります。そのキーフォームは上書きされます。",
+  "The default key is the front. The result is plain warp keyforms, so every key can be edited afterwards.": "デフォルトのキーが正面になります。結果は通常のワープのキーフォームなので、どのキーも後から編集できます。"
 }

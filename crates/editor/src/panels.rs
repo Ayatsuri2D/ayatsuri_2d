@@ -20,6 +20,7 @@ mod original;
 mod param_menu;
 mod physics_page;
 mod skin_dialog;
+mod sphere_dialog;
 mod stroke_tool;
 mod temp_deform;
 mod tool_details;
@@ -562,6 +563,8 @@ pub struct EditorUi {
     /// Modeling > Texture Atlas, while open.
     pub(crate) atlas_win: Option<crate::windows::atlas::AtlasWin>,
     skin_dlg: Option<skin_dialog::SkinDialog>,
+    /// Modeling > Deformer > Sphere Warp, while open.
+    sphere_dlg: Option<sphere_dialog::SphereDialog>,
     show_physics: bool,
     phys_sel: usize,
     phys_tab: usize,
@@ -1835,6 +1838,7 @@ impl Default for EditorUi {
             render_win: None,
             atlas_win: None,
             skin_dlg: None,
+            sphere_dlg: None,
             show_physics: false,
             phys_sel: 0,
             phys_tab: 0,
@@ -2434,7 +2438,7 @@ impl EditorUi {
     /// frame. One comparison a frame and a line only on a change, so the
     /// log says what the user did without a line per frame.
     fn log_state_changes(&mut self) {
-        let states: [(&str, bool); 31] = [
+        let states: [(&str, bool); 32] = [
             ("Settings", self.show_settings),
             ("API window", self.show_api_window),
             ("Model Statistics", self.show_stats),
@@ -2442,6 +2446,7 @@ impl EditorUi {
             ("Render", self.render_win.is_some()),
             ("Texture Atlas", self.atlas_win.is_some()),
             ("Skinning", self.skin_dlg.is_some()),
+            ("Sphere Warp", self.sphere_dlg.is_some()),
             ("Physics Settings", self.show_physics),
             ("New Animation", self.new_anim.is_some()),
             ("Animation Details", self.anim_details.is_some()),
@@ -3714,6 +3719,18 @@ impl EditorUi {
                             self.pending_create = Some((false, None));
                             ui.close();
                         }
+                        ui.separator();
+                        if ui
+                            .add_enabled(
+                                self.selected_warp().is_some(),
+                                egui::Button::new(crate::i18n::tr("Sphere Warp…")).shortcut_text(self.sc("sphere-warp")),
+                            )
+                            .on_disabled_hover_text(crate::i18n::tr("Select a warp deformer"))
+                            .clicked()
+                        {
+                            ui.close();
+                            self.open_sphere_dialog();
+                        }
                     });
                     let skin_ready = self.skin_path().is_some();
                     let mesh_picked = matches!(self.selected, Some(Sel::Mesh(_)));
@@ -4972,6 +4989,7 @@ impl EditorUi {
         self.render_window(ui);
         self.atlas_window(ui);
         self.skin_dialog(ui);
+        self.sphere_dialog(ui);
         self.export_overwrite_window(ui);
         self.close_confirm_window(ui);
         self.workspace_windows(ui);
@@ -7928,6 +7946,7 @@ impl EditorUi {
                 self.open_skin_dialog(false);
             }
             "skin-params" if have => self.open_skin_dialog(true),
+            "sphere-warp" if self.selected_warp().is_some() => self.open_sphere_dialog(),
             "skin-path" if self.skin_path().is_some() => self.apply_skin(),
             "texture-atlas" if have => self.open_atlas(),
             "artpath-create" if have => {
@@ -18001,6 +18020,7 @@ pub(crate) const KEY_ACTIONS: &[(&str, &str, &str, egui::Modifiers, egui::Key)] 
         ("Modeling", "workspace-modeling", "Modeling Workspace", N, K::F35),
         ("Modeling", "create-warp", "Create Warp Deformer", N, K::F35),
         ("Modeling", "create-rotation", "Create Rotation Deformer", N, K::F35),
+        ("Modeling", "sphere-warp", "Sphere Warp…", N, K::F35),
         ("Modeling", "conversion-divisions", "Conversion Divisions…", N, K::F35),
         ("Modeling", "new-part", "New Part", N, K::F35),
         ("Modeling", "group-into-part", "Group into New Part…", N, K::F35),

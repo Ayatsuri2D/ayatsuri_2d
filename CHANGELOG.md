@@ -22,6 +22,14 @@
   meshes copy together. Points that land on existing ones merge; clear
   the target first for an exact duplicate, then mirror it with Mirror
   Edit for the other side.
+- **Sphere Warp** (Modeling > Deformer > Sphere Warp…): writes a warp
+  deformer's keyforms on two parameters, Angle X and Angle Y by default, so
+  the grid turns like the visible face of a sphere: the centre swings
+  toward the turn and the leaving side foreshortens. Pick the keys to
+  write, the depth of the lift (1 is a full hemisphere, 0 stays flat) and
+  the turn at the parameters' ends. The default key is the front and the
+  result is plain warp keyforms, so it exports to every moc3 version and
+  every key can be edited afterwards. Made for eyes, balls and chests.
 
 ### Changed
 - **The log says what a model looks like.** With the log level at debug
