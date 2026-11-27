@@ -6645,6 +6645,82 @@ impl EditorUi {
                     result = ayatsuri_core::edit::bind_glue(m, a, b, &wa, &wb, tol_px / ppu);
                     result.is_some()
                 });
+                // bound points become one point: each pair meets in the
+                // middle at rest, the art sliding under them, so gluing
+                // changes nothing on screen (Cubism binds only points that
+                // already overlap; the bind distance here lets near misses
+                // in, and this closes them)
+                if let Some((gi, n)) = result {
+                    let model = s.puppet.model();
+                    let pairs: Vec<(usize, usize)> = model
+                        .glues
+                        .get(gi)
+                        .map(|g| {
+                            let flipped = g.art_mesh_a as usize == b;
+                            g.indices
+                                .as_chunks::<2>()
+                                .0
+                                .iter()
+                                .rev()
+                                .take(n)
+                                .map(|&[x, y]| {
+                                    if flipped {
+                                        (y as usize, x as usize)
+                                    } else {
+                                        (x as usize, y as usize)
+                                    }
+                                })
+                                .collect()
+                        })
+                        .unwrap_or_default();
+                    let values: Vec<f32> =
+                        (0..model.parameters.len()).map(|i| s.puppet.value(i)).collect();
+                    // a vertex's own place in its parent's space, for the delta
+                    let local = |mi: usize, vi: usize| -> Option<(Option<u32>, f32, f32)> {
+                        let am = model.art_meshes.get(mi)?;
+                        let k = ayatsuri_core::keyform::keyform_at(
+                            model,
+                            ayatsuri_core::edit::Target::ArtMesh(mi),
+                            &values,
+                        )
+                        .unwrap_or(0);
+                        let at = k * am.vertex_count as usize * 2 + vi * 2;
+                        Some((
+                            am.parent_deformer,
+                            *am.positions.get(at)?,
+                            *am.positions.get(at + 1)?,
+                        ))
+                    };
+                    // mesh, vertex, parent-space delta, texture coordinate
+                    type Move = (usize, usize, f32, f32, (f32, f32));
+                    let mut moves: Vec<Move> = Vec::new();
+                    for (ia, ib) in pairs {
+                        let at =
+                            |w: &[f32], i: usize| Some(pos2(*w.get(i * 2)?, *w.get(i * 2 + 1)?));
+                        let (Some(fa), Some(fb)) = (at(&wa, ia), at(&wb, ib)) else { continue };
+                        let mid = pos2((fa.x + fb.x) * 0.5, (fa.y + fb.y) * 0.5);
+                        for (mi, vi, from) in [(a, ia, fa), (b, ib, fb)] {
+                            let (wdx, wdy) = (mid.x - from.x, mid.y - from.y);
+                            if wdx.abs() + wdy.abs() < 1e-7 {
+                                continue;
+                            }
+                            let Some((parent, px, py)) = local(mi, vi) else { continue };
+                            let (dx, dy) = parent_delta(&s.puppet, parent, px, py, wdx, wdy);
+                            if let Some(uv) = uv_near(&s.puppet, mi, mid) {
+                                moves.push((mi, vi, dx, dy, uv));
+                            }
+                        }
+                    }
+                    if !moves.is_empty() {
+                        s.amend(|m| {
+                            let mut any = false;
+                            for &(mi, vi, dx, dy, uv) in &moves {
+                                any |= ayatsuri_core::edit::slide_vertex(m, mi, vi, dx, dy, uv);
+                            }
+                            any
+                        });
+                    }
+                }
                 match result {
                     Some((gi, n)) => {
                         log::info!("glue {gi}: bound {n} overlapping point pair(s)");
@@ -19708,6 +19784,23 @@ fn uv_at(puppet: &ayatsuri_core::Puppet, mi: usize, ux: f32, uy: f32) -> Option<
     let u = w0 * t0[0] + w1 * t1[0] + w2 * t2[0];
     let v = w0 * t0[1] + w1 * t1[1] + w2 * t2[1];
     Some((g.texture as usize, u, v))
+}
+
+/// The texture coordinate a point would have on this mesh, taken from the
+/// nearest triangle even when the point lies outside it, as a point on the
+/// mesh's edge does when it is nudged outward.
+fn uv_near(puppet: &ayatsuri_core::Puppet, mi: usize, p: Pos2) -> Option<(f32, f32)> {
+    let g = puppet.mesh_geometry(mi)?;
+    let pts: Vec<Pos2> = g.positions.as_chunks::<2>().0.iter().map(|q| pos2(q[0], q[1])).collect();
+    let (uv, _) = g.uvs.as_chunks::<2>();
+    let (corners, weights) = mesh_weights(&pts, g.indices, p)?;
+    let mut out = (0.0, 0.0);
+    for (k, w) in corners.iter().zip(weights) {
+        let t = uv.get(*k)?;
+        out.0 += w * t[0];
+        out.1 += w * t[1];
+    }
+    Some(out)
 }
 
 /// Every mesh drawn at a point, front first: shown with its parts, not

@@ -38,6 +38,12 @@
   panel sat there, so a drop in the Deformer palette could land on an
   unseen Parts palette row too, moving the mesh twice (two undos to take
   back). Drop targets now take the pointer only on the row as shown.
+- **Binding glue nudged the art.** Two points within the bind distance
+  were bound as they were, and the glue then held them at their midpoint,
+  so both meshes shifted by up to that distance the moment they were
+  glued (a lip line moving, a jaw edge creeping). Binding now moves each
+  pair onto its midpoint once, the art sliding under the points, so gluing
+  changes nothing on screen, as Cubism's overlapping points do.
 - **A right-click on a 2D pad snaps to the key dot under it**, as it does
   on a slider, so the menu that opens acts on that key.
 - **Render and Export Animation locked the frame to the canvas's shape**
