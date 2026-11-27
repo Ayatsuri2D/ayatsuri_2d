@@ -244,6 +244,9 @@ pub struct Prefs {
     pub api_clients: Vec<crate::api::protocol::Client>,
     /// Breath's parameters; None is the Cubism SDK sample's set.
     pub breath: Option<Vec<crate::breath::BreathRow>>,
+    /// Width of the Parameter palette's name column in points; None is
+    /// the default. Dragged on the boundary between names and sliders.
+    pub param_name_w: Option<f32>,
 }
 
 /// The arrow tool's display settings, RGBA.
@@ -255,6 +258,8 @@ pub struct Overlay {
     pub warp_color: Option<[u8; 4]>,
     pub rotation_color: Option<[u8; 4]>,
     pub weight_color: Option<[u8; 4]>,
+    /// Bones on the canvas; None follows the primary colour.
+    pub bone_color: Option<[u8; 4]>,
 }
 
 fn path() -> Option<PathBuf> {

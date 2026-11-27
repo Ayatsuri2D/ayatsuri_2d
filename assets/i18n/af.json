@@ -1343,7 +1343,6 @@
   "Inherited clipping": "Geërfde knip",
   "Shows Inherit in the Inspector's clipping: a mesh is also clipped by what its masks are clipped by. Drawn exactly in the editor; moc3 export clips it by its own masks only for now": "Wys Erf by die knip in die Inspekteur: 'n mesh word ook geknip deur wat sy maskers knip. Presies geteken in die redigeerder; moc3-uitvoer knip dit vir nou net met sy eie maskers",
   "Bones": "Bene",
-  "Bone chains that bend meshes by painted weights, with inherit modes and IK. They play in .aom and the SDK; moc3 export does not carry them yet": "Beenkettings wat meshes buig volgens geverfde gewigte, met oorerwingsmodusse en IK. Hulle speel in .aom en die SDK; moc3-uitvoer dra hulle nog nie",
   "Bone": "Been",
   "Weight Paint": "Gewigte verf",
   "Drag on the canvas to draw a bone from its joint to its tip. Start the drag on any bone's tip or joint dot to begin there and draw a child of that bone, and keep going for a chain. A bone drawn elsewhere goes under the selected warp or rotation deformer, or at the top. Click a bone to pick it; Ctrl or Shift+click picks more.\n\nWith the arrow, drag a bone to turn it and its joint to move it, in the keyform the parameters sit on. Settings > Experimental > Bones turns these tools off.": "Sleep op die doek om 'n been van sy gewrig tot sy punt te teken. Begin die sleep op enige been se punt of gewrigpunt om daar te begin en 'n kind van daardie been te teken, en hou aan vir 'n ketting. 'n Been wat elders geteken word, gaan onder die gekose warp- of rotasievervormer, of heel bo. Klik op 'n been om dit te kies; Ctrl of Shift+klik kies meer.\n\nMet die pyl sleep jy 'n been om dit te draai en sy gewrig om dit te skuif, in die sleutelvorm waarop die parameters staan. Instellings > Eksperimenteel > Bene skakel hierdie gereedskap af.",
@@ -1668,5 +1667,10 @@
   "Counts only while you work: it stops half a minute after your last input and starts again on the next.": "Tel net terwyl jy werk: dit stop 'n halwe minuut na jou laaste invoer en begin weer by die volgende.",
   "Height": "Hoogte",
   "Keep the canvas shape": "Behou die doekvorm",
-  "On, the height follows the width in the canvas's proportions. Off, set both: the canvas is fitted inside and centred, and the rest is background.": "Aan: die hoogte volg die breedte in die doek se verhoudings. Af: stel albei; die doek pas binne-in, gesentreer, en die res is agtergrond."
+  "On, the height follows the width in the canvas's proportions. Off, set both: the canvas is fitted inside and centred, and the rest is background.": "Aan: die hoogte volg die breedte in die doek se verhoudings. Af: stel albei; die doek pas binne-in, gesentreer, en die res is agtergrond.",
+  "Bone display settings": "Been-vertooninstellings",
+  "Bone color": "Beenkleur",
+  "Bone chains that bend meshes by painted weights, with inherit modes and IK. They play in .aom and the SDK, and export to moc3 and cmo3 baked into deformers": "Beenkettings wat meshes buig volgens geverfde gewigte, met oorerwingsmodusse en IK. Hulle speel in .aom en die SDK, en word na moc3 en cmo3 uitgevoer, ingebak in deformeerders",
+  "Copy form at this key": "Kopieer vorm by hierdie sleutel",
+  "Paste form to this key": "Plak vorm op hierdie sleutel"
 }

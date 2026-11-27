@@ -1343,7 +1343,6 @@
   "Inherited clipping": "Overgenomen uitknippen",
   "Shows Inherit in the Inspector's clipping: a mesh is also clipped by what its masks are clipped by. Drawn exactly in the editor; moc3 export clips it by its own masks only for now": "Toont Overnemen bij het uitknippen in de Inspector: een mesh wordt ook uitgeknipt door wat zijn maskers uitknipt. Exact getekend in de editor; moc3-export knipt voorlopig alleen met de eigen maskers",
   "Bones": "Botten",
-  "Bone chains that bend meshes by painted weights, with inherit modes and IK. They play in .aom and the SDK; moc3 export does not carry them yet": "Bottenketens die meshes buigen volgens geschilderde gewichten, met overervingsmodi en IK. Ze spelen in .aom en de SDK; moc3-export neemt ze nog niet mee",
   "Bone": "Bot",
   "Weight Paint": "Gewichten schilderen",
   "Drag on the canvas to draw a bone from its joint to its tip. Start the drag on any bone's tip or joint dot to begin there and draw a child of that bone, and keep going for a chain. A bone drawn elsewhere goes under the selected warp or rotation deformer, or at the top. Click a bone to pick it; Ctrl or Shift+click picks more.\n\nWith the arrow, drag a bone to turn it and its joint to move it, in the keyform the parameters sit on. Settings > Experimental > Bones turns these tools off.": "Sleep op het canvas om een bot te tekenen van het gewricht naar de punt. Begin de sleep op de punt of het gewrichtspunt van een bot om daar te beginnen en een kind van dat bot te tekenen, en ga door voor een keten. Een bot dat ergens anders getekend wordt, komt onder de geselecteerde warp- of rotatiedeformer, of bovenaan. Klik op een bot om het te kiezen; Ctrl of Shift+klik kiest er meer.\n\nMet de pijl sleep je een bot om het te draaien en het gewricht om het te verplaatsen, in de keyform waarop de parameters staan. Instellingen > Experimenteel > Botten zet deze gereedschappen uit.",
@@ -1668,5 +1667,10 @@
   "Counts only while you work: it stops half a minute after your last input and starts again on the next.": "Telt alleen terwijl je werkt: het stopt een halve minuut na je laatste invoer en begint weer bij de volgende.",
   "Height": "Hoogte",
   "Keep the canvas shape": "Canvasvorm behouden",
-  "On, the height follows the width in the canvas's proportions. Off, set both: the canvas is fitted inside and centred, and the rest is background.": "Aan: de hoogte volgt de breedte in de verhoudingen van het canvas. Uit: stel beide in; het canvas past erin, gecentreerd, en de rest is achtergrond."
+  "On, the height follows the width in the canvas's proportions. Off, set both: the canvas is fitted inside and centred, and the rest is background.": "Aan: de hoogte volgt de breedte in de verhoudingen van het canvas. Uit: stel beide in; het canvas past erin, gecentreerd, en de rest is achtergrond.",
+  "Bone display settings": "Weergave-instellingen botten",
+  "Bone color": "Botkleur",
+  "Bone chains that bend meshes by painted weights, with inherit modes and IK. They play in .aom and the SDK, and export to moc3 and cmo3 baked into deformers": "Bottenketens die meshes buigen volgens geschilderde gewichten, met overervingsmodi en IK. Ze spelen in .aom en de SDK, en worden naar moc3 en cmo3 geëxporteerd, ingebakken in deformers",
+  "Copy form at this key": "Vorm bij deze sleutel kopiëren",
+  "Paste form to this key": "Vorm op deze sleutel plakken"
 }

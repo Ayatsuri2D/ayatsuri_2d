@@ -2,6 +2,22 @@
 
 ## Unreleased
 ### Added
+- **Copy and paste a form by right-click.** The slider's and 2D pad's
+  menus offer **Copy form at this key** and **Paste form to this key**:
+  the selected object's shape at the key dot under the right-click is
+  copied, or the copied shape is pasted into that key, without moving
+  the slider. On a pad the key dot pair is the keyform. It is the same
+  clipboard as Copy form and Paste form (Ctrl+Shift+C and V), so a form
+  copied one way pastes the other.
+- **The Parameter palette's name column can be widened.** Drag the
+  boundary between the names and the sliders (the cursor changes there)
+  to make room for long names; rows, folders and 2D pads follow, and the
+  width is remembered. Double-click the boundary to go back to the
+  default.
+- **Bones have their own colour.** Tool Details > Bone display settings
+  > Bone color sets the colour bones are drawn in on the canvas; the
+  default follows the primary colour, as mesh lines do. Bones no longer
+  borrow the rotation deformer's handle colour.
 - **A Godot 4 addon.** `ayatsuri2d-godot-<version>.zip` unzips into a
   Godot 4.2 project and adds an `AyatsuriModel` node that loads an `.aom`
   or a `.moc3` bundle and draws it on the 2D canvas at its size in pixels.
@@ -33,6 +49,20 @@
   be diagnosed from the log, without the file.
 
 ### Fixed
+- **Right-click a key dot to jump to that key.** On a slider or a 2D pad
+  the key dots now light up under the pointer, with the hand cursor, and
+  a right-click on one moves the slider exactly onto that key before the
+  menu opens, so Key color, Delete Keyform and the rest act on that key.
+  Before, the snap worked only when the pointer was close to the track and
+  the menu stayed shut, so it took a second right-click. Left-click and
+  drag are unchanged.
+- **Add Keys at Min, Default and Max on a parameter whose default sits on
+  an end** (0, 0, 1 most often) adds the two distinct keys, as before, but
+  now says so: the log names the keys added and that the default sits on
+  the minimum or maximum, instead of listing the same value twice.
+- **The Bones hint in Settings > Experimental was stale.** It still said
+  moc3 export does not carry bones; they have exported to moc3 and cmo3,
+  baked into deformers, since 0.6.2. The hint now says so.
 - **Dropping a mesh on a deformer could also move it into a part** (#66):
   a palette row scrolled out of sight kept its place under whatever
   panel sat there, so a drop in the Deformer palette could land on an

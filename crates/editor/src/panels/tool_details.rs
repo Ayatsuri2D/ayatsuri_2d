@@ -17,6 +17,7 @@ pub(super) struct DisplayOpts {
     pub(super) mesh_color: Color32,
     pub(super) warp_color: Color32,
     pub(super) rotation_color: Color32,
+    pub(super) bone_color: Color32,
     pub(super) weight_color: Color32,
 }
 
@@ -33,6 +34,7 @@ impl DisplayOpts {
             mesh_color: c(o.mesh_color, d.mesh_color),
             warp_color: c(o.warp_color, d.warp_color),
             rotation_color: c(o.rotation_color, d.rotation_color),
+            bone_color: c(o.bone_color, d.bone_color),
             weight_color: c(o.weight_color, d.weight_color),
         }
     }
@@ -45,6 +47,8 @@ impl Default for DisplayOpts {
             mesh_color: theme::pal().accent,
             warp_color: theme::pal().warp_green,
             rotation_color: theme::pal().rotation_red,
+            // bones follow the primary colour, like mesh lines
+            bone_color: theme::pal().accent,
             // Cubism's default weight colour, #80FF0000
             weight_color: Color32::from_rgba_unmultiplied(255, 0, 0, 128),
         }
@@ -357,6 +361,15 @@ impl EditorUi {
             row(ui, crate::i18n::tr("Handle color"), |ui| {
                 if ui.color_edit_button_srgba(&mut d.rotation_color).changed() {
                     self.prefs.overlay.rotation_color = rgba(d.rotation_color);
+                    changed = true;
+                }
+            });
+        });
+        section(ui, crate::i18n::tr("Bone display settings"), "");
+        grid(ui, "td-disp-bone", |ui| {
+            row(ui, crate::i18n::tr("Bone color"), |ui| {
+                if ui.color_edit_button_srgba(&mut d.bone_color).changed() {
+                    self.prefs.overlay.bone_color = rgba(d.bone_color);
                     changed = true;
                 }
             });

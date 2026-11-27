@@ -6253,9 +6253,17 @@ impl EditorUi {
             log::warn!("select a parameter before adding keys");
             return;
         };
+        // the distinct keys only: Min, Default and Max is two keys on a
+        // parameter whose default sits on an end, and the log says which
+        let values = distinct_keys(&values);
         if let Some(s) = &mut self.session {
-            let pid =
-                s.puppet.model().parameters.get(param).map(|p| p.id.clone()).unwrap_or_default();
+            let (pid, on_end) = s
+                .puppet
+                .model()
+                .parameters
+                .get(param)
+                .map(|p| (p.id.clone(), default_on_end(p.min, p.default, p.max)))
+                .unwrap_or_default();
             // the shapes before the keys, for objects that take an original
             // shape when a key is added
             let shapes = original::shapes_to_take(
@@ -6277,7 +6285,13 @@ impl EditorUi {
                 n > 0
             });
             if n > 0 {
-                log::info!("added keys {values:?} on {pid} for {n} object(s)");
+                let list = values.iter().map(|v| format!("{v}")).collect::<Vec<_>>().join(" and ");
+                match on_end.filter(|_| values.len() == 2) {
+                    Some(end) => log::info!(
+                        "added keys at {list} on {pid} for {n} object(s); the default sits on the {end}"
+                    ),
+                    None => log::info!("added keys at {list} on {pid} for {n} object(s)"),
+                }
             }
         }
     }
@@ -8431,6 +8445,29 @@ impl EditorUi {
         }
     }
 
+    /// Copy Form or Paste Form at a key of `param` (and `other`'s key on a
+    /// 2D pad) instead of where the slider sits: the parameters step onto
+    /// the key for the copy or paste and come back after, so the view does
+    /// not move.
+    fn form_at(&mut self, param: usize, key: f32, other: Option<(usize, f32)>, paste: bool) {
+        let at: Vec<(usize, f32)> = std::iter::once((param, key)).chain(other).collect();
+        let Some(s) = &mut self.session else { return };
+        let before: Vec<(usize, f32)> = at.iter().map(|&(p, _)| (p, s.puppet.value(p))).collect();
+        for &(p, k) in &at {
+            s.puppet.set_value(p, k);
+        }
+        if paste {
+            self.paste_form();
+        } else {
+            self.copy_form();
+        }
+        if let Some(s) = &mut self.session {
+            for (p, v) in before {
+                s.puppet.set_value(p, v);
+            }
+        }
+    }
+
     /// Paste Form: the copied shape into the keyform the parameters sit on,
     /// for an object with the same number of points.
     fn paste_form(&mut self) {
@@ -8699,10 +8736,13 @@ impl EditorUi {
             s.combined.iter().map(|&(a, b)| (a, b)).collect();
         let pad_skip: std::collections::HashSet<usize> =
             s.combined.iter().map(|&(_, b)| b).collect();
+        let name_w = name_col_w(self.prefs.param_name_w);
 
-        ScrollArea::vertical().id_salt(id).max_height(list_h).auto_shrink([false, false]).show(
-            ui,
-            |ui| {
+        let shown = ScrollArea::vertical()
+            .id_salt(id)
+            .max_height(list_h)
+            .auto_shrink([false, false])
+            .show(ui, |ui| {
                 for gi in 0..s.groups.len() {
                     let (name, open, params) = {
                         let Some(g) = s.groups.get(gi) else { break };
@@ -8778,6 +8818,7 @@ impl EditorUi {
                                 can_edit,
                                 subject,
                                 full,
+                                name_w,
                                 &mut actions,
                             );
                             continue;
@@ -8790,6 +8831,7 @@ impl EditorUi {
                             can_edit,
                             subject,
                             full,
+                            name_w,
                             &marks,
                             &mut actions,
                         );
@@ -8843,8 +8885,34 @@ impl EditorUi {
                         actions.push(ParamAction::Cmd(ParamCmd::Drop(*m, param_menu::Place::End)));
                     }
                 }
-            },
+            });
+        // the boundary between the names and the sliders resizes the name
+        // column: a thin strip in the gap that shows the resize cursor,
+        // dragged for a new width, double-clicked for the default
+        let vp = shown.inner_rect;
+        let strip = Rect::from_min_size(
+            pos2(vp.min.x + 14.0 + name_w + 1.0, vp.min.y),
+            vec2(5.0, vp.height()),
         );
+        let handle =
+            ui.interact(strip, egui::Id::new((id, "name-column-handle")), Sense::click_and_drag());
+        if handle.hovered() || handle.dragged() {
+            ui.ctx().set_cursor_icon(egui::CursorIcon::ResizeHorizontal);
+            ui.painter().vline(
+                strip.center().x,
+                strip.y_range(),
+                Stroke::new(1.0, theme::pal().accent.gamma_multiply(0.6)),
+            );
+        }
+        if handle.double_clicked() {
+            self.prefs.param_name_w = None;
+            self.prefs.save();
+        } else if handle.dragged() {
+            self.prefs.param_name_w = Some(name_col_w(Some(name_w + handle.drag_delta().x)));
+        }
+        if handle.drag_stopped() {
+            self.prefs.save();
+        }
         self.session = Some(s);
         actions
     }
@@ -12699,7 +12767,7 @@ impl EditorUi {
             if self.tool == Tool::WeightPaint {
                 picked = self.bones.active.into_iter().collect();
             }
-            bones::draw_bones(&vp, &segs, &picked, hover, self.disp.rotation_color);
+            bones::draw_bones(&vp, &segs, &picked, hover, self.disp.bone_color);
             // the bone New Bone is asking about, until it is made or closed
             if let Some((j, t)) = self.deformer_dialog.as_ref().and_then(|d| d.drawn_bone()) {
                 let (a, b) = (bview.screen(j), bview.screen(t));
@@ -13739,7 +13807,7 @@ impl EditorUi {
                         bview,
                         &picked,
                         ROT_RING,
-                        self.disp.rotation_color,
+                        self.disp.bone_color,
                     );
                 } else {
                     self.bones.drop_multi(s);
@@ -19215,6 +19283,26 @@ fn palette_drop_target(
     }
 }
 
+/// The keys to add, sorted, each once: `add_keys` would skip the repeats
+/// anyway, but the log and the count should name what is really added.
+fn distinct_keys(values: &[f32]) -> Vec<f32> {
+    let mut k = values.to_vec();
+    k.sort_by(f32::total_cmp);
+    k.dedup_by(|a, b| (*a - *b).abs() < 1e-5);
+    k
+}
+
+/// Which end of the range the default sits on, if either, for the log.
+fn default_on_end(min: f32, default: f32, max: f32) -> Option<&'static str> {
+    if (default - min).abs() < 1e-5 {
+        Some("minimum")
+    } else if (default - max).abs() < 1e-5 {
+        Some("maximum")
+    } else {
+        None
+    }
+}
+
 fn truncate(s: &str, max_chars: usize) -> String {
     if s.chars().count() <= max_chars {
         s.to_string()
@@ -19342,10 +19430,48 @@ fn pair_color(keys: &[f32], default: f32, span: f32, k: f32) -> Color32 {
     PAIR_COLORS.get(i % PAIR_COLORS.len()).copied().unwrap_or(Color32::WHITE)
 }
 
+/// The Parameter palette's name column: its default width in points and
+/// the range a drag on the boundary can take it to.
+const NAME_W_DEFAULT: f32 = 92.0;
+const NAME_W_RANGE: std::ops::RangeInclusive<f32> = 60.0..=400.0;
+
+/// The name column width in effect for a saved preference.
+fn name_col_w(saved: Option<f32>) -> f32 {
+    saved.unwrap_or(NAME_W_DEFAULT).clamp(*NAME_W_RANGE.start(), *NAME_W_RANGE.end())
+}
+
+/// How many characters of a name fit the column at this width, at the
+/// palette's 11.5 pt font (about 7 points a character).
+fn name_chars(name_w: f32) -> usize {
+    (name_w / 7.0).floor().max(4.0) as usize
+}
+
+/// The key a parameter's value sits on, if any: within a ten-thousandth
+/// of the range, as the sliders judge it.
+fn key_at(keys: &[f32], value: f32, span: f32) -> Option<f32> {
+    let tol = span.max(1e-6) * 1e-4;
+    keys.iter().copied().find(|k| (value - k).abs() <= tol)
+}
+
+/// How far from a key dot's centre, in points, a pointer still counts as
+/// on it: the dot plus its hover ring.
+const KEY_DOT_HIT: f32 = 7.0;
+
+/// The key nearest `at` along one axis, within [`KEY_DOT_HIT`].
+fn key_dot_near(keys: &[f32], at: f32, of: &dyn Fn(f32) -> f32) -> Option<f32> {
+    keys.iter()
+        .copied()
+        .map(|k| (k, (of(k) - at).abs()))
+        .filter(|&(_, d)| d <= KEY_DOT_HIT)
+        .min_by(|a, b| a.1.total_cmp(&b.1))
+        .map(|(k, _)| k)
+}
+
 /// The Cubism parameter slider: a track, a dot on every key, and the
-/// filled handle at the current value. Returns whether the value moved,
-/// the response, and whether a right-click stuck the slider onto a key
-/// (Cubism's key adhesion; the menu stays shut then).
+/// filled handle at the current value. Returns whether the value moved
+/// and the response. A right-click on a key dot sticks the slider onto
+/// that key first (Cubism's key adhesion), so the menu that opens acts
+/// on it.
 fn param_slider(
     ui: &mut Ui,
     width: f32,
@@ -19353,7 +19479,7 @@ fn param_slider(
     (min, max, default): (f32, f32, f32),
     (keys, between): (&[f32], &[f32]),
     look: &KeyLook,
-) -> (bool, egui::Response, bool) {
+) -> (bool, egui::Response) {
     let (rect, resp) = ui.allocate_exact_size(vec2(width, 16.0), Sense::click_and_drag());
     let painter = ui.painter();
     let pad = 6.0;
@@ -19361,6 +19487,12 @@ fn param_slider(
     let x_of =
         |v: f32| rect.min.x + pad + ((v - min) / span).clamp(0.0, 1.0) * (rect.width() - pad * 2.0);
     let cy = rect.center().y;
+    // the key dot under the pointer reads as clickable: a lighter ring
+    // and the hand cursor
+    let hover_key = resp.hover_pos().and_then(|p| key_dot_near(keys, p.x, &x_of));
+    if hover_key.is_some() {
+        ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+    }
     painter.line_segment(
         [pos2(x_of(min), cy), pos2(x_of(max), cy)],
         Stroke::new(1.0, theme::pal().track),
@@ -19396,6 +19528,19 @@ fn param_slider(
         };
         let selected = held > 0 && (*value - k).abs() <= span * 1e-4;
         let red = Stroke::new(1.4, Color32::from_rgb(0xE5, 0x39, 0x35));
+        if hover_key.is_some_and(|h| (h - k).abs() < 1e-5) {
+            let lighter = Stroke::new(1.2, ring.color.gamma_multiply(0.55));
+            if look.blend {
+                painter.rect_stroke(
+                    Rect::from_center_size(at, vec2(12.0, 12.0)),
+                    0.0,
+                    lighter,
+                    egui::StrokeKind::Middle,
+                );
+            } else {
+                painter.circle_stroke(at, 6.0, lighter);
+            }
+        }
         if look.blend {
             // a blend shape parameter's keys are squares, as in Cubism, in the
             // key's colour like any other key
@@ -19451,24 +19596,17 @@ fn param_slider(
         *value = min + f * span;
         changed = true;
     }
-    // right-click near a key: the slider sticks to it, exactly
-    let mut stuck = false;
+    // right-click on a key dot: the slider sticks to it, exactly, before
+    // the menu opens, so the menu acts on that key
     if resp.secondary_clicked()
         && let Some(p) = resp.interact_pointer_pos()
-        && let Some(k) = keys
-            .iter()
-            .copied()
-            .map(|k| (k, (x_of(k) - p.x).abs()))
-            .filter(|&(_, d)| d <= 6.0)
-            .min_by(|a, b| a.1.total_cmp(&b.1))
-            .map(|(k, _)| k)
+        && let Some(k) = key_dot_near(keys, p.x, &x_of)
         && (*value - k).abs() > span * 1e-4
     {
         *value = k;
         changed = true;
-        stuck = true;
     }
-    (changed, resp, stuck)
+    (changed, resp)
 }
 
 fn paint_eye(ui: &Ui, rect: Rect, own: bool, effective: bool) {
@@ -20072,6 +20210,7 @@ fn parameter_row(
     can_edit: bool,
     subject: Option<param_menu::Moving>,
     full: bool,
+    name_w: f32,
     marks: &KeyMarks,
     actions: &mut Vec<ParamAction>,
 ) {
@@ -20108,7 +20247,7 @@ fn parameter_row(
             }
         }
         let (nr, nresp) = ui.allocate_exact_size(
-            vec2(92.0, 16.0),
+            vec2(name_w, 16.0),
             if full { Sense::click_and_drag() } else { Sense::click() },
         );
         if *sel_param == Some(pi) || s.param_picked.contains(&pi) {
@@ -20118,7 +20257,7 @@ fn parameter_row(
         ui.painter().text(
             nr.left_center() + vec2(6.0, 0.0),
             Align2::LEFT_CENTER,
-            truncate(&display, 13),
+            truncate(&display, name_chars(name_w)),
             FontId::proportional(11.5),
             theme::pal().text,
         );
@@ -20153,7 +20292,7 @@ fn parameter_row(
             }
         }
         let slider_w = (ui.available_width() - 68.0).max(40.0);
-        let (changed, slider_resp, on_key) = param_slider(
+        let (changed, slider_resp) = param_slider(
             ui,
             slider_w,
             &mut v,
@@ -20177,7 +20316,7 @@ fn parameter_row(
                 s.key_colors.iter().find(|c| c.0 == pi && (c.1 - k).abs() < 1e-5).map(|c| c.2);
             (k, now)
         });
-        if full && !on_key {
+        if full {
             slider_resp.context_menu(|ui| {
                 if let Some(c) = param_menu::slider_menu(ui, pi, v, on, can_edit) {
                     actions.push(ParamAction::Cmd(c));
@@ -20221,6 +20360,7 @@ fn combined_pad(
     can_edit: bool,
     subject: Option<param_menu::Moving>,
     menus: bool,
+    name_w: f32,
     actions: &mut Vec<ParamAction>,
 ) {
     let Some((amin, amax, adec)) =
@@ -20240,7 +20380,6 @@ fn combined_pad(
     let va = s.puppet.value(pa);
     let vb = s.puppet.value(pb);
 
-    let name_w = 92.0;
     let value_w = 52.0;
     let avail = ui.available_width();
     let slider_w = (avail - 14.0 - name_w - value_w - 18.0).max(60.0);
@@ -20265,7 +20404,7 @@ fn combined_pad(
         ui.painter().text(
             nr.left_center() + vec2(2.0, 0.0),
             Align2::LEFT_CENTER,
-            truncate(label, 13),
+            truncate(label, name_chars(name_w)),
             FontId::proportional(11.5),
             theme::pal().text,
         );
@@ -20338,14 +20477,25 @@ fn combined_pad(
             Stroke::new(1.0, theme::pal().track.gamma_multiply(0.5)),
         );
     }
+    // the key dot pair under the pointer reads as clickable: a lighter
+    // ring and the hand cursor
+    let hover_pair = resp
+        .hover_pos()
+        .and_then(|p| key_dot_near(&keys_a, p.x, &xa).zip(key_dot_near(&keys_b, p.y, &yb)));
+    if hover_pair.is_some() {
+        ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+    }
     for ka in &keys_a {
         for kb in &keys_b {
-            painter.circle(
-                pos2(xa(*ka), yb(*kb)),
-                2.6,
-                theme::pal().panel_bg,
-                Stroke::new(1.0, theme::pal().key_ring),
-            );
+            let at = pos2(xa(*ka), yb(*kb));
+            if hover_pair.is_some_and(|(ha, hb)| (ha - ka).abs() < 1e-5 && (hb - kb).abs() < 1e-5) {
+                painter.circle_stroke(
+                    at,
+                    5.5,
+                    Stroke::new(1.2, theme::pal().key_ring.gamma_multiply(0.55)),
+                );
+            }
+            painter.circle(at, 2.6, theme::pal().panel_bg, Stroke::new(1.0, theme::pal().key_ring));
         }
     }
     painter.circle_filled(pos2(xa(va), yb(vb)), 4.5, theme::pal().accent);
@@ -20368,23 +20518,17 @@ fn combined_pad(
     // slider does, so the menu that opens acts on that key
     if resp.secondary_clicked()
         && let Some(ptr) = resp.interact_pointer_pos()
+        && let (Some(ka), Some(kb)) =
+            (key_dot_near(&keys_a, ptr.x, &xa), key_dot_near(&keys_b, ptr.y, &yb))
+        && ((va - ka).abs() > (amax - amin) * 1e-4 || (vb - kb).abs() > (bmax - bmin) * 1e-4)
     {
-        let nearest = |keys: &[f32], at: f32, of: &dyn Fn(f32) -> f32| {
-            keys.iter()
-                .copied()
-                .map(|k| (k, (of(k) - at).abs()))
-                .filter(|&(_, d)| d <= 6.0)
-                .min_by(|x, y| x.1.total_cmp(&y.1))
-                .map(|(k, _)| k)
-        };
-        if let (Some(ka), Some(kb)) = (nearest(&keys_a, ptr.x, &xa), nearest(&keys_b, ptr.y, &yb))
-            && ((va - ka).abs() > (amax - amin) * 1e-4 || (vb - kb).abs() > (bmax - bmin) * 1e-4)
-        {
-            s.puppet.set_value(pa, ka);
-            s.puppet.set_value(pb, kb);
-            s.dirty = true;
-        }
+        s.puppet.set_value(pa, ka);
+        s.puppet.set_value(pb, kb);
+        s.dirty = true;
     }
+    // the values as the menu sees them, after a snap onto a key dot pair
+    let (va, vb) = (s.puppet.value(pa), s.puppet.value(pb));
+    let on_pair = key_at(&keys_a, va, amax - amin).zip(key_at(&keys_b, vb, bmax - bmin));
     resp.context_menu(|ui| {
         // the slider popup for each of the pad's two parameters
         ui.menu_button(truncate(&name_a, 18), |ui| {
@@ -20397,6 +20541,23 @@ fn combined_pad(
                 actions.push(ParamAction::Cmd(c));
             }
         });
+        // the keyform at the key dot pair the pad sits on
+        let (ka, kb) = on_pair.unwrap_or((va, vb));
+        let on_key = can_edit && on_pair.is_some();
+        if ui
+            .add_enabled(on_key, egui::Button::new(crate::i18n::tr("Copy form at this key")))
+            .clicked()
+        {
+            actions.push(ParamAction::Cmd(ParamCmd::CopyFormAt(pa, ka, Some((pb, kb)))));
+            ui.close();
+        }
+        if ui
+            .add_enabled(on_key, egui::Button::new(crate::i18n::tr("Paste form to this key")))
+            .clicked()
+        {
+            actions.push(ParamAction::Cmd(ParamCmd::PasteFormAt(pa, ka, Some((pb, kb)))));
+            ui.close();
+        }
         ui.separator();
         if ui.button(crate::i18n::tr("Reset both")).clicked() {
             let da = s.puppet.model().parameters.get(pa).map(|p| p.default).unwrap_or(0.0);
@@ -20603,6 +20764,52 @@ fn brush_ring(ctx: &egui::Context, view: Rect, at: Pos2, r: f32, color: Color32)
         .with_clip_rect(view);
     painter.circle_stroke(at, r, Stroke::new(3.0, Color32::from_black_alpha(140)));
     painter.circle_stroke(at, r, Stroke::new(1.4, color));
+}
+
+#[cfg(test)]
+mod name_column_tests {
+    use super::*;
+
+    #[test]
+    fn the_saved_width_is_clamped_and_the_default_fits_thirteen_characters() {
+        assert_eq!(name_col_w(None), NAME_W_DEFAULT);
+        assert_eq!(name_col_w(Some(10.0)), 60.0);
+        assert_eq!(name_col_w(Some(9999.0)), 400.0);
+        assert_eq!(name_col_w(Some(150.0)), 150.0);
+        assert_eq!(name_chars(NAME_W_DEFAULT), 13);
+        assert!(name_chars(400.0) > name_chars(60.0));
+        assert!(name_chars(0.0) >= 4);
+    }
+}
+
+#[cfg(test)]
+mod key_dot_tests {
+    use super::*;
+
+    #[test]
+    fn a_click_within_the_dot_and_its_ring_finds_the_nearest_key() {
+        let keys = [0.0, 0.5, 1.0];
+        let x = |k: f32| 100.0 + k * 200.0;
+        assert_eq!(key_dot_near(&keys, 100.0, &x), Some(0.0));
+        assert_eq!(key_dot_near(&keys, 206.0, &x), Some(0.5));
+        assert_eq!(key_dot_near(&keys, 300.0 - KEY_DOT_HIT, &x), Some(1.0));
+        assert_eq!(key_dot_near(&keys, 150.0, &x), None);
+        assert_eq!(key_dot_near(&[], 100.0, &x), None);
+    }
+}
+
+#[cfg(test)]
+mod distinct_keys_tests {
+    use super::*;
+
+    #[test]
+    fn min_default_max_on_a_zero_to_one_parameter_is_two_keys() {
+        assert_eq!(distinct_keys(&[0.0, 0.0, 1.0]), vec![0.0, 1.0]);
+        assert_eq!(distinct_keys(&[1.0, 0.0, -1.0]), vec![-1.0, 0.0, 1.0]);
+        assert_eq!(default_on_end(0.0, 0.0, 1.0), Some("minimum"));
+        assert_eq!(default_on_end(0.0, 1.0, 1.0), Some("maximum"));
+        assert_eq!(default_on_end(-1.0, 0.0, 1.0), None);
+    }
 }
 
 #[cfg(test)]
@@ -21288,6 +21495,28 @@ mod key_cmd_tests {
         s.undo();
         assert_eq!(s.puppet.model().parameters.len(), 1);
         assert_eq!(s.puppet.model().art_meshes[0].binding.axes.len(), 1);
+    }
+
+    #[test]
+    fn copy_and_paste_form_act_on_the_key_asked_for_and_leave_the_slider() {
+        let mut ed = editor();
+        // the slider sits between keys; the menu asks for the keys themselves
+        ed.session.as_mut().unwrap().puppet.set_value(0, 0.5);
+        ed.run_param_cmd(ParamCmd::CopyFormAt(0, 1.0, None));
+        assert_eq!(ed.form_clip.as_ref().map(|(_, l)| l.clone()), Some(vec![2.0, 0.0]));
+        ed.run_param_cmd(ParamCmd::PasteFormAt(0, -1.0, None));
+        let m = mesh(&ed);
+        // the keyform at -1 now holds the shape from the key at 1
+        assert_eq!(m.positions, vec![2.0, 0.0, 0.0, 0.0, 2.0, 0.0]);
+        // and the slider is where it was
+        assert_eq!(ed.session.as_ref().unwrap().puppet.value(0), 0.5);
+    }
+
+    #[test]
+    fn key_at_judges_within_the_sliders_tolerance() {
+        assert_eq!(key_at(&[-1.0, 0.0, 1.0], 0.00001, 2.0), Some(0.0));
+        assert_eq!(key_at(&[-1.0, 0.0, 1.0], 0.5, 2.0), None);
+        assert_eq!(key_at(&[], 0.0, 2.0), None);
     }
 
     #[test]

@@ -1343,7 +1343,6 @@
   "Inherited clipping": "クリッピングの継承",
   "Shows Inherit in the Inspector's clipping: a mesh is also clipped by what its masks are clipped by. Drawn exactly in the editor; moc3 export clips it by its own masks only for now": "インスペクターのクリッピングに「継承」を表示します。メッシュは、そのマスク自体をクリッピングしているものでもクリッピングされます。エディタでは正確に描画されます。moc3 書き出しでは今のところ自分のマスクだけでクリッピングされます",
   "Bones": "ボーン",
-  "Bone chains that bend meshes by painted weights, with inherit modes and IK. They play in .aom and the SDK; moc3 export does not carry them yet": "ペイントしたウェイトでメッシュを曲げるボーンチェーン。継承モードとIK付き。.aomとSDKで動きます。moc3書き出しにはまだ含まれません",
   "Bone": "ボーン",
   "Weight Paint": "ウェイトペイント",
   "Drag on the canvas to draw a bone from its joint to its tip. Start the drag on any bone's tip or joint dot to begin there and draw a child of that bone, and keep going for a chain. A bone drawn elsewhere goes under the selected warp or rotation deformer, or at the top. Click a bone to pick it; Ctrl or Shift+click picks more.\n\nWith the arrow, drag a bone to turn it and its joint to move it, in the keyform the parameters sit on. Settings > Experimental > Bones turns these tools off.": "キャンバス上をドラッグすると、関節から先端までのボーンを描けます。どのボーンでも先端か関節の点からドラッグを始めるとそこから描け、そのボーンの子ボーンになります。続けて描けばチェーンになります。それ以外の場所で描いたボーンは、選択中のワープデフォーマーや回転デフォーマーの下、またはいちばん上に入ります。ボーンをクリックすると選択、Ctrl または Shift+クリックで追加選択します。\n\n矢印ツールでは、ボーンをドラッグすると回転、関節をドラッグすると移動します。パラメータが乗っているキーフォームに入ります。設定 > 試験的機能 > ボーン でこのツールをオフにできます。",
@@ -1668,5 +1667,10 @@
   "Counts only while you work: it stops half a minute after your last input and starts again on the next.": "作業中のみ計測します。最後の操作から30秒で停止し、次の操作で再開します。",
   "Height": "高さ",
   "Keep the canvas shape": "キャンバスの比率を保つ",
-  "On, the height follows the width in the canvas's proportions. Off, set both: the canvas is fitted inside and centred, and the rest is background.": "オンでは高さがキャンバスの比率に従います。オフでは幅と高さを別々に設定でき、キャンバスは中央に収まり、残りは背景になります。"
+  "On, the height follows the width in the canvas's proportions. Off, set both: the canvas is fitted inside and centred, and the rest is background.": "オンでは高さがキャンバスの比率に従います。オフでは幅と高さを別々に設定でき、キャンバスは中央に収まり、残りは背景になります。",
+  "Bone display settings": "ボーン表示設定",
+  "Bone color": "ボーンの色",
+  "Bone chains that bend meshes by painted weights, with inherit modes and IK. They play in .aom and the SDK, and export to moc3 and cmo3 baked into deformers": "ペイントしたウェイトでメッシュを曲げるボーンチェーン。継承モードとIK付き。.aomとSDKで動き、moc3とcmo3にはデフォーマに焼き込んで書き出されます",
+  "Copy form at this key": "このキーのフォームをコピー",
+  "Paste form to this key": "このキーにフォームを貼り付け"
 }

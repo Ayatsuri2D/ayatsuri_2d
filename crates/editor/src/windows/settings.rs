@@ -1003,7 +1003,8 @@ impl EditorUi {
             (
                 "Bones",
                 "Bone chains that bend meshes by painted weights, with inherit modes and IK. \
-                 They play in .aom and the SDK; moc3 export does not carry them yet",
+                 They play in .aom and the SDK, and export to moc3 and cmo3 baked into \
+                 deformers",
                 &mut self.prefs.experimental_bones,
             ),
         ];
