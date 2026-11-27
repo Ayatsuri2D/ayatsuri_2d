@@ -2,6 +2,11 @@
 
 ## Unreleased
 ### Added
+- **The Parameter palette's name column can be widened.** Drag the
+  boundary between the names and the sliders (the cursor changes there)
+  to make room for long names; rows, folders and 2D pads follow, and the
+  width is remembered. Double-click the boundary to go back to the
+  default.
 - **Bones have their own colour.** Tool Details > Bone display settings
   > Bone color sets the colour bones are drawn in on the canvas; the
   default follows the primary colour, as mesh lines do. Bones no longer

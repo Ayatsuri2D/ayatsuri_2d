@@ -8713,10 +8713,13 @@ impl EditorUi {
             s.combined.iter().map(|&(a, b)| (a, b)).collect();
         let pad_skip: std::collections::HashSet<usize> =
             s.combined.iter().map(|&(_, b)| b).collect();
+        let name_w = name_col_w(self.prefs.param_name_w);
 
-        ScrollArea::vertical().id_salt(id).max_height(list_h).auto_shrink([false, false]).show(
-            ui,
-            |ui| {
+        let shown = ScrollArea::vertical()
+            .id_salt(id)
+            .max_height(list_h)
+            .auto_shrink([false, false])
+            .show(ui, |ui| {
                 for gi in 0..s.groups.len() {
                     let (name, open, params) = {
                         let Some(g) = s.groups.get(gi) else { break };
@@ -8792,6 +8795,7 @@ impl EditorUi {
                                 can_edit,
                                 subject,
                                 full,
+                                name_w,
                                 &mut actions,
                             );
                             continue;
@@ -8804,6 +8808,7 @@ impl EditorUi {
                             can_edit,
                             subject,
                             full,
+                            name_w,
                             &marks,
                             &mut actions,
                         );
@@ -8857,8 +8862,34 @@ impl EditorUi {
                         actions.push(ParamAction::Cmd(ParamCmd::Drop(*m, param_menu::Place::End)));
                     }
                 }
-            },
+            });
+        // the boundary between the names and the sliders resizes the name
+        // column: a thin strip in the gap that shows the resize cursor,
+        // dragged for a new width, double-clicked for the default
+        let vp = shown.inner_rect;
+        let strip = Rect::from_min_size(
+            pos2(vp.min.x + 14.0 + name_w + 1.0, vp.min.y),
+            vec2(5.0, vp.height()),
         );
+        let handle =
+            ui.interact(strip, egui::Id::new((id, "name-column-handle")), Sense::click_and_drag());
+        if handle.hovered() || handle.dragged() {
+            ui.ctx().set_cursor_icon(egui::CursorIcon::ResizeHorizontal);
+            ui.painter().vline(
+                strip.center().x,
+                strip.y_range(),
+                Stroke::new(1.0, theme::pal().accent.gamma_multiply(0.6)),
+            );
+        }
+        if handle.double_clicked() {
+            self.prefs.param_name_w = None;
+            self.prefs.save();
+        } else if handle.dragged() {
+            self.prefs.param_name_w = Some(name_col_w(Some(name_w + handle.drag_delta().x)));
+        }
+        if handle.drag_stopped() {
+            self.prefs.save();
+        }
         self.session = Some(s);
         actions
     }
@@ -19376,6 +19407,22 @@ fn pair_color(keys: &[f32], default: f32, span: f32, k: f32) -> Color32 {
     PAIR_COLORS.get(i % PAIR_COLORS.len()).copied().unwrap_or(Color32::WHITE)
 }
 
+/// The Parameter palette's name column: its default width in points and
+/// the range a drag on the boundary can take it to.
+const NAME_W_DEFAULT: f32 = 92.0;
+const NAME_W_RANGE: std::ops::RangeInclusive<f32> = 60.0..=400.0;
+
+/// The name column width in effect for a saved preference.
+fn name_col_w(saved: Option<f32>) -> f32 {
+    saved.unwrap_or(NAME_W_DEFAULT).clamp(*NAME_W_RANGE.start(), *NAME_W_RANGE.end())
+}
+
+/// How many characters of a name fit the column at this width, at the
+/// palette's 11.5 pt font (about 7 points a character).
+fn name_chars(name_w: f32) -> usize {
+    (name_w / 7.0).floor().max(4.0) as usize
+}
+
 /// How far from a key dot's centre, in points, a pointer still counts as
 /// on it: the dot plus its hover ring.
 const KEY_DOT_HIT: f32 = 7.0;
@@ -20133,6 +20180,7 @@ fn parameter_row(
     can_edit: bool,
     subject: Option<param_menu::Moving>,
     full: bool,
+    name_w: f32,
     marks: &KeyMarks,
     actions: &mut Vec<ParamAction>,
 ) {
@@ -20169,7 +20217,7 @@ fn parameter_row(
             }
         }
         let (nr, nresp) = ui.allocate_exact_size(
-            vec2(92.0, 16.0),
+            vec2(name_w, 16.0),
             if full { Sense::click_and_drag() } else { Sense::click() },
         );
         if *sel_param == Some(pi) || s.param_picked.contains(&pi) {
@@ -20179,7 +20227,7 @@ fn parameter_row(
         ui.painter().text(
             nr.left_center() + vec2(6.0, 0.0),
             Align2::LEFT_CENTER,
-            truncate(&display, 13),
+            truncate(&display, name_chars(name_w)),
             FontId::proportional(11.5),
             theme::pal().text,
         );
@@ -20282,6 +20330,7 @@ fn combined_pad(
     can_edit: bool,
     subject: Option<param_menu::Moving>,
     menus: bool,
+    name_w: f32,
     actions: &mut Vec<ParamAction>,
 ) {
     let Some((amin, amax, adec)) =
@@ -20301,7 +20350,6 @@ fn combined_pad(
     let va = s.puppet.value(pa);
     let vb = s.puppet.value(pb);
 
-    let name_w = 92.0;
     let value_w = 52.0;
     let avail = ui.available_width();
     let slider_w = (avail - 14.0 - name_w - value_w - 18.0).max(60.0);
@@ -20326,7 +20374,7 @@ fn combined_pad(
         ui.painter().text(
             nr.left_center() + vec2(2.0, 0.0),
             Align2::LEFT_CENTER,
-            truncate(label, 13),
+            truncate(label, name_chars(name_w)),
             FontId::proportional(11.5),
             theme::pal().text,
         );
@@ -20666,6 +20714,22 @@ fn brush_ring(ctx: &egui::Context, view: Rect, at: Pos2, r: f32, color: Color32)
         .with_clip_rect(view);
     painter.circle_stroke(at, r, Stroke::new(3.0, Color32::from_black_alpha(140)));
     painter.circle_stroke(at, r, Stroke::new(1.4, color));
+}
+
+#[cfg(test)]
+mod name_column_tests {
+    use super::*;
+
+    #[test]
+    fn the_saved_width_is_clamped_and_the_default_fits_thirteen_characters() {
+        assert_eq!(name_col_w(None), NAME_W_DEFAULT);
+        assert_eq!(name_col_w(Some(10.0)), 60.0);
+        assert_eq!(name_col_w(Some(9999.0)), 400.0);
+        assert_eq!(name_col_w(Some(150.0)), 150.0);
+        assert_eq!(name_chars(NAME_W_DEFAULT), 13);
+        assert!(name_chars(400.0) > name_chars(60.0));
+        assert!(name_chars(0.0) >= 4);
+    }
 }
 
 #[cfg(test)]
