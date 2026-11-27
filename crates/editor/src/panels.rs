@@ -19376,10 +19376,25 @@ fn pair_color(keys: &[f32], default: f32, span: f32, k: f32) -> Color32 {
     PAIR_COLORS.get(i % PAIR_COLORS.len()).copied().unwrap_or(Color32::WHITE)
 }
 
+/// How far from a key dot's centre, in points, a pointer still counts as
+/// on it: the dot plus its hover ring.
+const KEY_DOT_HIT: f32 = 7.0;
+
+/// The key nearest `at` along one axis, within [`KEY_DOT_HIT`].
+fn key_dot_near(keys: &[f32], at: f32, of: &dyn Fn(f32) -> f32) -> Option<f32> {
+    keys.iter()
+        .copied()
+        .map(|k| (k, (of(k) - at).abs()))
+        .filter(|&(_, d)| d <= KEY_DOT_HIT)
+        .min_by(|a, b| a.1.total_cmp(&b.1))
+        .map(|(k, _)| k)
+}
+
 /// The Cubism parameter slider: a track, a dot on every key, and the
-/// filled handle at the current value. Returns whether the value moved,
-/// the response, and whether a right-click stuck the slider onto a key
-/// (Cubism's key adhesion; the menu stays shut then).
+/// filled handle at the current value. Returns whether the value moved
+/// and the response. A right-click on a key dot sticks the slider onto
+/// that key first (Cubism's key adhesion), so the menu that opens acts
+/// on it.
 fn param_slider(
     ui: &mut Ui,
     width: f32,
@@ -19387,7 +19402,7 @@ fn param_slider(
     (min, max, default): (f32, f32, f32),
     (keys, between): (&[f32], &[f32]),
     look: &KeyLook,
-) -> (bool, egui::Response, bool) {
+) -> (bool, egui::Response) {
     let (rect, resp) = ui.allocate_exact_size(vec2(width, 16.0), Sense::click_and_drag());
     let painter = ui.painter();
     let pad = 6.0;
@@ -19395,6 +19410,12 @@ fn param_slider(
     let x_of =
         |v: f32| rect.min.x + pad + ((v - min) / span).clamp(0.0, 1.0) * (rect.width() - pad * 2.0);
     let cy = rect.center().y;
+    // the key dot under the pointer reads as clickable: a lighter ring
+    // and the hand cursor
+    let hover_key = resp.hover_pos().and_then(|p| key_dot_near(keys, p.x, &x_of));
+    if hover_key.is_some() {
+        ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+    }
     painter.line_segment(
         [pos2(x_of(min), cy), pos2(x_of(max), cy)],
         Stroke::new(1.0, theme::pal().track),
@@ -19430,6 +19451,19 @@ fn param_slider(
         };
         let selected = held > 0 && (*value - k).abs() <= span * 1e-4;
         let red = Stroke::new(1.4, Color32::from_rgb(0xE5, 0x39, 0x35));
+        if hover_key.is_some_and(|h| (h - k).abs() < 1e-5) {
+            let lighter = Stroke::new(1.2, ring.color.gamma_multiply(0.55));
+            if look.blend {
+                painter.rect_stroke(
+                    Rect::from_center_size(at, vec2(12.0, 12.0)),
+                    0.0,
+                    lighter,
+                    egui::StrokeKind::Middle,
+                );
+            } else {
+                painter.circle_stroke(at, 6.0, lighter);
+            }
+        }
         if look.blend {
             // a blend shape parameter's keys are squares, as in Cubism, in the
             // key's colour like any other key
@@ -19485,24 +19519,17 @@ fn param_slider(
         *value = min + f * span;
         changed = true;
     }
-    // right-click near a key: the slider sticks to it, exactly
-    let mut stuck = false;
+    // right-click on a key dot: the slider sticks to it, exactly, before
+    // the menu opens, so the menu acts on that key
     if resp.secondary_clicked()
         && let Some(p) = resp.interact_pointer_pos()
-        && let Some(k) = keys
-            .iter()
-            .copied()
-            .map(|k| (k, (x_of(k) - p.x).abs()))
-            .filter(|&(_, d)| d <= 6.0)
-            .min_by(|a, b| a.1.total_cmp(&b.1))
-            .map(|(k, _)| k)
+        && let Some(k) = key_dot_near(keys, p.x, &x_of)
         && (*value - k).abs() > span * 1e-4
     {
         *value = k;
         changed = true;
-        stuck = true;
     }
-    (changed, resp, stuck)
+    (changed, resp)
 }
 
 fn paint_eye(ui: &Ui, rect: Rect, own: bool, effective: bool) {
@@ -20187,7 +20214,7 @@ fn parameter_row(
             }
         }
         let slider_w = (ui.available_width() - 68.0).max(40.0);
-        let (changed, slider_resp, on_key) = param_slider(
+        let (changed, slider_resp) = param_slider(
             ui,
             slider_w,
             &mut v,
@@ -20211,7 +20238,7 @@ fn parameter_row(
                 s.key_colors.iter().find(|c| c.0 == pi && (c.1 - k).abs() < 1e-5).map(|c| c.2);
             (k, now)
         });
-        if full && !on_key {
+        if full {
             slider_resp.context_menu(|ui| {
                 if let Some(c) = param_menu::slider_menu(ui, pi, v, on, can_edit) {
                     actions.push(ParamAction::Cmd(c));
@@ -20372,14 +20399,25 @@ fn combined_pad(
             Stroke::new(1.0, theme::pal().track.gamma_multiply(0.5)),
         );
     }
+    // the key dot pair under the pointer reads as clickable: a lighter
+    // ring and the hand cursor
+    let hover_pair = resp
+        .hover_pos()
+        .and_then(|p| key_dot_near(&keys_a, p.x, &xa).zip(key_dot_near(&keys_b, p.y, &yb)));
+    if hover_pair.is_some() {
+        ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+    }
     for ka in &keys_a {
         for kb in &keys_b {
-            painter.circle(
-                pos2(xa(*ka), yb(*kb)),
-                2.6,
-                theme::pal().panel_bg,
-                Stroke::new(1.0, theme::pal().key_ring),
-            );
+            let at = pos2(xa(*ka), yb(*kb));
+            if hover_pair.is_some_and(|(ha, hb)| (ha - ka).abs() < 1e-5 && (hb - kb).abs() < 1e-5) {
+                painter.circle_stroke(
+                    at,
+                    5.5,
+                    Stroke::new(1.2, theme::pal().key_ring.gamma_multiply(0.55)),
+                );
+            }
+            painter.circle(at, 2.6, theme::pal().panel_bg, Stroke::new(1.0, theme::pal().key_ring));
         }
     }
     painter.circle_filled(pos2(xa(va), yb(vb)), 4.5, theme::pal().accent);
@@ -20402,22 +20440,13 @@ fn combined_pad(
     // slider does, so the menu that opens acts on that key
     if resp.secondary_clicked()
         && let Some(ptr) = resp.interact_pointer_pos()
+        && let (Some(ka), Some(kb)) =
+            (key_dot_near(&keys_a, ptr.x, &xa), key_dot_near(&keys_b, ptr.y, &yb))
+        && ((va - ka).abs() > (amax - amin) * 1e-4 || (vb - kb).abs() > (bmax - bmin) * 1e-4)
     {
-        let nearest = |keys: &[f32], at: f32, of: &dyn Fn(f32) -> f32| {
-            keys.iter()
-                .copied()
-                .map(|k| (k, (of(k) - at).abs()))
-                .filter(|&(_, d)| d <= 6.0)
-                .min_by(|x, y| x.1.total_cmp(&y.1))
-                .map(|(k, _)| k)
-        };
-        if let (Some(ka), Some(kb)) = (nearest(&keys_a, ptr.x, &xa), nearest(&keys_b, ptr.y, &yb))
-            && ((va - ka).abs() > (amax - amin) * 1e-4 || (vb - kb).abs() > (bmax - bmin) * 1e-4)
-        {
-            s.puppet.set_value(pa, ka);
-            s.puppet.set_value(pb, kb);
-            s.dirty = true;
-        }
+        s.puppet.set_value(pa, ka);
+        s.puppet.set_value(pb, kb);
+        s.dirty = true;
     }
     resp.context_menu(|ui| {
         // the slider popup for each of the pad's two parameters
@@ -20637,6 +20666,22 @@ fn brush_ring(ctx: &egui::Context, view: Rect, at: Pos2, r: f32, color: Color32)
         .with_clip_rect(view);
     painter.circle_stroke(at, r, Stroke::new(3.0, Color32::from_black_alpha(140)));
     painter.circle_stroke(at, r, Stroke::new(1.4, color));
+}
+
+#[cfg(test)]
+mod key_dot_tests {
+    use super::*;
+
+    #[test]
+    fn a_click_within_the_dot_and_its_ring_finds_the_nearest_key() {
+        let keys = [0.0, 0.5, 1.0];
+        let x = |k: f32| 100.0 + k * 200.0;
+        assert_eq!(key_dot_near(&keys, 100.0, &x), Some(0.0));
+        assert_eq!(key_dot_near(&keys, 206.0, &x), Some(0.5));
+        assert_eq!(key_dot_near(&keys, 300.0 - KEY_DOT_HIT, &x), Some(1.0));
+        assert_eq!(key_dot_near(&keys, 150.0, &x), None);
+        assert_eq!(key_dot_near(&[], 100.0, &x), None);
+    }
 }
 
 #[cfg(test)]

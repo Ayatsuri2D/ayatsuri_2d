@@ -37,6 +37,13 @@
   be diagnosed from the log, without the file.
 
 ### Fixed
+- **Right-click a key dot to jump to that key.** On a slider or a 2D pad
+  the key dots now light up under the pointer, with the hand cursor, and
+  a right-click on one moves the slider exactly onto that key before the
+  menu opens, so Key color, Delete Keyform and the rest act on that key.
+  Before, the snap worked only when the pointer was close to the track and
+  the menu stayed shut, so it took a second right-click. Left-click and
+  drag are unchanged.
 - **Add Keys at Min, Default and Max on a parameter whose default sits on
   an end** (0, 0, 1 most often) adds the two distinct keys, as before, but
   now says so: the log names the keys added and that the default sits on
