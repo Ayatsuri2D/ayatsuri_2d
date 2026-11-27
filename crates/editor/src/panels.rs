@@ -19053,7 +19053,11 @@ fn def_drop_target(
         return;
     };
     let rect = resp.rect;
-    let Some(ptr) = ui.input(|i| i.pointer.latest_pos()).filter(|p| rect.contains(*p)) else {
+    // the pointer must be on the row as shown: a row scrolled out of its
+    // palette keeps a rectangle under whatever panel sits there, and a drop
+    // in that panel must not land on it too
+    let visible = ui.clip_rect().intersect(rect);
+    let Some(ptr) = ui.input(|i| i.pointer.latest_pos()).filter(|p| visible.contains(*p)) else {
         return;
     };
     let f = (ptr.y - rect.min.y) / rect.height().max(1.0);
@@ -19103,7 +19107,11 @@ fn palette_drop_target(
         },
     };
     let rect = resp.rect;
-    let Some(ptr) = ui.input(|i| i.pointer.latest_pos()).filter(|p| rect.contains(*p)) else {
+    // the pointer must be on the row as shown: a row scrolled out of its
+    // palette keeps a rectangle under whatever panel sits there, and a drop
+    // in that panel must not land on it too
+    let visible = ui.clip_rect().intersect(rect);
+    let Some(ptr) = ui.input(|i| i.pointer.latest_pos()).filter(|p| visible.contains(*p)) else {
         return;
     };
     let f = (ptr.y - rect.min.y) / rect.height().max(1.0);

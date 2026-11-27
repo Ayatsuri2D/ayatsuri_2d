@@ -33,6 +33,11 @@
   be diagnosed from the log, without the file.
 
 ### Fixed
+- **Dropping a mesh on a deformer could also move it into a part** (#66):
+  a palette row scrolled out of sight kept its place under whatever
+  panel sat there, so a drop in the Deformer palette could land on an
+  unseen Parts palette row too, moving the mesh twice (two undos to take
+  back). Drop targets now take the pointer only on the row as shown.
 - **A right-click on a 2D pad snaps to the key dot under it**, as it does
   on a slider, so the menu that opens acts on that key.
 - **Render and Export Animation locked the frame to the canvas's shape**
