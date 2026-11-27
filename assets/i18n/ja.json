@@ -1668,5 +1668,7 @@
   "Counts only while you work: it stops half a minute after your last input and starts again on the next.": "作業中のみ計測します。最後の操作から30秒で停止し、次の操作で再開します。",
   "Height": "高さ",
   "Keep the canvas shape": "キャンバスの比率を保つ",
-  "On, the height follows the width in the canvas's proportions. Off, set both: the canvas is fitted inside and centred, and the rest is background.": "オンでは高さがキャンバスの比率に従います。オフでは幅と高さを別々に設定でき、キャンバスは中央に収まり、残りは背景になります。"
+  "On, the height follows the width in the canvas's proportions. Off, set both: the canvas is fitted inside and centred, and the rest is background.": "オンでは高さがキャンバスの比率に従います。オフでは幅と高さを別々に設定でき、キャンバスは中央に収まり、残りは背景になります。",
+  "Bone display settings": "ボーン表示設定",
+  "Bone color": "ボーンの色"
 }

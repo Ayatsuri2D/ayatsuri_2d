@@ -255,6 +255,8 @@ pub struct Overlay {
     pub warp_color: Option<[u8; 4]>,
     pub rotation_color: Option<[u8; 4]>,
     pub weight_color: Option<[u8; 4]>,
+    /// Bones on the canvas; None follows the primary colour.
+    pub bone_color: Option<[u8; 4]>,
 }
 
 fn path() -> Option<PathBuf> {

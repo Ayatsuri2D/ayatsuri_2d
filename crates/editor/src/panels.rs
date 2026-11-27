@@ -12699,7 +12699,7 @@ impl EditorUi {
             if self.tool == Tool::WeightPaint {
                 picked = self.bones.active.into_iter().collect();
             }
-            bones::draw_bones(&vp, &segs, &picked, hover, self.disp.rotation_color);
+            bones::draw_bones(&vp, &segs, &picked, hover, self.disp.bone_color);
             // the bone New Bone is asking about, until it is made or closed
             if let Some((j, t)) = self.deformer_dialog.as_ref().and_then(|d| d.drawn_bone()) {
                 let (a, b) = (bview.screen(j), bview.screen(t));
@@ -13739,7 +13739,7 @@ impl EditorUi {
                         bview,
                         &picked,
                         ROT_RING,
-                        self.disp.rotation_color,
+                        self.disp.bone_color,
                     );
                 } else {
                     self.bones.drop_multi(s);
