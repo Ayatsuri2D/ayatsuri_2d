@@ -1343,7 +1343,6 @@
   "Inherited clipping": "클리핑 상속",
   "Shows Inherit in the Inspector's clipping: a mesh is also clipped by what its masks are clipped by. Drawn exactly in the editor; moc3 export clips it by its own masks only for now": "인스펙터의 클리핑에 '상속'을 표시합니다. 메시는 마스크를 클리핑하는 것으로도 클리핑됩니다. 에디터에서는 정확히 그려지며, moc3 내보내기는 지금은 자신의 마스크로만 클리핑합니다",
   "Bones": "본",
-  "Bone chains that bend meshes by painted weights, with inherit modes and IK. They play in .aom and the SDK; moc3 export does not carry them yet": "칠한 웨이트로 메시를 구부리는 본 체인. 상속 모드와 IK 포함. .aom과 SDK에서 동작하며, moc3 내보내기에는 아직 포함되지 않습니다",
   "Bone": "본",
   "Weight Paint": "웨이트 페인트",
   "Drag on the canvas to draw a bone from its joint to its tip. Start the drag on any bone's tip or joint dot to begin there and draw a child of that bone, and keep going for a chain. A bone drawn elsewhere goes under the selected warp or rotation deformer, or at the top. Click a bone to pick it; Ctrl or Shift+click picks more.\n\nWith the arrow, drag a bone to turn it and its joint to move it, in the keyform the parameters sit on. Settings > Experimental > Bones turns these tools off.": "캔버스를 드래그하면 관절에서 끝까지 본을 그립니다. 어느 본이든 끝이나 관절 점에서 드래그를 시작하면 거기서부터 그 본의 자식 본이 그려지고, 계속 그리면 체인이 됩니다. 다른 곳에서 그린 본은 선택한 워프 디포머나 회전 디포머 아래, 또는 맨 위에 들어갑니다. 본을 클릭하면 선택되고, Ctrl 또는 Shift+클릭으로 더 고를 수 있습니다.\n\n화살표 도구로 본을 드래그하면 회전하고, 관절을 드래그하면 이동합니다. 파라미터가 놓인 키폼에 들어갑니다. 설정 > 실험 기능 > 본에서 이 도구를 끌 수 있습니다.",
@@ -1670,5 +1669,6 @@
   "Keep the canvas shape": "캔버스 비율 유지",
   "On, the height follows the width in the canvas's proportions. Off, set both: the canvas is fitted inside and centred, and the rest is background.": "켜면 높이가 캔버스 비율을 따릅니다. 끄면 너비와 높이를 따로 정하고, 캔버스는 안쪽 가운데에 맞춰지며 나머지는 배경이 됩니다.",
   "Bone display settings": "본 표시 설정",
-  "Bone color": "본 색상"
+  "Bone color": "본 색상",
+  "Bone chains that bend meshes by painted weights, with inherit modes and IK. They play in .aom and the SDK, and export to moc3 and cmo3 baked into deformers": "칠한 웨이트로 메시를 구부리는 본 체인. 상속 모드와 IK 포함. .aom과 SDK에서 동작하며, moc3과 cmo3에는 디포머로 베이크되어 내보내집니다"
 }

@@ -37,6 +37,9 @@
   be diagnosed from the log, without the file.
 
 ### Fixed
+- **The Bones hint in Settings > Experimental was stale.** It still said
+  moc3 export does not carry bones; they have exported to moc3 and cmo3,
+  baked into deformers, since 0.6.2. The hint now says so.
 - **Dropping a mesh on a deformer could also move it into a part** (#66):
   a palette row scrolled out of sight kept its place under whatever
   panel sat there, so a drop in the Deformer palette could land on an
