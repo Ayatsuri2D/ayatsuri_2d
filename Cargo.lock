@@ -171,7 +171,7 @@ checksum = "f2032f911046de80f0a198e0901378627c33f59ea0ac00e363d481118bd70a53"
 
 [[package]]
 name = "ayatsuri"
-version = "0.6.3"
+version = "0.6.4-test.4"
 dependencies = [
  "ayatsuri-core",
  "ayatsuri-editor",
@@ -192,7 +192,7 @@ dependencies = [
 
 [[package]]
 name = "ayatsuri-capi"
-version = "0.6.3"
+version = "0.6.4-test.4"
 dependencies = [
  "ayatsuri-core",
  "ayatsuri-format",
@@ -202,14 +202,14 @@ dependencies = [
 
 [[package]]
 name = "ayatsuri-core"
-version = "0.6.3"
+version = "0.6.4-test.4"
 dependencies = [
  "ayatsuri-format",
 ]
 
 [[package]]
 name = "ayatsuri-editor"
-version = "0.6.3"
+version = "0.6.4-test.4"
 dependencies = [
  "ayatsuri-core",
  "ayatsuri-format",
@@ -243,7 +243,7 @@ dependencies = [
 
 [[package]]
 name = "ayatsuri-format"
-version = "0.6.3"
+version = "0.6.4-test.4"
 dependencies = [
  "bytemuck",
  "miniz_oxide 0.9.1",
@@ -254,7 +254,7 @@ dependencies = [
 
 [[package]]
 name = "ayatsuri-godot"
-version = "0.6.3"
+version = "0.6.4-test.4"
 dependencies = [
  "ayatsuri-capi",
  "ayatsuri-godot-plan",
@@ -263,7 +263,7 @@ dependencies = [
 
 [[package]]
 name = "ayatsuri-godot-plan"
-version = "0.6.3"
+version = "0.6.4-test.4"
 dependencies = [
  "ayatsuri-capi",
  "serde_json",
@@ -271,7 +271,7 @@ dependencies = [
 
 [[package]]
 name = "ayatsuri-godot3"
-version = "0.6.3"
+version = "0.6.4-test.4"
 dependencies = [
  "ayatsuri-capi",
  "ayatsuri-godot-plan",
@@ -280,7 +280,7 @@ dependencies = [
 
 [[package]]
 name = "ayatsuri-import"
-version = "0.6.3"
+version = "0.6.4-test.4"
 dependencies = [
  "ayatsuri-core",
  "ayatsuri-format",
@@ -299,7 +299,7 @@ dependencies = [
 
 [[package]]
 name = "ayatsuri-launcher"
-version = "0.6.3"
+version = "0.6.4-test.4"
 dependencies = [
  "ayatsuri-update",
  "eframe",
@@ -312,7 +312,7 @@ dependencies = [
 
 [[package]]
 name = "ayatsuri-pen"
-version = "0.6.3"
+version = "0.6.4-test.4"
 dependencies = [
  "block2 0.6.2",
  "evdev",
@@ -328,7 +328,7 @@ dependencies = [
 
 [[package]]
 name = "ayatsuri-render"
-version = "0.6.3"
+version = "0.6.4-test.4"
 dependencies = [
  "ayatsuri-core",
  "bytemuck",
@@ -338,7 +338,7 @@ dependencies = [
 
 [[package]]
 name = "ayatsuri-update"
-version = "0.6.3"
+version = "0.6.4-test.4"
 dependencies = [
  "flate2",
  "log",
@@ -646,7 +646,7 @@ dependencies = [
 
 [[package]]
 name = "cmo3"
-version = "0.6.3"
+version = "0.6.4-test.4"
 dependencies = [
  "crc32fast",
  "flate2",
@@ -5276,7 +5276,7 @@ checksum = "66fee0b777b0f5ac1c69bb06d361268faafa61cd4682ae064a171c16c433e9e4"
 
 [[package]]
 name = "xtask"
-version = "0.6.3"
+version = "0.6.4-test.4"
 dependencies = [
  "cbindgen",
  "serde_json",
