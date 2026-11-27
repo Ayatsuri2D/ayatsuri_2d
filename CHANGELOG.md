@@ -37,6 +37,10 @@
   be diagnosed from the log, without the file.
 
 ### Fixed
+- **Add Keys at Min, Default and Max on a parameter whose default sits on
+  an end** (0, 0, 1 most often) adds the two distinct keys, as before, but
+  now says so: the log names the keys added and that the default sits on
+  the minimum or maximum, instead of listing the same value twice.
 - **The Bones hint in Settings > Experimental was stale.** It still said
   moc3 export does not carry bones; they have exported to moc3 and cmo3,
   baked into deformers, since 0.6.2. The hint now says so.

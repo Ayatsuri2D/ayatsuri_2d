@@ -4539,6 +4539,23 @@ mod tests {
     }
 
     #[test]
+    fn repeated_values_add_one_key_each() {
+        // Min, Default and Max on a 0..1 parameter whose default is 0: the
+        // fresh axis gets two keys and two keyforms, not three
+        let mut m = test_model();
+        assert!(add_keys(&mut m, Target::ArtMesh(0), 1, &[0.0, 0.0, 1.0]));
+        let mesh = m.art_meshes.first().expect("mesh");
+        let axis = mesh.binding.axes.iter().find(|a| a.parameter == 1).expect("axis");
+        assert_eq!(axis.keys, vec![0.0, 1.0]);
+        assert_eq!(mesh.binding.keyform_count(), 4, "two keys on A times two on B");
+        assert_eq!(mesh.positions.len(), 4 * 2);
+        // on an axis that already holds both, nothing is added
+        assert!(!add_keys(&mut m, Target::ArtMesh(0), 1, &[0.0, 0.0, 1.0]));
+        let mesh = m.art_meshes.first().expect("mesh");
+        assert_eq!(mesh.binding.keyform_count(), 4);
+    }
+
+    #[test]
     fn redrawing_an_art_path_keeps_its_keyform_count() {
         let mut m = test_model();
         let mi = create_art_path(&mut m, square_path(), None, 0).expect("drawn");

@@ -6253,9 +6253,17 @@ impl EditorUi {
             log::warn!("select a parameter before adding keys");
             return;
         };
+        // the distinct keys only: Min, Default and Max is two keys on a
+        // parameter whose default sits on an end, and the log says which
+        let values = distinct_keys(&values);
         if let Some(s) = &mut self.session {
-            let pid =
-                s.puppet.model().parameters.get(param).map(|p| p.id.clone()).unwrap_or_default();
+            let (pid, on_end) = s
+                .puppet
+                .model()
+                .parameters
+                .get(param)
+                .map(|p| (p.id.clone(), default_on_end(p.min, p.default, p.max)))
+                .unwrap_or_default();
             // the shapes before the keys, for objects that take an original
             // shape when a key is added
             let shapes = original::shapes_to_take(
@@ -6277,7 +6285,13 @@ impl EditorUi {
                 n > 0
             });
             if n > 0 {
-                log::info!("added keys {values:?} on {pid} for {n} object(s)");
+                let list = values.iter().map(|v| format!("{v}")).collect::<Vec<_>>().join(" and ");
+                match on_end.filter(|_| values.len() == 2) {
+                    Some(end) => log::info!(
+                        "added keys at {list} on {pid} for {n} object(s); the default sits on the {end}"
+                    ),
+                    None => log::info!("added keys at {list} on {pid} for {n} object(s)"),
+                }
             }
         }
     }
@@ -19215,6 +19229,26 @@ fn palette_drop_target(
     }
 }
 
+/// The keys to add, sorted, each once: `add_keys` would skip the repeats
+/// anyway, but the log and the count should name what is really added.
+fn distinct_keys(values: &[f32]) -> Vec<f32> {
+    let mut k = values.to_vec();
+    k.sort_by(f32::total_cmp);
+    k.dedup_by(|a, b| (*a - *b).abs() < 1e-5);
+    k
+}
+
+/// Which end of the range the default sits on, if either, for the log.
+fn default_on_end(min: f32, default: f32, max: f32) -> Option<&'static str> {
+    if (default - min).abs() < 1e-5 {
+        Some("minimum")
+    } else if (default - max).abs() < 1e-5 {
+        Some("maximum")
+    } else {
+        None
+    }
+}
+
 fn truncate(s: &str, max_chars: usize) -> String {
     if s.chars().count() <= max_chars {
         s.to_string()
@@ -20603,6 +20637,20 @@ fn brush_ring(ctx: &egui::Context, view: Rect, at: Pos2, r: f32, color: Color32)
         .with_clip_rect(view);
     painter.circle_stroke(at, r, Stroke::new(3.0, Color32::from_black_alpha(140)));
     painter.circle_stroke(at, r, Stroke::new(1.4, color));
+}
+
+#[cfg(test)]
+mod distinct_keys_tests {
+    use super::*;
+
+    #[test]
+    fn min_default_max_on_a_zero_to_one_parameter_is_two_keys() {
+        assert_eq!(distinct_keys(&[0.0, 0.0, 1.0]), vec![0.0, 1.0]);
+        assert_eq!(distinct_keys(&[1.0, 0.0, -1.0]), vec![-1.0, 0.0, 1.0]);
+        assert_eq!(default_on_end(0.0, 0.0, 1.0), Some("minimum"));
+        assert_eq!(default_on_end(0.0, 1.0, 1.0), Some("maximum"));
+        assert_eq!(default_on_end(-1.0, 0.0, 1.0), None);
+    }
 }
 
 #[cfg(test)]
