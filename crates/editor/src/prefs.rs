@@ -203,6 +203,12 @@ pub struct Prefs {
     pub pen_min: u32,
     /// Don't record the timelapse beside each model.
     pub timelapse_off: bool,
+    /// Random Pose: parameter ids ticked on or off against the default
+    /// (on, unless physics writes the parameter), and the pattern (0 A,
+    /// 1 B, 2 Posing).
+    pub random_pose_on: Vec<String>,
+    pub random_pose_off: Vec<String>,
+    pub random_pose_pattern: u8,
     /// Lay the atlas out again by itself on leaving Mesh Edit when a mesh
     /// has grown past its own art. Off by default: the atlas is an export
     /// step, and the moc3 export offers the layout when it is needed.

@@ -7,6 +7,7 @@ pub(crate) mod atlas;
 mod dialog;
 pub(crate) mod export_moc3;
 mod model_info;
+pub(crate) mod random_pose;
 pub(crate) mod recovery;
 pub(crate) mod render;
 pub(crate) mod settings;

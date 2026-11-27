@@ -656,6 +656,7 @@ pub struct EditorUi {
     folder_from: Vec<usize>,
     new_model: Option<ModelNew>,
     pub(crate) show_model_info: bool,
+    pub(crate) random_pose: crate::windows::random_pose::RandomPose,
     pub(crate) show_work_time: bool,
     /// When the user last did anything, for the work timer.
     pub(crate) last_activity: Option<std::time::Instant>,
@@ -1895,6 +1896,7 @@ impl Default for EditorUi {
             folder_from: Vec::new(),
             new_model: None,
             show_model_info: false,
+            random_pose: Default::default(),
             show_work_time: false,
             last_activity: None,
             gpu: false,
@@ -2434,7 +2436,7 @@ impl EditorUi {
     /// frame. One comparison a frame and a line only on a change, so the
     /// log says what the user did without a line per frame.
     fn log_state_changes(&mut self) {
-        let states: [(&str, bool); 31] = [
+        let states: [(&str, bool); 32] = [
             ("Settings", self.show_settings),
             ("API window", self.show_api_window),
             ("Model Statistics", self.show_stats),
@@ -2452,6 +2454,7 @@ impl EditorUi {
             ("Model Template", self.template_dlg.is_some()),
             ("New Project", self.new_model.is_some()),
             ("Project", self.show_model_info),
+            ("Random Pose", self.random_pose.show),
             ("Work Time", self.show_work_time),
             ("Save Workspace", self.show_ws_save),
             ("Manage Workspaces", self.show_ws_manage),
@@ -2857,6 +2860,7 @@ impl EditorUi {
         self.frame_dt = if gap > 0.0 && gap <= 0.1 { gap } else { 1.0 / 60.0 };
         self.frame_at = Some(now);
         self.count_work(ui.ctx(), now);
+        self.random_pose_step(ui.ctx());
         // where undo stood when this frame began, for the crash rollback
         self.frame_undo_depth = self.session.as_ref().map_or(0, |s| s.undo_depth());
         // overlay colours: saved choices, else the theme, so mesh lines follow
@@ -3808,6 +3812,20 @@ impl EditorUi {
                         {
                             ui.close();
                             self.reset_parameters();
+                        }
+                        if ui
+                            .add_enabled(
+                                self.session.is_some(),
+                                egui::Button::new(crate::i18n::tr("Random Pose…"))
+                                    .shortcut_text(self.sc("random-pose")),
+                            )
+                            .on_hover_text(crate::i18n::tr(
+                                "Move parameters at random to check the rig; values only, no keyform changes",
+                            ))
+                            .clicked()
+                        {
+                            ui.close();
+                            self.open_random_pose();
                         }
                         ui.separator();
                         if ui
@@ -4965,6 +4983,7 @@ impl EditorUi {
         self.template_window(ui);
         self.model_new_window(ui);
         self.model_info_window(ui);
+        self.random_pose_window(ui);
         self.work_time_window(ui);
         self.new_anim_window(ui);
         self.anim_details_window(ui);
@@ -7636,7 +7655,7 @@ impl EditorUi {
         }
     }
 
-    fn reset_parameters(&mut self) {
+    pub(crate) fn reset_parameters(&mut self) {
         if let Some(s) = &mut self.session {
             for i in 0..s.puppet.model().parameters.len() {
                 let Some(d) = s.puppet.model().parameters.get(i).map(|p| p.default) else {
@@ -7707,6 +7726,8 @@ impl EditorUi {
             "glue-bind" if have => self.run_mesh_action(MeshAction::Bind),
             "glue-unbind" if have => self.run_mesh_action(MeshAction::Unbind),
             "reset-params" => self.reset_parameters(),
+            "random-pose" => self.open_random_pose(),
+            "random-pose-play" => self.random_pose_toggle(),
             "four-corners" if have => self.run_param_cmd(ParamCmd::FourCorners),
             "motion-mirror" if have => {
                 if let Some(pi) = self.sel_param {
@@ -17936,6 +17957,8 @@ pub(crate) const KEY_ACTIONS: &[(&str, &str, &str, egui::Modifiers, egui::Key)] 
         ("Modeling", "glue-unbind", "Unbind glue", CS, K::G),
         ("Modeling", "reset-params", "Reset parameters to default", C, K::Num1),
         ("Modeling", "four-corners", "Generate four corner forms", C, K::Num4),
+        ("Modeling", "random-pose", "Random Pose…", N, K::F35),
+        ("Modeling", "random-pose-play", "Start or stop Random Pose", N, K::F35),
         ("Modeling", "motion-mirror", "Motion Mirroring on the selected parameter", N, K::F35),
         ("Modeling", "lock-selected", "Lock/unlock selected", C, K::Num2),
         ("Modeling", "toggle-visible", "Show/hide selected", C, K::Num3),

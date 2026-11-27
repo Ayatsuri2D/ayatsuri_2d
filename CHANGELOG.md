@@ -2,6 +2,15 @@
 
 ## Unreleased
 ### Added
+- **Random Pose** (Modeling > Parameter): parameters move on their own
+  so a rig can be checked without dragging every slider. Start and Stop
+  play a pattern (Pattern A swings the standard head, eye, body and mouth
+  parameters; Pattern B moves every ticked parameter at random; Posing
+  does the same while the eyes, mouth and breath swing), Randomize throws
+  one pose, Reset puts every parameter back on its default. A list ticks
+  the parameters that take part, remembered across projects, with
+  parameters written by physics left out by default. Values only: no
+  keyform changes and nothing to undo.
 - **A Godot 4 addon.** `ayatsuri2d-godot-<version>.zip` unzips into a
   Godot 4.2 project and adds an `AyatsuriModel` node that loads an `.aom`
   or a `.moc3` bundle and draws it on the 2D canvas at its size in pixels.
