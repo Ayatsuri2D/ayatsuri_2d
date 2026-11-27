@@ -1670,5 +1670,7 @@
   "On, the height follows the width in the canvas's proportions. Off, set both: the canvas is fitted inside and centred, and the rest is background.": "Aan: de hoogte volgt de breedte in de verhoudingen van het canvas. Uit: stel beide in; het canvas past erin, gecentreerd, en de rest is achtergrond.",
   "Bone display settings": "Weergave-instellingen botten",
   "Bone color": "Botkleur",
-  "Bone chains that bend meshes by painted weights, with inherit modes and IK. They play in .aom and the SDK, and export to moc3 and cmo3 baked into deformers": "Bottenketens die meshes buigen volgens geschilderde gewichten, met overervingsmodi en IK. Ze spelen in .aom en de SDK, en worden naar moc3 en cmo3 geëxporteerd, ingebakken in deformers"
+  "Bone chains that bend meshes by painted weights, with inherit modes and IK. They play in .aom and the SDK, and export to moc3 and cmo3 baked into deformers": "Bottenketens die meshes buigen volgens geschilderde gewichten, met overervingsmodi en IK. Ze spelen in .aom en de SDK, en worden naar moc3 en cmo3 geëxporteerd, ingebakken in deformers",
+  "Copy form at this key": "Vorm bij deze sleutel kopiëren",
+  "Paste form to this key": "Vorm op deze sleutel plakken"
 }

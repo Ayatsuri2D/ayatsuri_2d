@@ -1670,5 +1670,7 @@
   "On, the height follows the width in the canvas's proportions. Off, set both: the canvas is fitted inside and centred, and the rest is background.": "オンでは高さがキャンバスの比率に従います。オフでは幅と高さを別々に設定でき、キャンバスは中央に収まり、残りは背景になります。",
   "Bone display settings": "ボーン表示設定",
   "Bone color": "ボーンの色",
-  "Bone chains that bend meshes by painted weights, with inherit modes and IK. They play in .aom and the SDK, and export to moc3 and cmo3 baked into deformers": "ペイントしたウェイトでメッシュを曲げるボーンチェーン。継承モードとIK付き。.aomとSDKで動き、moc3とcmo3にはデフォーマに焼き込んで書き出されます"
+  "Bone chains that bend meshes by painted weights, with inherit modes and IK. They play in .aom and the SDK, and export to moc3 and cmo3 baked into deformers": "ペイントしたウェイトでメッシュを曲げるボーンチェーン。継承モードとIK付き。.aomとSDKで動き、moc3とcmo3にはデフォーマに焼き込んで書き出されます",
+  "Copy form at this key": "このキーのフォームをコピー",
+  "Paste form to this key": "このキーにフォームを貼り付け"
 }

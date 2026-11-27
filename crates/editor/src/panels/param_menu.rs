@@ -61,6 +61,11 @@ pub(super) enum ParamCmd {
     BatchReflect,
     Adjust(usize),
     Change(usize),
+    /// Copy Form of the selected object at a key of this parameter (and,
+    /// on a 2D pad, at the partner's key too), not at the slider's value.
+    CopyFormAt(usize, f32, Option<(usize, f32)>),
+    /// Paste Form into the keyform at that key.
+    PasteFormAt(usize, f32, Option<(usize, f32)>),
 }
 
 /// The Automatic Generation of Four Corner Forms dialog's settings.
@@ -292,6 +297,25 @@ pub(super) fn slider_menu(
     }
     item(ui, can_edit, crate::i18n::tr("Add Single Keyform"), ParamCmd::AddSingle(pi, v), &mut out);
     item(ui, can_edit, crate::i18n::tr("Delete Keyform"), ParamCmd::DeleteKey(pi), &mut out);
+    // the form at the key under the right-click, as Cubism copies and
+    // pastes forms between keys of one parameter; off a key there is no
+    // keyform to copy or paste
+    let at = key.map(|(k, _)| k).unwrap_or(v);
+    let on_key = can_edit && key.is_some();
+    item(
+        ui,
+        on_key,
+        crate::i18n::tr("Copy form at this key"),
+        ParamCmd::CopyFormAt(pi, at, None),
+        &mut out,
+    );
+    item(
+        ui,
+        on_key,
+        crate::i18n::tr("Paste form to this key"),
+        ParamCmd::PasteFormAt(pi, at, None),
+        &mut out,
+    );
     ui.separator();
     item(ui, true, crate::i18n::tr("Select"), ParamCmd::Select(pi), &mut out);
     item(ui, can_edit, crate::i18n::tr("Reflect"), ParamCmd::Reflect(pi), &mut out);
@@ -778,6 +802,8 @@ impl EditorUi {
                 self.sel_param = Some(pi);
                 self.delete_key_on_selection();
             }
+            ParamCmd::CopyFormAt(pi, k, other) => self.form_at(pi, k, other, false),
+            ParamCmd::PasteFormAt(pi, k, other) => self.form_at(pi, k, other, true),
             ParamCmd::Select(pi) => {
                 let Some(s) = &self.session else { return };
                 let objs = bound_on(s, pi);

@@ -2,6 +2,13 @@
 
 ## Unreleased
 ### Added
+- **Copy and paste a form by right-click.** The slider's and 2D pad's
+  menus offer **Copy form at this key** and **Paste form to this key**:
+  the selected object's shape at the key dot under the right-click is
+  copied, or the copied shape is pasted into that key, without moving
+  the slider. On a pad the key dot pair is the keyform. It is the same
+  clipboard as Copy form and Paste form (Ctrl+Shift+C and V), so a form
+  copied one way pastes the other.
 - **The Parameter palette's name column can be widened.** Drag the
   boundary between the names and the sliders (the cursor changes there)
   to make room for long names; rows, folders and 2D pads follow, and the

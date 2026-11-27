@@ -8445,6 +8445,29 @@ impl EditorUi {
         }
     }
 
+    /// Copy Form or Paste Form at a key of `param` (and `other`'s key on a
+    /// 2D pad) instead of where the slider sits: the parameters step onto
+    /// the key for the copy or paste and come back after, so the view does
+    /// not move.
+    fn form_at(&mut self, param: usize, key: f32, other: Option<(usize, f32)>, paste: bool) {
+        let at: Vec<(usize, f32)> = std::iter::once((param, key)).chain(other).collect();
+        let Some(s) = &mut self.session else { return };
+        let before: Vec<(usize, f32)> = at.iter().map(|&(p, _)| (p, s.puppet.value(p))).collect();
+        for &(p, k) in &at {
+            s.puppet.set_value(p, k);
+        }
+        if paste {
+            self.paste_form();
+        } else {
+            self.copy_form();
+        }
+        if let Some(s) = &mut self.session {
+            for (p, v) in before {
+                s.puppet.set_value(p, v);
+            }
+        }
+    }
+
     /// Paste Form: the copied shape into the keyform the parameters sit on,
     /// for an object with the same number of points.
     fn paste_form(&mut self) {
@@ -19423,6 +19446,13 @@ fn name_chars(name_w: f32) -> usize {
     (name_w / 7.0).floor().max(4.0) as usize
 }
 
+/// The key a parameter's value sits on, if any: within a ten-thousandth
+/// of the range, as the sliders judge it.
+fn key_at(keys: &[f32], value: f32, span: f32) -> Option<f32> {
+    let tol = span.max(1e-6) * 1e-4;
+    keys.iter().copied().find(|k| (value - k).abs() <= tol)
+}
+
 /// How far from a key dot's centre, in points, a pointer still counts as
 /// on it: the dot plus its hover ring.
 const KEY_DOT_HIT: f32 = 7.0;
@@ -20496,6 +20526,9 @@ fn combined_pad(
         s.puppet.set_value(pb, kb);
         s.dirty = true;
     }
+    // the values as the menu sees them, after a snap onto a key dot pair
+    let (va, vb) = (s.puppet.value(pa), s.puppet.value(pb));
+    let on_pair = key_at(&keys_a, va, amax - amin).zip(key_at(&keys_b, vb, bmax - bmin));
     resp.context_menu(|ui| {
         // the slider popup for each of the pad's two parameters
         ui.menu_button(truncate(&name_a, 18), |ui| {
@@ -20508,6 +20541,23 @@ fn combined_pad(
                 actions.push(ParamAction::Cmd(c));
             }
         });
+        // the keyform at the key dot pair the pad sits on
+        let (ka, kb) = on_pair.unwrap_or((va, vb));
+        let on_key = can_edit && on_pair.is_some();
+        if ui
+            .add_enabled(on_key, egui::Button::new(crate::i18n::tr("Copy form at this key")))
+            .clicked()
+        {
+            actions.push(ParamAction::Cmd(ParamCmd::CopyFormAt(pa, ka, Some((pb, kb)))));
+            ui.close();
+        }
+        if ui
+            .add_enabled(on_key, egui::Button::new(crate::i18n::tr("Paste form to this key")))
+            .clicked()
+        {
+            actions.push(ParamAction::Cmd(ParamCmd::PasteFormAt(pa, ka, Some((pb, kb)))));
+            ui.close();
+        }
         ui.separator();
         if ui.button(crate::i18n::tr("Reset both")).clicked() {
             let da = s.puppet.model().parameters.get(pa).map(|p| p.default).unwrap_or(0.0);
@@ -21445,6 +21495,28 @@ mod key_cmd_tests {
         s.undo();
         assert_eq!(s.puppet.model().parameters.len(), 1);
         assert_eq!(s.puppet.model().art_meshes[0].binding.axes.len(), 1);
+    }
+
+    #[test]
+    fn copy_and_paste_form_act_on_the_key_asked_for_and_leave_the_slider() {
+        let mut ed = editor();
+        // the slider sits between keys; the menu asks for the keys themselves
+        ed.session.as_mut().unwrap().puppet.set_value(0, 0.5);
+        ed.run_param_cmd(ParamCmd::CopyFormAt(0, 1.0, None));
+        assert_eq!(ed.form_clip.as_ref().map(|(_, l)| l.clone()), Some(vec![2.0, 0.0]));
+        ed.run_param_cmd(ParamCmd::PasteFormAt(0, -1.0, None));
+        let m = mesh(&ed);
+        // the keyform at -1 now holds the shape from the key at 1
+        assert_eq!(m.positions, vec![2.0, 0.0, 0.0, 0.0, 2.0, 0.0]);
+        // and the slider is where it was
+        assert_eq!(ed.session.as_ref().unwrap().puppet.value(0), 0.5);
+    }
+
+    #[test]
+    fn key_at_judges_within_the_sliders_tolerance() {
+        assert_eq!(key_at(&[-1.0, 0.0, 1.0], 0.00001, 2.0), Some(0.0));
+        assert_eq!(key_at(&[-1.0, 0.0, 1.0], 0.5, 2.0), None);
+        assert_eq!(key_at(&[], 0.0, 2.0), None);
     }
 
     #[test]

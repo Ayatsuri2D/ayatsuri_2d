@@ -1670,5 +1670,7 @@
   "On, the height follows the width in the canvas's proportions. Off, set both: the canvas is fitted inside and centred, and the rest is background.": "켜면 높이가 캔버스 비율을 따릅니다. 끄면 너비와 높이를 따로 정하고, 캔버스는 안쪽 가운데에 맞춰지며 나머지는 배경이 됩니다.",
   "Bone display settings": "본 표시 설정",
   "Bone color": "본 색상",
-  "Bone chains that bend meshes by painted weights, with inherit modes and IK. They play in .aom and the SDK, and export to moc3 and cmo3 baked into deformers": "칠한 웨이트로 메시를 구부리는 본 체인. 상속 모드와 IK 포함. .aom과 SDK에서 동작하며, moc3과 cmo3에는 디포머로 베이크되어 내보내집니다"
+  "Bone chains that bend meshes by painted weights, with inherit modes and IK. They play in .aom and the SDK, and export to moc3 and cmo3 baked into deformers": "칠한 웨이트로 메시를 구부리는 본 체인. 상속 모드와 IK 포함. .aom과 SDK에서 동작하며, moc3과 cmo3에는 디포머로 베이크되어 내보내집니다",
+  "Copy form at this key": "이 키의 폼 복사",
+  "Paste form to this key": "이 키에 폼 붙여넣기"
 }
