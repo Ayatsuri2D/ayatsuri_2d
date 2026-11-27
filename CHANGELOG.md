@@ -2,6 +2,13 @@
 
 ## Unreleased
 ### Added
+- **Blend Form** (Modeling > Edit Form, Ctrl+Shift+B): Copy Form, move
+  the parameters onto another key of the same object, and Blend Form
+  mixes the copied shape into that keyform by an amount from 0 to 100
+  percent, every channel at once (points, opacity, draw order, colours,
+  a rotation deformer's angle and origin). The view follows the slider
+  and Apply writes the blend as one undo step; 100 percent is a plain
+  Paste Form.
 - **Random Pose** (Modeling > Parameter): parameters move on their own
   so a rig can be checked without dragging every slider. Start and Stop
   play a pattern (Pattern A swings the standard head, eye, body and mouth

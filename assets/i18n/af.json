@@ -1690,5 +1690,15 @@
   "Deselect All": "Ontkies alles",
   "Expand All": "Vou alles uit",
   "Collapse All": "Vou alles toe",
-  "Ungrouped": "Ongegroepeer"
+  "Ungrouped": "Ongegroepeer",
+  "Blend Form": "Vorm meng",
+  "Blend Form…": "Vorm meng…",
+  "Blend form": "Vorm meng",
+  "Mix the copied form into the keyform the parameters sit on, by an amount you pick": "Meng die gekopieerde vorm met die gekose hoeveelheid in die keyform waarop die parameters staan",
+  "Amount": "Hoeveelheid",
+  "0% keeps the shape as it is, 100% is a plain paste. The view follows the slider; Apply writes it as one undo step.": "0% hou die vorm soos dit is, 100% is 'n gewone plak. Die aansig volg die skuifbalk; Pas toe skryf dit as een ontdoen-stap.",
+  "Copy a form first (Ctrl+Shift+C with the parameters on a key)": "Kopieer eers 'n vorm (Ctrl+Shift+C met die parameters op 'n sleutel)",
+  "Select an object of the kind the form came from, with the parameters on a key": "Kies 'n voorwerp van die soort waar die vorm vandaan kom, met die parameters op 'n sleutel",
+  "The shapes do not match: the object needs the same number of points as the copied one": "Die vorms pas nie: die voorwerp het dieselfde aantal punte nodig as die gekopieerde een",
+  "Into {name}, keyform {k}": "In {name}, keyform {k}"
 }

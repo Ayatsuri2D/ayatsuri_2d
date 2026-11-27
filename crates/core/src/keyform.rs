@@ -309,6 +309,41 @@ pub fn paste_form(model: &mut Model, target: Target, keyform: usize, form: &Form
     true
 }
 
+/// Blend Form: the keyform becomes a mix of what it holds and a copied
+/// form, `amount` of the way from the one to the other (0 leaves it, 1 is
+/// a plain paste), over every channel: positions, opacity, draw order,
+/// colours, angles. The shapes must match as for `paste_form`, or nothing
+/// changes. Other keyforms of the object are untouched.
+pub fn blend_form(
+    model: &mut Model,
+    target: Target,
+    keyform: usize,
+    form: &Form,
+    amount: f32,
+) -> bool {
+    if kind_tag(target, model) != form.target_kind || !amount.is_finite() {
+        return false;
+    }
+    let t = amount.clamp(0.0, 1.0);
+    let Some((_, mut chans)) = channels(model, target) else { return false };
+    if chans.len() != form.data.len()
+        || chans
+            .iter()
+            .zip(&form.data)
+            .any(|(c, d)| d.len() != c.elems || c.data.len() < (keyform + 1) * c.elems)
+    {
+        return false;
+    }
+    for (c, d) in chans.iter_mut().zip(&form.data) {
+        if let Some(dst) = c.data.get_mut(keyform * c.elems..(keyform + 1) * c.elems) {
+            for (a, b) in dst.iter_mut().zip(d) {
+                *a += (b - *a) * t;
+            }
+        }
+    }
+    true
+}
+
 /// The palette's Reflect: key values flip across the parameter range, so a
 /// mouth keyed open at 0 and shut at 1 becomes shut at 0 and open at 1.
 pub fn reflect_keys(model: &mut Model, target: Target, param: usize) -> bool {
@@ -779,5 +814,58 @@ mod tests {
         assert_eq!(form_x(&m, 0), form_x(&m, 8));
         assert_eq!(keyform_at(&m, Target::ArtMesh(0), &[1.0, 1.0]), Some(8));
         assert_eq!(keyform_at(&m, Target::ArtMesh(0), &[0.5, 1.0]), None);
+    }
+
+    #[test]
+    fn blend_form_ends_and_midpoint() {
+        let mut m = model();
+        let a = copy_form(&mut m, Target::ArtMesh(0), 4).unwrap();
+        let b = copy_form(&mut m, Target::ArtMesh(0), 8).unwrap();
+        // the untouched neighbours, for the check that nothing else moved
+        let others: Vec<Form> = [0, 1, 2, 3, 5, 6, 7]
+            .iter()
+            .map(|&k| copy_form(&mut m, Target::ArtMesh(0), k).unwrap())
+            .collect();
+        // at 0 the keyform stays A
+        assert!(blend_form(&mut m, Target::ArtMesh(0), 4, &b, 0.0));
+        assert_eq!(copy_form(&mut m, Target::ArtMesh(0), 4).unwrap(), a);
+        // at 0.5 every channel sits halfway
+        assert!(blend_form(&mut m, Target::ArtMesh(0), 4, &b, 0.5));
+        let mid = copy_form(&mut m, Target::ArtMesh(0), 4).unwrap();
+        for ((ma, da), db) in mid.data.iter().zip(&a.data).zip(&b.data) {
+            for ((x, y), z) in ma.iter().zip(da).zip(db) {
+                assert!((x - (y + z) * 0.5).abs() < 1e-6);
+            }
+        }
+        // at 1 it is B, a plain paste
+        assert!(blend_form(&mut m, Target::ArtMesh(0), 4, &b, 1.0));
+        assert_eq!(copy_form(&mut m, Target::ArtMesh(0), 4).unwrap(), b);
+        for (&k, before) in [0, 1, 2, 3, 5, 6, 7].iter().zip(&others) {
+            assert_eq!(&copy_form(&mut m, Target::ArtMesh(0), k).unwrap(), before);
+        }
+    }
+
+    #[test]
+    fn blend_form_blends_every_channel() {
+        let mut m = model();
+        m.art_meshes[0].opacities[8] = 0.0;
+        m.art_meshes[0].draw_orders[8] = 700.0;
+        let b = copy_form(&mut m, Target::ArtMesh(0), 8).unwrap();
+        assert!(blend_form(&mut m, Target::ArtMesh(0), 4, &b, 0.25));
+        assert!((m.art_meshes[0].opacities[4] - 0.75).abs() < 1e-6);
+        assert!((m.art_meshes[0].draw_orders[4] - 550.0).abs() < 1e-4);
+        assert!((form_x(&m, 4) - 0.125).abs() < 1e-6);
+    }
+
+    #[test]
+    fn blend_form_refuses_a_mismatch() {
+        let mut m = model();
+        let mut b = copy_form(&mut m, Target::ArtMesh(0), 8).unwrap();
+        b.data[0].pop();
+        let before = copy_form(&mut m, Target::ArtMesh(0), 4).unwrap();
+        assert!(!blend_form(&mut m, Target::ArtMesh(0), 4, &b, 0.5));
+        assert_eq!(copy_form(&mut m, Target::ArtMesh(0), 4).unwrap(), before);
+        let ok = copy_form(&mut m, Target::ArtMesh(0), 8).unwrap();
+        assert!(!blend_form(&mut m, Target::ArtMesh(0), 4, &ok, f32::NAN));
     }
 }

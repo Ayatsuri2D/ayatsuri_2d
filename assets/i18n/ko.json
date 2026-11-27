@@ -1690,5 +1690,15 @@
   "Deselect All": "모두 선택 해제",
   "Expand All": "모두 펼치기",
   "Collapse All": "모두 접기",
-  "Ungrouped": "그룹 없음"
+  "Ungrouped": "그룹 없음",
+  "Blend Form": "폼 블렌드",
+  "Blend Form…": "폼 블렌드…",
+  "Blend form": "폼 블렌드",
+  "Mix the copied form into the keyform the parameters sit on, by an amount you pick": "복사한 폼을 파라미터가 놓인 키폼에 지정한 비율로 섞습니다",
+  "Amount": "적용량",
+  "0% keeps the shape as it is, 100% is a plain paste. The view follows the slider; Apply writes it as one undo step.": "0%는 모양을 그대로 두고 100%는 일반 붙이기와 같습니다. 뷰는 슬라이더를 따라가며, 적용하면 실행 취소 한 단계로 기록됩니다.",
+  "Copy a form first (Ctrl+Shift+C with the parameters on a key)": "먼저 폼을 복사하세요 (파라미터를 키에 놓고 Ctrl+Shift+C)",
+  "Select an object of the kind the form came from, with the parameters on a key": "폼을 복사한 것과 같은 종류의 오브젝트를 선택하고 파라미터를 키에 놓으세요",
+  "The shapes do not match: the object needs the same number of points as the copied one": "모양이 맞지 않습니다. 복사한 것과 같은 점 수의 오브젝트가 필요합니다",
+  "Into {name}, keyform {k}": "{name}의 키폼 {k}에"
 }

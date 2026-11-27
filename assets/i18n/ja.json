@@ -1690,5 +1690,15 @@
   "Deselect All": "すべて解除",
   "Expand All": "すべて展開",
   "Collapse All": "すべて折りたたむ",
-  "Ungrouped": "グループなし"
+  "Ungrouped": "グループなし",
+  "Blend Form": "フォームのブレンド",
+  "Blend Form…": "フォームのブレンド…",
+  "Blend form": "フォームのブレンド",
+  "Mix the copied form into the keyform the parameters sit on, by an amount you pick": "コピーしたフォームを、パラメータが乗っているキーフォームに指定の割合で混ぜます",
+  "Amount": "適用量",
+  "0% keeps the shape as it is, 100% is a plain paste. The view follows the slider; Apply writes it as one undo step.": "0%で形はそのまま、100%で通常の貼り付けと同じです。ビューはスライダーに追従し、適用で1回の取り消し単位として書き込みます。",
+  "Copy a form first (Ctrl+Shift+C with the parameters on a key)": "先にフォームをコピーしてください (パラメータをキーに乗せて Ctrl+Shift+C)",
+  "Select an object of the kind the form came from, with the parameters on a key": "フォームの元と同じ種類のオブジェクトを選び、パラメータをキーに乗せてください",
+  "The shapes do not match: the object needs the same number of points as the copied one": "形が一致しません。コピー元と同じ点数のオブジェクトが必要です",
+  "Into {name}, keyform {k}": "{name} のキーフォーム {k} へ"
 }

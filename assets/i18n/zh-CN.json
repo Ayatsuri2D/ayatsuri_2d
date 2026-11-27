@@ -1690,5 +1690,15 @@
   "Deselect All": "全不选",
   "Expand All": "全部展开",
   "Collapse All": "全部折叠",
-  "Ungrouped": "未分组"
+  "Ungrouped": "未分组",
+  "Blend Form": "混合形状",
+  "Blend Form…": "混合形状…",
+  "Blend form": "混合形状",
+  "Mix the copied form into the keyform the parameters sit on, by an amount you pick": "按你选择的比例，把复制的形状混入参数所在的关键形状",
+  "Amount": "程度",
+  "0% keeps the shape as it is, 100% is a plain paste. The view follows the slider; Apply writes it as one undo step.": "0% 保持形状不变，100% 等于普通粘贴。视图随滑块变化；应用后作为一步撤销写入。",
+  "Copy a form first (Ctrl+Shift+C with the parameters on a key)": "请先复制一个形状（参数位于关键点上时按 Ctrl+Shift+C）",
+  "Select an object of the kind the form came from, with the parameters on a key": "请选择与形状来源同类的对象，并把参数放在关键点上",
+  "The shapes do not match: the object needs the same number of points as the copied one": "形状不匹配：对象需要与复制的对象有相同数量的点",
+  "Into {name}, keyform {k}": "写入 {name} 的关键形状 {k}"
 }
