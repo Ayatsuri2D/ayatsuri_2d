@@ -163,9 +163,13 @@ Limits of this version:
   blends moc3 5.3 adds) draw with the plain blend the mesh's flags name.
   The log says so once per model.
 - **Masks are soft at the edge** when the canvas is larger than 1024
-  pixels, since the mask sheet is scaled down to that; and a multiplied
-  mesh's opacity cannot fade it (the multiply blend ignores alpha, as the
-  Godot 4 addon's does).
+  pixels, since the mask sheet is scaled down to that; and an unmasked
+  multiplied mesh's opacity cannot fade it (the multiply blend ignores
+  alpha, as the Godot 4 addon's does). A masked multiplied mesh fades
+  and is cut by its masks, since its shader fades the colour to white.
+- **A masked mesh draws unmasked for one frame** after it first appears,
+  while its mask sheet renders; on a still model that is the frame the
+  model loads.
 - Parts drawn offscreen are drawn straight into the scene.
 - GDNative loads the library once per editor session: after replacing the
   library file, restart the editor.

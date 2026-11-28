@@ -5,6 +5,13 @@
 //! the sheet where the fragment falls on the canvas and keeps only what
 //! the masks cover (or, for an inverted mask, what they leave).
 //!
+//! The shader cuts a mesh by scaling its alpha. Godot 3's multiply blend
+//! (`GL_DST_COLOR, GL_ZERO`) ignores alpha, so for a Multiply mesh the
+//! shader also fades the colour towards white by the alpha: multiplying
+//! by white leaves the canvas as it was, which is what being cut out means
+//! for that blend. Without it a multiplied mesh (a face shadow, a blush)
+//! darkens everything under its triangles, mask or no mask.
+//!
 //! ```text
 //! model canvas (pixels, origin on the node)      mask sheet (viewport)
 //! +-------------------+                           +----------+
@@ -45,15 +52,34 @@ pub fn sheet_offset(px: &Pixels) -> (f32, f32) {
     (px.origin_x * s, px.origin_y * s)
 }
 
+/// The uniforms every mask shader declares, in the order the source
+/// does; `missing_uniforms` checks a compiled shader lists them.
+pub const UNIFORMS: [&str; 4] = ["mask_tex", "canvas_origin", "canvas_size", "inverted"];
+
+/// Of `UNIFORMS`, the ones not in `listed`, the parameter names the server
+/// reports for a shader. A shader that did not compile reports none, so
+/// every uniform comes back; a shader that compiled reports all four, so
+/// nothing does.
+pub fn missing_uniforms<'a>(listed: impl IntoIterator<Item = &'a str>) -> Vec<&'static str> {
+    let listed: Vec<&str> = listed.into_iter().collect();
+    UNIFORMS.into_iter().filter(|u| !listed.contains(u)).collect()
+}
+
 /// The shader a masked mesh is drawn with, for its blend. The vertex
 /// function keeps the local position; the fragment turns it into a sheet
 /// coordinate (`canvas_origin` and `canvas_size` are uniforms) and scales
-/// the alpha by the sheet's, or by one minus it when `inverted`.
+/// the alpha by the sheet's, or by one minus it when `inverted`. For the
+/// multiply blend, which ignores alpha, the colour fades to white by the
+/// alpha as well.
 pub fn shader_source(blend: Blend) -> String {
     let mode = match blend {
         Blend::Mix => "",
         Blend::Add => "render_mode blend_add;\n",
         Blend::Mul => "render_mode blend_mul;\n",
+    };
+    let fade = match blend {
+        Blend::Mul => "\tc.rgb = mix(vec3(1.0), c.rgb, c.a);\n",
+        Blend::Mix | Blend::Add => "",
     };
     format!(
         "shader_type canvas_item;\n\
@@ -74,6 +100,7 @@ pub fn shader_source(blend: Blend) -> String {
          \t\tm = 1.0 - m;\n\
          \t}}\n\
          \tc.a *= m;\n\
+         {fade}\
          \tCOLOR = c;\n\
          }}\n"
     )
@@ -141,6 +168,32 @@ mod tests {
         assert_eq!(
             [shader_slot(Blend::Mix), shader_slot(Blend::Add), shader_slot(Blend::Mul)],
             [0, 1, 2]
+        );
+    }
+
+    #[test]
+    fn only_the_multiply_shader_fades_its_colour_to_white() {
+        let fade = "c.rgb = mix(vec3(1.0), c.rgb, c.a);";
+        assert!(shader_source(Blend::Mul).contains(fade));
+        assert!(!shader_source(Blend::Mix).contains(fade));
+        assert!(!shader_source(Blend::Add).contains(fade));
+        // the fade comes after the mask has scaled the alpha and before the write
+        let mul = shader_source(Blend::Mul);
+        let (cut, fade_at, write) = (
+            mul.find("c.a *= m;").unwrap_or(usize::MAX),
+            mul.find(fade).unwrap_or(0),
+            mul.find("COLOR = c;").unwrap_or(0),
+        );
+        assert!(cut < fade_at && fade_at < write, "{mul}");
+    }
+
+    #[test]
+    fn the_uniform_check_names_what_a_failed_compile_lacks() {
+        assert!(missing_uniforms(UNIFORMS).is_empty());
+        assert_eq!(missing_uniforms([]), UNIFORMS.to_vec());
+        assert_eq!(
+            missing_uniforms(["canvas_origin", "canvas_size", "something_else"]),
+            ["mask_tex", "inverted"]
         );
     }
 }
