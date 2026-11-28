@@ -13,6 +13,7 @@ use gdnative::object::ownership::Shared;
 use gdnative::object::{Ref, TRef};
 use gdnative::prelude::{NativeClass, methods};
 
+use crate::breath::{self, Breath};
 use crate::painter::{Page, Painter};
 use crate::plan::{self, Pixels, Plan};
 use crate::runtime::{Runtime, Status};
@@ -27,6 +28,9 @@ struct Live {
     painter: Painter,
     /// Every parameter's value after the last update.
     values: Vec<f32>,
+    /// Every parameter's minimum and maximum, for the clamps here.
+    min: Vec<f32>,
+    max: Vec<f32>,
     /// What scripts set since the last update, flushed before it.
     set_idx: Vec<u32>,
     set_val: Vec<f32>,
@@ -36,6 +40,13 @@ struct Live {
     /// What the runtime was last told, so a setting is sent once.
     applied_physics: Option<bool>,
     applied_wind: Option<Vector2>,
+    /// The idle breath: its clock, each row's parameter index (`None`
+    /// when the model lacks it), what each row added last frame, and
+    /// whether it was on last frame.
+    breath: Breath,
+    breath_idx: Vec<Option<u32>>,
+    breath_applied: Vec<f32>,
+    breathing: bool,
     // scratch for the frame
     draw_buf: Vec<ayatsuri_capi::Drawable>,
     changes: Vec<u32>,
@@ -63,6 +74,13 @@ pub struct AyatsuriModel {
     /// How fast motions and physics run; 1 is real time.
     #[property(default = 1.0)]
     time_scale: f32,
+    /// Breathe while idle: the standard head, body and breath parameters
+    /// (`ParamAngleX`, `ParamAngleY`, `ParamAngleZ`, `ParamBodyAngleX`,
+    /// `ParamBreath`, those the model has) swing on slow sine waves on top
+    /// of whatever scripts and motions set, so the model never stands
+    /// perfectly still. Physics reacts to the swing.
+    #[property]
+    breath: bool,
     live: Option<Live>,
 }
 
@@ -79,6 +97,7 @@ impl AyatsuriModel {
             physics: true,
             wind: Vector2::ZERO,
             time_scale: 1.0,
+            breath: false,
             live: None,
         }
     }
@@ -173,20 +192,30 @@ impl AyatsuriModel {
             (rt, textures)
         };
         let n = rt.parameter_count() as usize;
-        let (_, _, defaults) = rt.parameter_ranges();
+        let (min, max, defaults) = rt.parameter_ranges();
         let pixels = Pixels::of(&rt.canvas());
         let painter = Painter::new(owner.get_canvas_item(), pixels, textures);
+        let index_of = |id: &str| u32::try_from(rt.parameter_index(id)).ok();
+        let breath = Breath::default();
+        let breath_idx: Vec<Option<u32>> =
+            breath.rows().iter().map(|r| index_of(r.param)).collect();
         Ok(Live {
             part_count: rt.part_count(),
             rt,
             painter,
             values: if defaults.len() == n { defaults } else { vec![0.0; n] },
+            min,
+            max,
             set_idx: Vec::new(),
             set_val: Vec::new(),
             part_idx: Vec::new(),
             part_val: Vec::new(),
             applied_physics: None,
             applied_wind: None,
+            breath_applied: vec![0.0; breath_idx.len()],
+            breath,
+            breath_idx,
+            breathing: false,
             draw_buf: Vec::new(),
             changes: Vec::new(),
             last_order: Vec::new(),
@@ -232,6 +261,7 @@ impl AyatsuriModel {
     fn step(&mut self, owner: TRef<Node2D>, dt: f32) {
         let physics = self.physics;
         let wind = self.wind;
+        let breath = self.breath;
         let Some(live) = self.live.as_mut() else { return };
         if live.applied_physics != Some(physics) {
             live.rt.set_physics(physics);
@@ -240,6 +270,14 @@ impl AyatsuriModel {
         if live.applied_wind != Some(wind) {
             live.rt.set_wind(wind.x, wind.y);
             live.applied_wind = Some(wind);
+        }
+        // breath goes last among the writers, so it lands on top of what
+        // scripts set this frame, and ahead of the update so physics
+        // reacts to it
+        if breath {
+            live.breathe(dt);
+        } else if live.breathing {
+            live.breath_release();
         }
         if !live.set_idx.is_empty() {
             live.rt.set_parameters(&live.set_idx, &live.set_val);
@@ -546,6 +584,58 @@ impl AyatsuriModel {
         if let Some(l) = &self.live {
             l.rt.reset_physics();
         }
+    }
+}
+
+impl Live {
+    /// Queue this frame's breath through the set path: each row's
+    /// parameter goes to what the runtime last reported, less what breath
+    /// added last frame, plus this frame's swing, clamped to its range. A
+    /// parameter a script set this frame breathes on top of that value.
+    fn breathe(&mut self, dt: f32) {
+        self.breathing = true;
+        for (k, (_, delta)) in self.breath.step(dt).into_iter().enumerate() {
+            let Some(Some(i)) = self.breath_idx.get(k) else { continue };
+            let (i, at) = (*i, *i as usize);
+            let (Some(&min), Some(&max)) = (self.min.get(at), self.max.get(at)) else { continue };
+            let pending = self
+                .set_idx
+                .iter()
+                .rposition(|&s| s == i)
+                .and_then(|p| self.set_val.get(p).copied());
+            let (current, before) = match pending {
+                Some(v) => (v, 0.0),
+                None => (
+                    self.values.get(at).copied().unwrap_or(0.0),
+                    self.breath_applied.get(k).copied().unwrap_or(0.0),
+                ),
+            };
+            let (value, applied) = breath::breathe(current, before, delta, min, max);
+            self.set_idx.push(i);
+            self.set_val.push(value);
+            if let Some(a) = self.breath_applied.get_mut(k) {
+                *a = applied;
+            }
+        }
+    }
+
+    /// Breath switched off: take back last frame's swing, so the
+    /// parameters rest where they were underneath, and stop the clock.
+    fn breath_release(&mut self) {
+        self.breathing = false;
+        for (k, applied) in self.breath_applied.iter_mut().enumerate() {
+            if *applied == 0.0 {
+                continue;
+            }
+            if let Some(Some(i)) = self.breath_idx.get(k)
+                && let Some(&v) = self.values.get(*i as usize)
+            {
+                self.set_idx.push(*i);
+                self.set_val.push(v - *applied);
+            }
+            *applied = 0.0;
+        }
+        self.breath.reset();
     }
 }
 

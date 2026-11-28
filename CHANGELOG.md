@@ -2,6 +2,11 @@
 
 ## Unreleased
 ### Added
+- **Breath in the Godot addons.** `AyatsuriModel` (Godot 4 and Godot 3)
+  has a `breath` property, off by default. While on, the standard head,
+  body and breath parameters swing on the slow sine waves the editor's
+  Breath uses, on top of what scripts and motions set, so an idle model
+  does not stand perfectly still; physics reacts to the swing.
 - **Copy and paste a form by right-click.** The slider's and 2D pad's
   menus offer **Copy form at this key** and **Paste form to this key**:
   the selected object's shape at the key dot under the right-click is

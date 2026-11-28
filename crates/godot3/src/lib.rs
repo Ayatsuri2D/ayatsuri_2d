@@ -24,7 +24,7 @@ use gdnative::init::godot_gdnative_terminate;
 use gdnative::init::{InitHandle, InitLevel, auto_register, godot_gdnative_init};
 use gdnative::log::godot_warn;
 
-use ayatsuri_godot_plan::{plan, runtime};
+use ayatsuri_godot_plan::{breath, plan, runtime};
 
 mod mask;
 mod node;

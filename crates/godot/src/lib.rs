@@ -15,7 +15,7 @@
 
 use godot::prelude::{ExtensionLibrary, gdextension};
 
-use ayatsuri_godot_plan::{plan, runtime};
+use ayatsuri_godot_plan::{breath, plan, runtime};
 
 mod node;
 mod painter;

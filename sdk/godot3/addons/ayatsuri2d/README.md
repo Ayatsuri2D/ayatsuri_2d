@@ -114,6 +114,13 @@ What `AyatsuriModel` offers:
   property (a `Vector2` in the units gravity has; down is `(0, -1)`),
   `reset_physics()`, and `time_scale` for how fast motions and physics
   run.
+- **Breath**: the `breath` property (off by default). While on, the
+  standard head, body and breath parameters (`ParamAngleX`,
+  `ParamAngleY`, `ParamAngleZ`, `ParamBodyAngleX` and `ParamBreath`,
+  those the model has) swing on slow sine waves on top of whatever your
+  script and the playing motion set, so an idle model does not stand
+  perfectly still; physics reacts to the swing. Off, nothing is added
+  and the parameters rest where they were.
 
 A fade of `-1.0` takes the fade the clip was authored with; `0.0` switches
 at once.
