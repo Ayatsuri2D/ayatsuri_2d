@@ -82,6 +82,13 @@
   be diagnosed from the log, without the file.
 
 ### Fixed
+- **Godot addons: a moc3 bundle drew as a white silhouette.** The texture
+  pages of a `.model3.json` bundle were taken only from the resources
+  Godot had imported, so a bundle outside the project, one Godot had not
+  imported yet, or an export that kept the PNGs as plain files left every
+  mesh untextured. Both addons now read the PNG file itself when there is
+  no imported resource, and say in the output which page could not be
+  found at all.
 - **Right-click a key dot to jump to that key.** On a slider or a 2D pad
   the key dots now light up under the pointer, with the hand cursor, and
   a right-click on one moves the slider exactly onto that key before the
