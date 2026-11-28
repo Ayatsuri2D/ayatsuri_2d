@@ -8,7 +8,7 @@ use gdnative::api::{Engine, File, Image, ImageTexture, Node2D, Object, ResourceL
 use gdnative::core_types::{PoolArray, Rect2, Variant, VariantType, Vector2, Vector3};
 use gdnative::export::hint::{EnumHint, StringHint};
 use gdnative::export::{ClassBuilder, Export};
-use gdnative::log::{godot_error, godot_warn};
+use gdnative::log::{godot_error, godot_print, godot_warn};
 use gdnative::object::ownership::Shared;
 use gdnative::object::{Ref, TRef};
 use gdnative::prelude::{NativeClass, methods};
@@ -562,11 +562,26 @@ fn load_bundle(path: &str) -> Result<(Runtime, Pages), String> {
     let textures = bundle
         .textures
         .iter()
-        .map(|t| {
+        .enumerate()
+        .map(|(i, t)| {
             let p = plan::join(dir, t);
-            let tex = load_texture(&p);
+            // the imported resource when Godot has one (a PNG under res://
+            // that the editor imported); else the file's own bytes, which
+            // covers a bundle outside the project, one Godot has not
+            // imported yet, and an export that kept the PNG as a plain file.
+            // Without a page the mesh draws untextured: a white silhouette.
+            let tex = load_texture(&p).or_else(|| {
+                let png = read_bytes(&p).ok()?;
+                let tex = decode_png(&png, i as u32);
+                if tex.is_some() {
+                    godot_print!("Ayatsuri2D: texture page {i} read from the file {p}");
+                }
+                tex
+            });
             if tex.is_none() {
-                godot_warn!("Ayatsuri2D: {path} names a texture Godot cannot load: {p}");
+                godot_error!(
+                    "Ayatsuri2D: {path} names texture page {i} at {p}, which Godot could neither load as a resource nor read as a PNG file; its meshes draw white"
+                );
             }
             tex
         })
