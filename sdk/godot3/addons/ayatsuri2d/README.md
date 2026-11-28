@@ -114,6 +114,24 @@ What `AyatsuriModel` offers:
   property (a `Vector2` in the units gravity has; down is `(0, -1)`),
   `reset_physics()`, and `time_scale` for how fast motions and physics
   run.
+- **Breath**: the `breath` property (off by default). While on, the
+  standard head, body and breath parameters (`ParamAngleX`,
+  `ParamAngleY`, `ParamAngleZ`, `ParamBodyAngleX` and `ParamBreath`,
+  those the model has) swing on slow sine waves on top of whatever your
+  script and the playing motion set, so an idle model does not stand
+  perfectly still; physics reacts to the swing. Off, nothing is added
+  and the parameters rest where they were.
+- **Follow**: the `follow` property, Off (the default), Mouse or Target.
+  Mouse turns the model to face the pointer over the node; Target turns
+  it to `follow_target`, a `Vector2` in the node's local pixels (the
+  canvas's centre is straight ahead, its edges the furthest turn). The
+  look eases towards the point by `1 - exp(-dt * follow_ease)` of the
+  gap each frame (`follow_ease` is 8 by default, 0 snaps) and goes to the
+  standard parameters the model has: `ParamAngleX` and `ParamAngleY` (30
+  degrees at the edge), `ParamBodyAngleX` and `ParamBodyAngleY` (10),
+  `ParamEyeBallX` and `ParamEyeBallY` (1), all scaled by
+  `follow_strength` (1 by default). `look_at_point(point)` sets
+  `follow_target` and switches `follow` to Target in one call.
 
 A fade of `-1.0` takes the fade the clip was authored with; `0.0` switches
 at once.
@@ -145,9 +163,13 @@ Limits of this version:
   blends moc3 5.3 adds) draw with the plain blend the mesh's flags name.
   The log says so once per model.
 - **Masks are soft at the edge** when the canvas is larger than 1024
-  pixels, since the mask sheet is scaled down to that; and a multiplied
-  mesh's opacity cannot fade it (the multiply blend ignores alpha, as the
-  Godot 4 addon's does).
+  pixels, since the mask sheet is scaled down to that; and an unmasked
+  multiplied mesh's opacity cannot fade it (the multiply blend ignores
+  alpha, as the Godot 4 addon's does). A masked multiplied mesh fades
+  and is cut by its masks, since its shader fades the colour to white.
+- **A masked mesh draws unmasked for one frame** after it first appears,
+  while its mask sheet renders; on a still model that is the frame the
+  model loads.
 - Parts drawn offscreen are drawn straight into the scene.
 - GDNative loads the library once per editor session: after replacing the
   library file, restart the editor.

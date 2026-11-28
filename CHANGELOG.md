@@ -2,6 +2,28 @@
 
 ## Unreleased
 ### Added
+- **Breath in the Godot addons.** `AyatsuriModel` (Godot 4 and Godot 3)
+  has a `breath` property, off by default. While on, the standard head,
+  body and breath parameters swing on the slow sine waves the editor's
+  Breath uses, on top of what scripts and motions set, so an idle model
+  does not stand perfectly still; physics reacts to the swing.
+- **Follow in the Godot addons.** `AyatsuriModel` has a `follow` property
+  (Off, Mouse or Target), a `follow_target` point in the node's pixels,
+  `follow_strength` and `follow_ease`, and a `look_at_point(point)`
+  method. Mouse turns the model to face the pointer as the editor's
+  Follow does; Target turns it to any point a script names. The look
+  eases towards the point and drives the standard head, body and eyeball
+  parameters the model has.
+### Fixed
+- **Godot 3: a flat layer over a masked region.** A Multiply-blend mesh
+  with masks (a face shadow, a blush) drew unclipped in the Godot 3
+  addon, as a coloured layer over everything under it, because the mask
+  shader cut the mesh by its alpha and Godot 3's multiply blend ignores
+  alpha; the shader now fades the colour to white where the mask cuts.
+  The mask sheet is also cleared to transparent black explicitly and is
+  sampled only once it has rendered (a masked mesh draws unmasked for
+  its first frame instead of reading an unrendered sheet), and the addon
+  warns once when a mask shader does not compile.
 - **Copy and paste a form by right-click.** The slider's and 2D pad's
   menus offer **Copy form at this key** and **Paste form to this key**:
   the selected object's shape at the key dot under the right-click is

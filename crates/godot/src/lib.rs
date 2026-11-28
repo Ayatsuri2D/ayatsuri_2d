@@ -8,6 +8,8 @@
 //! plan         (ayatsuri-godot-plan) the decisions, with no Godot type:
 //!              units, blends, order, what a model3.json names
 //! runtime      (ayatsuri-godot-plan) the ay2d_* calls as safe Rust
+//! breath       (ayatsuri-godot-plan) the idle breath's rows and clock
+//! follow       (ayatsuri-godot-plan) facing a point: target, easing, outputs
 //! ```
 //!
 //! Godot 3 has its own addon, `ayatsuri-godot3`, a GDNative library over
@@ -15,7 +17,7 @@
 
 use godot::prelude::{ExtensionLibrary, gdextension};
 
-use ayatsuri_godot_plan::{plan, runtime};
+use ayatsuri_godot_plan::{breath, follow, plan, runtime};
 
 mod node;
 mod painter;
