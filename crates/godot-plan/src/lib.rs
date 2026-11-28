@@ -12,5 +12,6 @@
 //! once, here, without an engine.
 
 pub mod breath;
+pub mod follow;
 pub mod plan;
 pub mod runtime;

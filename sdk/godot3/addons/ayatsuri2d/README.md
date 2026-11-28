@@ -121,6 +121,17 @@ What `AyatsuriModel` offers:
   script and the playing motion set, so an idle model does not stand
   perfectly still; physics reacts to the swing. Off, nothing is added
   and the parameters rest where they were.
+- **Follow**: the `follow` property, Off (the default), Mouse or Target.
+  Mouse turns the model to face the pointer over the node; Target turns
+  it to `follow_target`, a `Vector2` in the node's local pixels (the
+  canvas's centre is straight ahead, its edges the furthest turn). The
+  look eases towards the point by `1 - exp(-dt * follow_ease)` of the
+  gap each frame (`follow_ease` is 8 by default, 0 snaps) and goes to the
+  standard parameters the model has: `ParamAngleX` and `ParamAngleY` (30
+  degrees at the edge), `ParamBodyAngleX` and `ParamBodyAngleY` (10),
+  `ParamEyeBallX` and `ParamEyeBallY` (1), all scaled by
+  `follow_strength` (1 by default). `look_at_point(point)` sets
+  `follow_target` and switches `follow` to Target in one call.
 
 A fade of `-1.0` takes the fade the clip was authored with; `0.0` switches
 at once.

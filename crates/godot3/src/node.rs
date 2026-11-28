@@ -6,7 +6,7 @@
 
 use gdnative::api::{Engine, File, Image, ImageTexture, Node2D, Object, ResourceLoader, Texture};
 use gdnative::core_types::{PoolArray, Rect2, Variant, VariantType, Vector2, Vector3};
-use gdnative::export::hint::{EnumHint, StringHint};
+use gdnative::export::hint::{EnumHint, IntHint, StringHint};
 use gdnative::export::{ClassBuilder, Export};
 use gdnative::log::{godot_error, godot_print, godot_warn};
 use gdnative::object::ownership::Shared;
@@ -14,6 +14,7 @@ use gdnative::object::{Ref, TRef};
 use gdnative::prelude::{NativeClass, methods};
 
 use crate::breath::{self, Breath};
+use crate::follow;
 use crate::painter::{Page, Painter};
 use crate::plan::{self, Pixels, Plan};
 use crate::runtime::{Runtime, Status};
@@ -47,6 +48,12 @@ struct Live {
     breath_idx: Vec<Option<u32>>,
     breath_applied: Vec<f32>,
     breathing: bool,
+    /// Follow: the index of each of `follow::OUTPUTS` (`None` when the
+    /// model lacks it), the eased look in -1..1, and whether it was on
+    /// last frame.
+    follow_idx: Vec<Option<u32>>,
+    follow_eased: (f32, f32),
+    following: bool,
     // scratch for the frame
     draw_buf: Vec<ayatsuri_capi::Drawable>,
     changes: Vec<u32>,
@@ -81,12 +88,37 @@ pub struct AyatsuriModel {
     /// perfectly still. Physics reacts to the swing.
     #[property]
     breath: bool,
+    /// What the model turns to face: Off (0), Mouse (1, the pointer over
+    /// the node) or Target (2, `follow_target`). The look eases towards it
+    /// and goes to the standard parameter set every tracker expects: head
+    /// and body angles, and the eyeballs.
+    #[property(hint = "follow_hint")]
+    follow: i32,
+    /// Where the model looks when `follow` is Target, in the node's local
+    /// pixels; the canvas's centre is straight ahead, its edges the
+    /// furthest the look turns.
+    #[property]
+    follow_target: Vector2,
+    /// Scales the angles follow writes; 1 is the editor's: 30 degrees of
+    /// head, 10 of body, the eyeballs fully.
+    #[property(default = 1.0)]
+    follow_strength: f32,
+    /// How quickly the look closes on the target: `1 - exp(-dt *
+    /// follow_ease)` of the gap each frame. 8 is the editor's; 0 snaps.
+    #[property(default = 8.0)]
+    follow_ease: f32,
     live: Option<Live>,
 }
 
 /// The file picker filter of the `model_path` property.
 fn model_path_hint() -> <String as Export>::Hint {
     StringHint::File(EnumHint::new(vec!["*.aom".into(), "*.model3.json".into(), "*.moc3".into()]))
+}
+
+/// The names the inspector shows for the `follow` property's values, in
+/// the order of `follow::FOLLOW_OFF`, `FOLLOW_MOUSE` and `FOLLOW_TARGET`.
+fn follow_hint() -> <i32 as Export>::Hint {
+    IntHint::Enum(EnumHint::new(vec!["Off".into(), "Mouse".into(), "Target".into()]))
 }
 
 #[methods]
@@ -98,6 +130,10 @@ impl AyatsuriModel {
             wind: Vector2::ZERO,
             time_scale: 1.0,
             breath: false,
+            follow: follow::FOLLOW_OFF,
+            follow_target: Vector2::ZERO,
+            follow_strength: 1.0,
+            follow_ease: follow::DEFAULT_EASE,
             live: None,
         }
     }
@@ -199,6 +235,8 @@ impl AyatsuriModel {
         let breath = Breath::default();
         let breath_idx: Vec<Option<u32>> =
             breath.rows().iter().map(|r| index_of(r.param)).collect();
+        let follow_idx: Vec<Option<u32>> =
+            follow::OUTPUTS.iter().map(|(id, _, _)| index_of(id)).collect();
         Ok(Live {
             part_count: rt.part_count(),
             rt,
@@ -216,6 +254,9 @@ impl AyatsuriModel {
             breath,
             breath_idx,
             breathing: false,
+            follow_idx,
+            follow_eased: (0.0, 0.0),
+            following: false,
             draw_buf: Vec::new(),
             changes: Vec::new(),
             last_order: Vec::new(),
@@ -262,6 +303,15 @@ impl AyatsuriModel {
         let physics = self.physics;
         let wind = self.wind;
         let breath = self.breath;
+        let follow_point = match self.follow {
+            follow::FOLLOW_MOUSE => {
+                let p = owner.get_local_mouse_position();
+                Some((p.x, p.y))
+            }
+            follow::FOLLOW_TARGET => Some((self.follow_target.x, self.follow_target.y)),
+            _ => None,
+        };
+        let (follow_strength, follow_ease) = (self.follow_strength, self.follow_ease);
         let Some(live) = self.live.as_mut() else { return };
         if live.applied_physics != Some(physics) {
             live.rt.set_physics(physics);
@@ -271,9 +321,10 @@ impl AyatsuriModel {
             live.rt.set_wind(wind.x, wind.y);
             live.applied_wind = Some(wind);
         }
-        // breath goes last among the writers, so it lands on top of what
-        // scripts set this frame, and ahead of the update so physics
-        // reacts to it
+        // follow and breath go after the scripts' writes, so they land on
+        // top of them, and ahead of the update so physics reacts to them;
+        // breath last, so it swings the followed pose as the editor does
+        live.follow(follow_point, dt, follow_strength, follow_ease);
         if breath {
             live.breathe(dt);
         } else if live.breathing {
@@ -585,9 +636,44 @@ impl AyatsuriModel {
             l.rt.reset_physics();
         }
     }
+
+    // ---- follow ----
+
+    /// Turn to face `point`, in the node's local pixels: sets
+    /// `follow_target` and switches `follow` to Target.
+    #[method]
+    pub fn look_at_point(&mut self, point: Vector2) {
+        self.follow_target = point;
+        self.follow = follow::FOLLOW_TARGET;
+    }
 }
 
 impl Live {
+    /// Queue this frame's look through the set path: `point` (the node's
+    /// pixels) becomes a target in -1..1 from the canvas's centre, the look
+    /// eases towards it, and the six standard parameters the model has take
+    /// their share of it. No point: follow is off, and the look rests.
+    fn follow(&mut self, point: Option<(f32, f32)>, dt: f32, strength: f32, rate: f32) {
+        let Some(point) = point else {
+            if self.following {
+                self.following = false;
+                self.follow_eased = (0.0, 0.0);
+            }
+            return;
+        };
+        self.following = true;
+        let rect = Pixels::of(&self.rt.canvas()).canvas_rect();
+        let target = follow::normalise(point, rect);
+        self.follow_eased = follow::ease(self.follow_eased, target, dt, rate);
+        for (k, (_, value)) in follow::outputs(self.follow_eased, strength).into_iter().enumerate()
+        {
+            if let Some(Some(i)) = self.follow_idx.get(k) {
+                self.set_idx.push(*i);
+                self.set_val.push(value);
+            }
+        }
+    }
+
     /// Queue this frame's breath through the set path: each row's
     /// parameter goes to what the runtime last reported, less what breath
     /// added last frame, plus this frame's swing, clamped to its range. A

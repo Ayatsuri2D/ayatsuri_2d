@@ -10,6 +10,8 @@
 //! plan         (ayatsuri-godot-plan) the decisions, with no Godot type:
 //!              units, blends, order, what a model3.json names
 //! runtime      (ayatsuri-godot-plan) the ay2d_* calls as safe Rust
+//! breath       (ayatsuri-godot-plan) the idle breath's rows and clock
+//! follow       (ayatsuri-godot-plan) facing a point: target, easing, outputs
 //! ```
 //!
 //! The binding is the `gdnative` crate (0.11.3, the last release; see
@@ -24,7 +26,7 @@ use gdnative::init::godot_gdnative_terminate;
 use gdnative::init::{InitHandle, InitLevel, auto_register, godot_gdnative_init};
 use gdnative::log::godot_warn;
 
-use ayatsuri_godot_plan::{breath, plan, runtime};
+use ayatsuri_godot_plan::{breath, follow, plan, runtime};
 
 mod mask;
 mod node;
